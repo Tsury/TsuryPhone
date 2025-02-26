@@ -3,16 +3,14 @@
 class Ringer
 {
 public:
-    Ringer();
-
-    void init();
+    void init() const;
     void process();
 
     void startRinging();
     void stopRinging();
 
 private:
-    void setRingerEnabled(bool enabled);
+    void setRingerEnabled(const bool enabled) const;
 
     bool _ringing = false;
     bool _ringState = false;

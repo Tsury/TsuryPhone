@@ -9,7 +9,7 @@ def convert_file_to_c_array(filepath, array_name):
         data = f.read()
     # Convert each byte to a hexadecimal representation.
     hex_bytes = [f"0x{byte:02x}" for byte in data]
-    bytes_per_line = 12  # adjust for formatting as needed
+    bytes_per_line = 12  # adjust formatting as needed
     lines = []
     for i in range(0, len(hex_bytes), bytes_per_line):
         line = ", ".join(hex_bytes[i:i+bytes_per_line])
@@ -22,42 +22,41 @@ def convert_file_to_c_array(filepath, array_name):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert all MP3 files in a folder into a C header and source file."
+        description="Convert all MP3 files in a folder into production and write files."
     )
-    parser.add_argument(
-        "folder",
-        help="Folder containing MP3 files"
-    )
-    parser.add_argument(
-        "-o", "--output",
-        default="music.h",
-        help="Output header file name (default: music.h). The corresponding .cpp file will be generated automatically."
-    )
+    parser.add_argument("folder", help="Folder containing MP3 files")
+    parser.add_argument("-o", "--output", default="mp3.h",
+                        help="Output production header file name (default: mp3.h).")
     args = parser.parse_args()
 
     folder = args.folder
-    header_file = args.output
+    prod_header = args.output
+    prod_source = os.path.splitext(prod_header)[0] + ".cpp"
+
+    # Determine the folder where the script resides.
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    # Create a "generated" folder inside the script folder if it doesn't exist.
+    generated_folder = os.path.join(script_dir, "generated")
+    if not os.path.isdir(generated_folder):
+        os.makedirs(generated_folder)
+    
+    # Set the write file paths to be inside the generated folder.
+    write_header = os.path.join(generated_folder, "writeMp3.h")
+    write_source = os.path.join(generated_folder, "writeMp3.cpp")
 
     if not os.path.isdir(folder):
         print(f"Error: '{folder}' is not a valid directory.")
         sys.exit(1)
 
-    # Determine source file name by replacing .h extension with .cpp
-    if header_file.lower().endswith(".h"):
-        source_file = header_file[:-2] + ".cpp"
-    else:
-        source_file = header_file + ".cpp"
-
-    # Look for a numbers.txt file in the same folder.
+    # Look for a numbers.txt file that maps caller numbers to MP3 base names.
     numbers_filename = os.path.join(folder, "numbers.txt")
-    caller_dict = {}  # mapping: caller number (string) -> base name of MP3 file
+    caller_dict = {}  # mapping: caller number -> base name
     if os.path.isfile(numbers_filename):
         with open(numbers_filename, "r") as nf:
             for line in nf:
                 line = line.strip()
                 if not line:
                     continue
-                # Expected format: number,mp3BaseName
                 parts = line.split(",")
                 if len(parts) >= 2:
                     number = parts[0].strip()
@@ -66,130 +65,186 @@ def main():
     else:
         caller_dict = None
 
-    # Find all files ending with .mp3 (case-insensitive)
+    # Find all .mp3 files (case-insensitive)
     mp3_files = [f for f in os.listdir(folder) if f.lower().endswith(".mp3")]
     if not mp3_files:
         print("No MP3 files found in the specified folder.")
         sys.exit(1)
+    mp3_files.sort()
 
-    mp3_files.sort()  # sort alphabetically for consistency
-
-    # Collect base names for later use, and build array definitions.
     base_names = []
-    arrays_definitions = {}  # dictionary: base_name -> array definition string
+    arrays_definitions = {}  # base name -> full raw array definition string
+    file_lengths = {}       # base name -> file length (integer)
     for filename in mp3_files:
         base_name = os.path.splitext(filename)[0]
         base_names.append(base_name)
         array_name = base_name + "_mp3"
         filepath = os.path.join(folder, filename)
         arrays_definitions[base_name] = convert_file_to_c_array(filepath, array_name)
+        with open(filepath, "rb") as f:
+            data = f.read()
+            file_lengths[base_name] = len(data)
 
-    # --- Generate the header file (declarations) ---
+    # ------------------------------
+    # Generate Production Files (mp3.h and mp3.cpp)
+    # ------------------------------
     try:
-        with open(header_file, "w") as out:
+        with open(prod_header, "w") as out:
             out.write("#pragma once\n\n")
-            # Always include these at the top.
             out.write("#include <Arduino.h>\n")
-            out.write("#include <unordered_map>\n")
-            out.write("#include <string>\n\n")
-            out.write("// Generated header file containing MP3 file arrays\n")
+            out.write("#include <cstring>\n\n")
+            out.write("// Production header: Auxiliary MP3 metadata (filenames only)\n")
             out.write("// Generated by mp3_to_header.py\n\n")
             
-            # Forward declarations for each MP3 array and length.
+            # In production, we don't need the MP3File struct; just declare extern const char* for each file.
+            for base_name in base_names:
+                out.write(f"extern const char* {base_name};\n")
+            out.write("\n")
+            
+            # Declare a master array and count.
+            out.write("extern const char* mp3Files[];\n")
+            out.write("extern unsigned int mp3FilesCount;\n\n")
+            
+            # Declare dialedDigitsToMp3s as a fixed array for digits 0-9.
+            out.write("extern const char* dialedDigitsToMp3s[10];\n\n")
+            
+            # Caller mapping declarations.
+            if caller_dict is not None:
+                out.write("// Mapping of caller numbers to MP3 filenames\n")
+                out.write("typedef struct {\n")
+                out.write("    const char* callerNumber;\n")
+                out.write("    const char* fileName;\n")
+                out.write("} CallerMapping;\n\n")
+                out.write("extern const CallerMapping callerNumbersToMp3s[];\n")
+                out.write("extern const unsigned int callerNumbersToMp3sCount;\n\n")
+                out.write("bool hasMp3ForCaller(const char* callerNumber);\n")
+                out.write("const char* getMp3ForCaller(const char* callerNumber);\n")
+            out.write("\n")
+        print(f"Production header generated: {prod_header}")
+    except Exception as e:
+        print(f"Error writing production header: {e}")
+        sys.exit(1)
+
+    try:
+        with open(prod_source, "w") as out:
+            out.write("// Production source: Auxiliary MP3 metadata (filenames only)\n")
+            out.write("// Generated by mp3_to_header.py\n\n")
+            out.write(f'#include "{os.path.basename(prod_header)}"\n\n')
+            
+            # Define each filename as a constant string.
+            for filename, base_name in zip(mp3_files, base_names):
+                out.write(f"const char* {base_name} = \"{filename}\";\n")
+            out.write("\n")
+            
+            # Define master array and count.
+            out.write("const char* mp3Files[] = {\n")
+            for base_name in base_names:
+                out.write(f"    {base_name},\n")
+            out.write("};\n\n")
+            out.write("unsigned int mp3FilesCount = sizeof(mp3Files) / sizeof(mp3Files[0]);\n")
+            
+            # Define dialedDigitsToMp3s (assumes files dial_0 ... dial_9 exist among base_names).
+            out.write("\nconst char* dialedDigitsToMp3s[10] = {\n")
+            for i in range(10):
+                # Assume naming convention: dial_0, dial_1, ... dial_9.
+                out.write(f"    dial_{i},\n")
+            out.write("};\n")
+            
+            # Caller mappings.
+            if caller_dict is not None:
+                out.write("\n// Mapping of caller numbers to MP3 filenames\n")
+                out.write("const CallerMapping callerNumbersToMp3s[] = {\n")
+                for number, base in caller_dict.items():
+                    if base in base_names:
+                        out.write(f'    {{"{number}", {base}}},\n')
+                out.write("};\n")
+                out.write("const unsigned int callerNumbersToMp3sCount = sizeof(callerNumbersToMp3s) / sizeof(callerNumbersToMp3s[0]);\n\n")
+                out.write("bool hasMp3ForCaller(const char* callerNumber) {\n")
+                out.write("    for (unsigned int i = 0; i < callerNumbersToMp3sCount; ++i) {\n")
+                out.write("        if (strcmp(callerNumbersToMp3s[i].callerNumber, callerNumber) == 0) {\n")
+                out.write("            return true;\n")
+                out.write("        }\n")
+                out.write("    }\n")
+                out.write("    return false;\n")
+                out.write("}\n\n")
+                out.write("const char* getMp3ForCaller(const char* callerNumber) {\n")
+                out.write("    for (unsigned int i = 0; i < callerNumbersToMp3sCount; ++i) {\n")
+                out.write("        if (strcmp(callerNumbersToMp3s[i].callerNumber, callerNumber) == 0) {\n")
+                out.write("            return callerNumbersToMp3s[i].fileName;\n")
+                out.write("        }\n")
+                out.write("    }\n")
+                out.write("    return nullptr;\n")
+                out.write("}\n")
+        print(f"Production source generated: {prod_source}")
+    except Exception as e:
+        print(f"Error writing production source: {e}")
+        sys.exit(1)
+
+    # -----------------------------
+    # Generate Write Files (writeMp3.h and writeMp3.cpp)
+    # -----------------------------
+    try:
+        with open(write_header, "w") as out:
+            out.write("#pragma once\n\n")
+            out.write("#include <Arduino.h>\n")
+            out.write("#include <cstring>\n\n")
+            out.write("// Write MP3 header: Contains full MP3 data arrays and metadata\n")
+            out.write("// Generated by mp3_to_header.py\n\n")
+            
+            # Declare raw arrays.
             for base_name in base_names:
                 array_name = base_name + "_mp3"
                 out.write(f"extern const unsigned char {array_name}[];\n")
                 out.write(f"extern unsigned int {array_name}_len;\n")
             out.write("\n")
             
-            # Structure declaration for MP3File.
-            out.write("// Structure to hold MP3 file information\n")
+            # Declare the MP3File struct.
             out.write("typedef struct {\n")
-            out.write("    const char* fileName;         // File name (or path if needed)\n")
-            out.write("    const unsigned char* data;    // Pointer to MP3 data\n")
-            out.write("    unsigned int length;          // Length of the MP3 data\n")
+            out.write("    const char* fileName;\n")
+            out.write("    const unsigned char* data;\n")
+            out.write("    unsigned int length;\n")
             out.write("} MP3File;\n\n")
             
-            # Declarations for each strongly typed MP3File instance.
+            # Declare extern MP3File instances.
             for base_name in base_names:
                 out.write(f"extern const MP3File {base_name};\n")
             out.write("\n")
             
-            # Declaration for the master array and count.
+            # Declare master array and count.
             out.write("extern MP3File mp3Files[];\n")
-            out.write("extern unsigned int mp3FilesCount;\n");
-            
-            # Always declare the dialedDigitsToMp3s dictionary.
-            out.write("extern std::unordered_map<std::string, MP3File> dialedDigitsToMp3s;\n");
-            
-            # If numbers.txt exists, declare the callerNumbers dictionary and helper functions.
-            if caller_dict is not None:
-                out.write("extern std::unordered_map<std::string, MP3File> callerNumbersToMp3s;\n");
-                out.write("\n");
-                out.write("const bool hasMp3ForCaller(const String &callerNumber);\n");
-                out.write("const MP3File getMp3ForCaller(const String &callerNumber);\n");
-        print(f"Header file generated: {header_file}")
+            out.write("extern unsigned int mp3FilesCount;\n")
+        print(f"Write header generated: {write_header}")
     except Exception as e:
-        print(f"Error writing header file: {e}")
+        print(f"Error writing write header: {e}")
         sys.exit(1)
-    
-    # --- Generate the source file (definitions) ---
+
     try:
-        with open(source_file, "w") as out:
-            out.write("// Generated source file containing MP3 file definitions\n")
+        with open(write_source, "w") as out:
+            out.write("// Write MP3 source: Contains full MP3 data arrays and metadata\n")
             out.write("// Generated by mp3_to_header.py\n\n")
-            out.write(f'#include "{os.path.basename(header_file)}"\n\n')
+            out.write(f'#include "{os.path.basename(write_header)}"\n\n')
             
-            # Write the definitions for each MP3 array.
+            # Write full raw array definitions.
             for base_name in base_names:
                 out.write(f"// {base_name}.mp3\n")
                 out.write(arrays_definitions[base_name])
                 out.write("\n")
             
-            # Define the MP3File instances using the arrays defined above.
+            # Define MP3File instances with actual data pointers.
             for filename, base_name in zip(mp3_files, base_names):
                 array_name = base_name + "_mp3"
                 out.write(f"const MP3File {base_name} = {{ \"{filename}\", {array_name}, {array_name}_len }};\n")
             out.write("\n")
             
-            # Define the master array and the count.
+            # Define master array and count.
             out.write("MP3File mp3Files[] = {\n")
             for base_name in base_names:
                 out.write(f"    {base_name},\n")
             out.write("};\n\n")
             out.write("unsigned int mp3FilesCount = sizeof(mp3Files) / sizeof(mp3Files[0]);\n")
-            
-            # If callerNumbers mapping exists, output the dictionary definition and functions.
-            if caller_dict is not None:
-                out.write("\nstd::unordered_map<std::string, MP3File> callerNumbersToMp3s = {\n")
-                for number, base in caller_dict.items():
-                    if base in base_names:
-                        out.write(f'    {{"{number}", {base}}},\n')
-                out.write("};\n")
-                
-                out.write("\nconst bool hasMp3ForCaller(const String &callerNumber) {\n")
-                out.write("    return callerNumbersToMp3s.find(std::string(callerNumber.c_str())) != callerNumbersToMp3s.end();\n")
-                out.write("}\n\n")
-                out.write("const MP3File getMp3ForCaller(const String &callerNumber) {\n")
-                out.write("    return callerNumbersToMp3s[std::string(callerNumber.c_str())];\n")
-                out.write("}\n")
-            
-            # Always output the dictionary for dialed digits.
-            out.write("\nstd::unordered_map<std::string, MP3File> dialedDigitsToMp3s = {\n")
-            out.write('    {"0", dial_0},\n')
-            out.write('    {"1", dial_1},\n')
-            out.write('    {"2", dial_2},\n')
-            out.write('    {"3", dial_3},\n')
-            out.write('    {"4", dial_4},\n')
-            out.write('    {"5", dial_5},\n')
-            out.write('    {"6", dial_6},\n')
-            out.write('    {"7", dial_7},\n')
-            out.write('    {"8", dial_8},\n')
-            out.write('    {"9", dial_9},\n')
-            out.write("};\n")
-        print(f"Source file generated: {source_file}")
+        print(f"Write source generated: {write_source}")
     except Exception as e:
-        print(f"Error writing source file: {e}")
+        print(f"Error writing write source: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

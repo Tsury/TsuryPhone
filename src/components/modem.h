@@ -4,22 +4,35 @@
 #include <Arduino.h>
 #include "config.h"
 #include "common/common.h"
+#include "common/ringBuffer.h"
 #include "generated/mp3.h"
 #include <TinyGsmClient.h>
 
 struct CallState
 {
-    String callerNumber;
-    int callDirection;
-    std::vector<int> callWaitingDirection;
+    int callId;
+    int callWaitingId;
+    bool isCallWaitingOnHold = false;
+    char callerNumber[kSmallBufferSize];
+
+    CallState() : callId(-1), callWaitingId(-1), isCallWaitingOnHold(false), callerNumber("")
+    {
+    }
+
+    CallState(const char *number, const int callId, const int callWaitingId = -1, const bool callWaitingOnHold = false)
+        : callId(callId), callWaitingId(callWaitingId), isCallWaitingOnHold(callWaitingOnHold)
+    {
+        strncpy(callerNumber, number, kSmallBufferSize - 1);
+        callerNumber[kSmallBufferSize - 1] = '\0';
+    }
 };
 
 struct StateResult
 {
     AppState newState;
     AppState prevState;
-    String callerNumber;
-    String message;
+    char callerNumber[kSmallBufferSize];
+    char message[kBigBufferSize];
     bool messageHandled;
     bool callWaiting;
 };
@@ -32,7 +45,10 @@ enum class VolumeMode
 
 struct PendingMp3
 {
-    MP3File file;
+    PendingMp3() : filename(nullptr), repeat(0) {}
+    PendingMp3(const char *filename, const int repeat = 0) : filename(filename), repeat(repeat) {}
+
+    const char *filename;
     int repeat;
 };
 
@@ -46,11 +62,16 @@ public:
 
     StateResult deriveNewStateFromMessage(const AppState &currState);
 
-    void enqueueCall(const String &number);
+    void enqueueCall(const char *number);
     void hangUp();
     void answer();
+    void switchToCallWaiting();
 
-    void sendCommand(const String command);
+    template <typename... Args>
+    void sendCommand(const __FlashStringHelper *command, Args... args);
+    void sendCommand(const StringSumHelper &command);
+    void sendCommand(const __FlashStringHelper *command);
+    void sendCommand(const char *command);
 
     void playTone(const int toneId, const int duration);
     void stopTone();
@@ -62,32 +83,31 @@ public:
     void setEarpieceVolume();
     void setSpeakerVolume();
 
-    void enqueueMp3(const MP3File &file, const int repeat = 0);
+    void enqueueMp3(const char *file, const int repeat = 0);
     void stopPlaying();
 
 private:
-    void playMp3(const MP3File &file, const int repeat = 0);
-    void writeMp3s();
+    void playMp3(const char *file, const int repeat = 0);
     void playPendingMp3();
 
     void callPending();
-    void call(const String &number);
+    void call(const char *number);
     void verifyCallState();
 
     void enableHangUp();
-    void disableEcho();
+    void disableUnneededFeatures();
 
     void setVolume(const int volume);
 
     bool messageAvailable() const;
 
-    std::queue<PendingMp3> _pendingMp3Queue;
+    RingBuffer<PendingMp3, 10> _pendingMp3Queue = RingBuffer<PendingMp3, 10>();
 
     VolumeMode _volumeMode = VolumeMode::Earpiece;
 
     TinyGsm _modemImpl;
 
-    String _enqueuedCall;
+    char _enqueuedCall[kSmallBufferSize] = "";
 
     CallState _callState;
 

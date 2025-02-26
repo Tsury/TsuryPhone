@@ -1,4 +1,5 @@
 .pio
 .vscode
 mp3/mp3/*.*
+mp3/generated/*.*
 src/generated/*.*

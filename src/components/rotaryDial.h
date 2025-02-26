@@ -1,23 +1,22 @@
 #pragma once
 
 #include <Arduino.h>
+#include "common/common.h"
 
 struct DialedNumberResult
 {
-    String callerNumber;
+    char callerNumber[kSmallBufferSize];
     int dialedDigit;
 };
 
 class RotaryDial
 {
 public:
-    RotaryDial();
-
-    void init();
+    void init() const;
     void process();
 
     void resetCurrentNumber();
-    int getDialedDigit();
+    int getDialedDigit() const;
     DialedNumberResult getCurrentNumber();
 
 private:
@@ -25,13 +24,11 @@ private:
     int inDialPreviousState = HIGH;
     int pulseState = HIGH;
     int pulsePreviousState = HIGH;
+    int counter = 0;
 
     unsigned long inDialChangeTime = 0;
     unsigned long pulseChangeTime = 0;
 
-    int counter = 0;
-
     char _dialedDigit = 99;
-
-    String currentNumber = "";
+    char currentNumber[kSmallBufferSize] = "";
 };

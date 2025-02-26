@@ -2,7 +2,10 @@
 #include "hookSwitch.h"
 #include "common/logger.h"
 
-#define HOOK_DEBOUNCE 50
+namespace
+{
+    constexpr int kHookDebounce = 50;
+}
 
 HookSwitch::HookSwitch() : state(HIGH),
                            statePrevious(HIGH),
@@ -11,18 +14,18 @@ HookSwitch::HookSwitch() : state(HIGH),
 {
 }
 
-void HookSwitch::init()
+void HookSwitch::init() const
 {
-    Logger::info("Initializing hook switch...");
+    Logger::infoln(F("Initializing hook switch..."));
 
-    pinMode(HOOK_SWITCH_PIN, INPUT_PULLUP);
+    pinMode(kHookSwitchPin, INPUT_PULLUP);
 
-    Logger::info("Hook switch initialized!");
+    Logger::infoln(F("Hook switch initialized!"));
 }
 
 void HookSwitch::process()
 {
-    int newState = digitalRead(HOOK_SWITCH_PIN);
+    int newState = digitalRead(kHookSwitchPin);
 
     if (newState != statePrevious)
     {
@@ -35,7 +38,7 @@ void HookSwitch::process()
         stateChanged = false;
     }
 
-    if ((millis() - stateChangeTime) >= HOOK_DEBOUNCE)
+    if ((millis() - stateChangeTime) >= kHookDebounce)
     {
         if (newState != state)
         {
@@ -44,11 +47,11 @@ void HookSwitch::process()
 
             if (state == LOW)
             {
-                Logger::info("Off hook!");
+                Logger::infoln(F("Off hook!"));
             }
             else
             {
-                Logger::info("On hook!");
+                Logger::infoln(F("On hook!"));
             }
         }
     }
@@ -56,12 +59,12 @@ void HookSwitch::process()
     statePrevious = newState;
 }
 
-bool HookSwitch::isOffHook()
+bool HookSwitch::isOffHook() const
 {
     return (state == LOW);
 }
 
-bool HookSwitch::isOnHook()
+bool HookSwitch::isOnHook() const
 {
     return (state == HIGH);
 }

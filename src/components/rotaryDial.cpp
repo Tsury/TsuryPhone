@@ -3,34 +3,33 @@
 #include "Arduino.h"
 #include "common/logger.h"
 
-#define DEBOUNCE 10
-
-RotaryDial::RotaryDial()
+namespace
 {
+    constexpr int kRotaryDebounce = 10;
 }
 
-void RotaryDial::init()
+void RotaryDial::init() const
 {
-    Logger::info("Initializing rotary dial...");
+    Logger::infoln(F("Initializing rotary dial..."));
 
-    pinMode(ROTARY_DIAL_IN_DIAL_PIN, INPUT_PULLUP);
-    pinMode(ROTARY_DIAL_PULSE_PIN, INPUT_PULLUP);
+    pinMode(kRotaryDialInDialPin, INPUT_PULLUP);
+    pinMode(kRotaryDialPulsePin, INPUT_PULLUP);
 
-    Logger::info("Rotary dial initialized!");
+    Logger::infoln(F("Rotary dial initialized!"));
 }
 
 void RotaryDial::process()
 {
     _dialedDigit = 99;
 
-    int newInDialedState = digitalRead(ROTARY_DIAL_IN_DIAL_PIN);
+    int newInDialedState = digitalRead(kRotaryDialInDialPin);
 
     if (newInDialedState != inDialPreviousState)
     {
         inDialChangeTime = millis();
     }
 
-    if ((millis() - inDialChangeTime) >= DEBOUNCE)
+    if ((millis() - inDialChangeTime) >= kRotaryDebounce)
     {
         if (newInDialedState != inDialState)
         {
@@ -38,12 +37,12 @@ void RotaryDial::process()
 
             if (inDialState == LOW)
             {
-                Logger::info("Start of dial");
+                Logger::infoln(F("Start of dial"));
                 counter = 0;
             }
             else
             {
-                Logger::info("End of dial");
+                Logger::infoln(F("End of dial"));
 
                 if (counter > 0)
                 {
@@ -60,14 +59,14 @@ void RotaryDial::process()
 
     inDialPreviousState = newInDialedState;
 
-    int newPulseState = digitalRead(ROTARY_DIAL_PULSE_PIN);
+    int newPulseState = digitalRead(kRotaryDialPulsePin);
 
     if (newPulseState != pulsePreviousState)
     {
         pulseChangeTime = millis();
     }
 
-    if ((millis() - pulseChangeTime) >= DEBOUNCE)
+    if ((millis() - pulseChangeTime) >= kRotaryDebounce)
     {
         if (newPulseState != pulseState)
         {
@@ -84,11 +83,11 @@ void RotaryDial::process()
 
     if (_dialedDigit != 99)
     {
-        Logger::info("Dialed digit: " + String(_dialedDigit));
+        Logger::infoln(F("Dialed digit: %d"), _dialedDigit);
     }
 }
 
-int RotaryDial::getDialedDigit()
+int RotaryDial::getDialedDigit() const
 {
     return _dialedDigit;
 }
@@ -101,16 +100,23 @@ DialedNumberResult RotaryDial::getCurrentNumber()
 
     if (dialedDigit != 99)
     {
-        currentNumber += String(dialedDigit);
+        size_t len = strlen(currentNumber);
+
+        if (len < sizeof(currentNumber) - 1)
+        {
+            currentNumber[len] = '0' + dialedDigit;
+            currentNumber[len + 1] = '\0';
+        }
+
         res.dialedDigit = dialedDigit;
     }
 
-    res.callerNumber = currentNumber;
+    snprintf(res.callerNumber, sizeof(res.callerNumber), "%s", currentNumber);
 
     return res;
 }
 
 void RotaryDial::resetCurrentNumber()
 {
-    currentNumber = "";
+    currentNumber[0] = '\0';
 }

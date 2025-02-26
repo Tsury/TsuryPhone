@@ -2,6 +2,7 @@
 
 #include "Arduino.h"
 #include "common\common.h"
+#include "common\wifi.h"
 #include "components\modem.h"
 #include "components\ringer.h"
 #include "components\hookSwitch.h"
@@ -12,20 +13,13 @@ class PhoneApp
 public:
     PhoneApp();
 
-    // Initialize the application (call modem.init(), etc.)
     void setup();
 
-    // Main loop processing for the application.
     void loop();
 
 private:
-    // Processes incoming messages from the modem.
-    void processModemMessage();
+    void setState(const AppState newState, const StateResult &result = StateResult());
 
-    // Changes the state of the application.
-    void setState(AppState newState, const StateResult &result = StateResult());
-
-    // Processes the current state of the application.
     void processState();
 
     void processStateCheckHardware();
@@ -40,8 +34,6 @@ private:
 
     void processStateInCall();
 
-    // --
-
     void onSetStateCheckHardwareState();
 
     void onSetStateCheckLineState();
@@ -54,7 +46,6 @@ private:
 
     void onSetStateInCallState();
 
-    // The modem instance used by the application.
     Modem modem;
 
     Ringer ringer;
@@ -63,10 +54,10 @@ private:
 
     RotaryDial rotaryDial;
 
-    // The current state of the application.
+    Wifi wifi;
+
     AppState state = AppState::Startup;
 
-    // The time the current state was entered.
     unsigned long stateTime = 0;
 
     bool firstTimeSystemReady = false;

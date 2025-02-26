@@ -4,9 +4,9 @@
 
 enum class DialedNumberValidationResult
 {
-    Valid,   // Number is complete and fits one of the patterns.
-    Pending, // Number is incomplete but could become valid.
-    Invalid  // Number cannot possibly become valid.
+    Valid,
+    Pending,
+    Invalid
 };
 
-DialedNumberValidationResult validateDialedNumber(const String &number);
+DialedNumberValidationResult validateDialedNumber(const char *number);

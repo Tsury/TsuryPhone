@@ -1,6 +1,3 @@
-#include "Logger.h"
+#include "logger.h"
 
-namespace Logger
-{
-    LogLevel currentLogLevel = LogLevel::Debug;
-}
+LogLevel Logger::currentLogLevel = LogLevel::Debug;

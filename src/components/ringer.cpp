@@ -3,74 +3,88 @@
 #include "Arduino.h"
 #include "common/logger.h"
 
-#define RING_CYCLE_DURATION 30
-#define RING_DURATION 2000
-
-Ringer::Ringer()
+namespace
 {
+    constexpr int kRingCycleDuration = 30;
+    constexpr int kRingDuration = 2000;
 }
 
-void Ringer::init()
+void Ringer::init() const
 {
-    Logger::info("Initializing ringer...");
+    Logger::infoln(F("Initializing ringer..."));
 
-    pinMode(RINGER_IN1_PIN, OUTPUT);
-    pinMode(RINGER_IN2_PIN, OUTPUT);
-    pinMode(RINGER_INH_PIN, OUTPUT);
+    pinMode(kRingerIn1Pin, OUTPUT);
+    pinMode(kRingerIn2Pin, OUTPUT);
+    pinMode(kRingerInhPin, OUTPUT);
 
     setRingerEnabled(false);
 
-    Logger::info("Ringer initialized!");
+    Logger::infoln(F("Ringer initialized!"));
 }
 
 void Ringer::startRinging()
 {
+    if (_ringing)
+    {
+        return;
+    }
+
     setRingerEnabled(true);
     _ringing = true;
     _ringStartTime = millis();
-    _lastCycleTime = millis();
+    _lastCycleTime = millis() + kRingCycleDuration;
     _ringState = false;
 }
 
 void Ringer::process()
 {
     if (!_ringing)
+    {
         return;
+    }
 
-    if (millis() - _ringStartTime >= RING_DURATION)
+    if (millis() - _ringStartTime >= kRingDuration)
     {
         stopRinging();
         return;
     }
 
-    if (millis() - _lastCycleTime >= RING_CYCLE_DURATION)
+    if (millis() - _lastCycleTime >= kRingCycleDuration)
     {
         _ringState = !_ringState;
         _lastCycleTime = millis();
 
         if (_ringState)
         {
-            digitalWrite(RINGER_IN1_PIN, HIGH);
-            digitalWrite(RINGER_IN2_PIN, LOW);
+            digitalWrite(kRingerIn1Pin, HIGH);
+            digitalWrite(kRingerIn2Pin, LOW);
         }
         else
         {
-            digitalWrite(RINGER_IN1_PIN, LOW);
-            digitalWrite(RINGER_IN2_PIN, HIGH);
+            digitalWrite(kRingerIn1Pin, LOW);
+            digitalWrite(kRingerIn2Pin, HIGH);
         }
     }
 }
 
 void Ringer::stopRinging()
 {
+    if (!_ringing)
+    {
+        return;
+    }
+
     _ringing = false;
     setRingerEnabled(false);
-
-    digitalWrite(RINGER_IN1_PIN, LOW);
-    digitalWrite(RINGER_IN2_PIN, LOW);
 }
 
-void Ringer::setRingerEnabled(bool enabled)
+void Ringer::setRingerEnabled(const bool enabled) const
 {
-    digitalWrite(RINGER_INH_PIN, enabled ? HIGH : LOW);
+    digitalWrite(kRingerInhPin, enabled ? HIGH : LOW);
+
+    if (!enabled)
+    {
+        digitalWrite(kRingerIn1Pin, LOW);
+        digitalWrite(kRingerIn2Pin, LOW);
+    }
 }

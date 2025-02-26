@@ -1,6 +1,10 @@
 #pragma once
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat="
 
 #include <Arduino.h>
+#include <stdio.h>
+#include "common.h"
 
 enum class LogLevel
 {
@@ -14,64 +18,142 @@ namespace Logger
 {
     extern LogLevel currentLogLevel;
 
-    inline void setLogLevel(LogLevel level)
+    inline void setLogLevel(const LogLevel level)
     {
         currentLogLevel = level;
     }
 
-    inline void debug(const char *message)
+    template <typename... Args>
+    inline void logln(const __FlashStringHelper *prefix, const char *format, const Args... args)
+    {
+        char buffer[kBigBufferSize];
+        snprintf(buffer, sizeof(buffer), format, args...);
+        Serial.printf("%S %s\n", prefix, buffer);
+    }
+
+    template <typename... Args>
+    inline void log(const char *prefix, const char *format, const Args... args)
+    {
+        char buffer[kBigBufferSize];
+        snprintf(buffer, sizeof(buffer), format, args...);
+        Serial.printf("%s %s", prefix, buffer);
+    }
+
+    template <typename... Args>
+    inline void logln(const __FlashStringHelper *prefix, const __FlashStringHelper *format, const Args... args)
+    {
+        char buffer[kBigBufferSize];
+        snprintf_P(buffer, sizeof(buffer), reinterpret_cast<PGM_P>(format), args...);
+        Serial.printf("%S %s\n", prefix, buffer);
+    }
+
+    template <typename... Args>
+    inline void log(const char *prefix, const __FlashStringHelper *format, const Args... args)
+    {
+        char buffer[kBigBufferSize];
+        snprintf_P(buffer, sizeof(buffer), reinterpret_cast<PGM_P>(format), args...);
+        Serial.printf("%s %s", prefix, buffer);
+    }
+
+    template <typename... Args>
+    inline void debugln(const char *format, const Args... args)
     {
         if (currentLogLevel <= LogLevel::Debug)
-        {
-            Serial.print("[DEBUG] ");
-            Serial.println(message);
-        }
+            logln(F("[DEBUG]"), format, args...);
     }
-
-    inline void debug(const String &message)
+    template <typename... Args>
+    inline void debug(const char *format, const Args... args)
     {
-        debug(message.c_str());
+        if (currentLogLevel <= LogLevel::Debug)
+            log(F("[DEBUG]"), format, args...);
+    }
+    template <typename... Args>
+    inline void debugln(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Debug)
+            logln(F("[DEBUG]"), format, args...);
+    }
+    template <typename... Args>
+    inline void debug(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Debug)
+            log(F("[DEBUG]"), format, args...);
     }
 
-    inline void info(const char *message)
+    template <typename... Args>
+    inline void infoln(const char *format, const Args... args)
     {
         if (currentLogLevel <= LogLevel::Info)
-        {
-            Serial.print("[INFO] ");
-            Serial.println(message);
-        }
+            logln(F("[INFO]"), format, args...);
     }
-
-    inline void info(const String &message)
+    template <typename... Args>
+    inline void info(const char *format, const Args... args)
     {
-        info(message.c_str());
+        if (currentLogLevel <= LogLevel::Info)
+            log(F("[INFO]"), format, args...);
+    }
+    template <typename... Args>
+    inline void infoln(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Info)
+            logln(F("[INFO]"), format, args...);
+    }
+    template <typename... Args>
+    inline void info(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Info)
+            log(F("[INFO]"), format, args...);
     }
 
-    inline void warn(const char *message)
+    template <typename... Args>
+    inline void warnln(const char *format, const Args... args)
     {
         if (currentLogLevel <= LogLevel::Warn)
-        {
-            Serial.print("[WARN] ");
-            Serial.println(message);
-        }
+            logln(F("[WARN]"), format, args...);
     }
-
-    inline void warn(const String &message)
+    template <typename... Args>
+    inline void warn(const char *format, const Args... args)
     {
-        warn(message.c_str());
+        if (currentLogLevel <= LogLevel::Warn)
+            log(F("[WARN]"), format, args...);
+    }
+    template <typename... Args>
+    inline void warnln(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Warn)
+            logln(F("[WARN]"), format, args...);
+    }
+    template <typename... Args>
+    inline void warn(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Warn)
+            log(F("[WARN]"), format, args...);
     }
 
-    inline void error(const char *message)
+    template <typename... Args>
+    inline void errorln(const char *format, const Args... args)
     {
         if (currentLogLevel <= LogLevel::Error)
-        {
-            Serial.print("[ERROR] ");
-            Serial.println(message);
-        }
+            logln(F("[ERROR]"), format, args...);
     }
-
-    inline void error(const String &message)
+    template <typename... Args>
+    inline void error(const char *format, const Args... args)
     {
-        error(message.c_str());
+        if (currentLogLevel <= LogLevel::Error)
+            log(F("[ERROR]"), format, args...);
+    }
+    template <typename... Args>
+    inline void errorln(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Error)
+            logln(F("[ERROR]"), format, args...);
+    }
+    template <typename... Args>
+    inline void error(const __FlashStringHelper *format, const Args... args)
+    {
+        if (currentLogLevel <= LogLevel::Error)
+            log(F("[ERROR]"), format, args...);
     }
 }
+
+#pragma GCC diagnostic pop

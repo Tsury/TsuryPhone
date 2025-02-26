@@ -7,20 +7,17 @@ class HookSwitch
 public:
     HookSwitch();
 
-    void init();
-
+    void init() const;
     void process();
 
-    bool isOffHook();
-    bool isOnHook();
+    bool isOffHook() const;
+    bool isOnHook() const;
     bool justChangedOffHook();
     bool justChangedOnHook();
 
 private:
-    unsigned long stateChangeTime = 0;
-
     int state = HIGH;
     int statePrevious = HIGH;
-
+    unsigned long stateChangeTime = 0;
     bool stateChanged = false;
 };

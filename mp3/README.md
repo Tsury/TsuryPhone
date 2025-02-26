@@ -6,3 +6,5 @@ You can also put a numbers.txt file in the same folder that will assign phone nu
 1234567,call_dad
 1234567,call_mom
 1234567,call_dog
+
+These mp3 files will be played when the corresponding phone number is calling.
