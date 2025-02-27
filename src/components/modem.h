@@ -8,6 +8,24 @@
 #include "generated/mp3.h"
 #include <TinyGsmClient.h>
 
+// As per SIMCom's A76XX Series AT Command Manual
+enum class Tone
+{
+    DialTone = 1,
+    CalledSubscriberBusy = 2,
+    Congestion = 3,
+    RadioPathAcknowledge = 4,
+    RadioPathNotAvailableOrCallDropped = 5,
+    ErrorOrSpecialInformation = 6,
+    CallWaitingTone = 7,
+    RingingTone = 8,
+    GeneralBeep = 16,
+    PositiveAcknowledgeTone = 17,
+    NegativeAcknowledgeOrErrorTone = 18,
+    IndianDialTone = 19,
+    AmericanDialTone = 20,
+};
+
 struct CallState
 {
     int callId;
