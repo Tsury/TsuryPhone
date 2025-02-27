@@ -2,22 +2,21 @@
 
 #include <Arduino.h>
 
-class HookSwitch
-{
+class HookSwitch {
 public:
-    HookSwitch();
+  HookSwitch();
 
-    void init() const;
-    void process();
+  void init() const;
+  void process();
 
-    bool isOffHook() const;
-    bool isOnHook() const;
-    bool justChangedOffHook();
-    bool justChangedOnHook();
+  bool isOffHook() const;
+  bool isOnHook() const;
+  bool justChangedOffHook();
+  bool justChangedOnHook();
 
 private:
-    int state = HIGH;
-    int statePrevious = HIGH;
-    unsigned long stateChangeTime = 0;
-    bool stateChanged = false;
+  int state = HIGH;
+  int statePrevious = HIGH;
+  unsigned long stateChangeTime = 0;
+  bool stateChanged = false;
 };

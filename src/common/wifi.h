@@ -2,12 +2,11 @@
 
 #include <WiFiManager.h>
 
-class Wifi
-{
+class Wifi {
 public:
-    void init();
-    void process();
+  void init();
+  void process();
 
 private:
-    WiFiManager _wifiManager;
+  WiFiManager _wifiManager;
 };

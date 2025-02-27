@@ -3,62 +3,61 @@
 #include "Arduino.h"
 #include "common\common.h"
 #include "common\wifi.h"
+#include "components\hookSwitch.h"
 #include "components\modem.h"
 #include "components\ringer.h"
-#include "components\hookSwitch.h"
 #include "components\rotaryDial.h"
 
-class PhoneApp
-{
+class PhoneApp {
 public:
-    PhoneApp();
+  PhoneApp();
 
-    void setup();
+  void setup();
 
-    void loop();
+  void loop();
 
 private:
-    void setState(const AppState newState, const StateResult &result = StateResult());
+  void setState(const AppState newState, const StateResult &result = StateResult());
 
-    void processState();
+  void processState();
 
-    void processStateCheckHardware();
+  void processStateCheckHardware();
 
-    void processStateCheckLine();
+  void processStateCheckLine();
 
-    void processStateIdle();
+  void processStateIdle();
 
-    void processStateIncomingCall();
+  void processStateIncomingCall();
 
-    void processStateDialing();
+  void processStateDialing();
 
-    void processStateInCall();
+  void processStateInCall();
 
-    void onSetStateCheckHardwareState();
+  void onSetStateCheckHardwareState();
 
-    void onSetStateCheckLineState();
+  void onSetStateCheckLineState();
 
-    void onSetStateIdleState();
+  void onSetStateIdleState();
 
-    void onSetStateIncomingCallState(const StateResult &result);
+  void onSetStateIncomingCallState(const StateResult &result);
 
-    void onSetStateIncomingCallRingState();
+  void onSetStateIncomingCallRingState();
 
-    void onSetStateInCallState();
+  void onSetStateInCallState();
 
-    Modem modem;
+  Modem modem;
 
-    Ringer ringer;
+  Ringer ringer;
 
-    HookSwitch hookSwitch;
+  HookSwitch hookSwitch;
 
-    RotaryDial rotaryDial;
+  RotaryDial rotaryDial;
 
-    Wifi wifi;
+  Wifi wifi;
 
-    AppState state = AppState::Startup;
+  AppState state = AppState::Startup;
 
-    unsigned long stateTime = 0;
+  unsigned long stateTime = 0;
 
-    bool firstTimeSystemReady = false;
+  bool firstTimeSystemReady = false;
 };
