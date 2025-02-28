@@ -3,7 +3,7 @@
 #include "config.h"
 
 namespace {
-constexpr int kHookDebounce = 50;
+  constexpr int kHookDebounce = 50;
 }
 
 HookSwitch::HookSwitch()

@@ -4,9 +4,9 @@
 #include "config.h"
 
 namespace {
-constexpr int kRingCycleDuration = 30;
-constexpr int kRingDuration = 2000;
-} // namespace
+  constexpr int kRingCycleDuration = 30;
+  constexpr int kRingDuration = 2000;
+}
 
 void Ringer::init() const {
   Logger::infoln(F("Initializing ringer..."));

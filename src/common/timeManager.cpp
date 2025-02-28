@@ -5,10 +5,10 @@
 #include <time.h>
 
 namespace {
-constexpr const char *kNtpServer = "pool.ntp.org";
-constexpr long kGmtOffsetSec = 7200;
-constexpr int kDaylightOffsetSec = 3600;
-} // namespace
+  constexpr const char *kNtpServer = "pool.ntp.org";
+  constexpr long kGmtOffsetSec = 7200;
+  constexpr int kDaylightOffsetSec = 3600;
+}
 
 void TimeManager::init() const {
   configTime(kGmtOffsetSec, kDaylightOffsetSec, kNtpServer);

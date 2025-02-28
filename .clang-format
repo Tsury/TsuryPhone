@@ -4,3 +4,5 @@ BinPackParameters: false
 AlignAfterOpenBracket: Align
 ColumnLimit: 100
 AllowShortFunctionsOnASingleLine: Empty
+FixNamespaceComments: false
+NamespaceIndentation: All
