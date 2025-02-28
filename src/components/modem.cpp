@@ -9,14 +9,14 @@
 // restarting when the modem is already on.
 namespace {
 #ifdef DEBUG
-  constexpr int kModemResetDelay = 50;
-  constexpr int kDebugModemInitializationDelay = 1750;
+  const constexpr int kModemResetDelay = 50;
+  const constexpr int kDebugModemInitializationDelay = 1750;
 #else
-  constexpr int kModemResetDelay = 1500;
+  const constexpr int kModemResetDelay = 1500;
 #endif
 
-  constexpr int kGenericDelay = 50;
-  constexpr int kSendCommandBufferSize = 64;
+  const constexpr int kGenericDelay = 50;
+  const constexpr int kSendCommandBufferSize = 64;
 }
 
 Modem::Modem() : _modemImpl(SerialAT) {}

@@ -4,9 +4,9 @@
 #include "common/logger.h"
 
 namespace {
-  constexpr int kSerialBaudRate = kModemBaudRate;
-  constexpr int kCheckHardwareTimeout = 1500;
-  constexpr int kCheckLineTimeout = 1500;
+  const constexpr int kSerialBaudRate = kModemBaudRate;
+  const constexpr int kCheckHardwareTimeout = 1500;
+  const constexpr int kCheckLineTimeout = 1500;
 }
 
 PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi() {}

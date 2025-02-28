@@ -5,9 +5,9 @@
 #include <time.h>
 
 namespace {
-  constexpr const char *kNtpServer = "pool.ntp.org";
-  constexpr long kGmtOffsetSec = 7200;
-  constexpr int kDaylightOffsetSec = 3600;
+  const constexpr char *kNtpServer = "pool.ntp.org";
+  const constexpr long kGmtOffsetSec = 7200;
+  const constexpr int kDaylightOffsetSec = 3600;
 }
 
 void TimeManager::init() const {

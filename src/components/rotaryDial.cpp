@@ -4,7 +4,7 @@
 #include "config.h"
 
 namespace {
-  constexpr int kRotaryDebounce = 10;
+  const constexpr int kRotaryDebounce = 10;
 }
 
 void RotaryDial::init() const {

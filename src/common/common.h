@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 
-constexpr size_t kSmallBufferSize = 32;
-constexpr size_t kBigBufferSize = 128;
+const constexpr size_t kSmallBufferSize = 32;
+const constexpr size_t kBigBufferSize = 128;
 
 enum class AppState {
   Startup,

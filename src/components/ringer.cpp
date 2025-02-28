@@ -4,8 +4,8 @@
 #include "config.h"
 
 namespace {
-  constexpr int kRingCycleDuration = 30;
-  constexpr int kRingDuration = 2000;
+  const constexpr int kRingCycleDuration = 30;
+  const constexpr int kRingDuration = 2000;
 }
 
 void Ringer::init() const {
