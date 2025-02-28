@@ -18,15 +18,15 @@ public:
   DialedNumberResult getCurrentNumber();
 
 private:
-  int inDialState = HIGH;
-  int inDialPreviousState = HIGH;
-  int pulseState = HIGH;
-  int pulsePreviousState = HIGH;
-  int counter = 0;
+  int _inDialState = HIGH;
+  int _inDialPreviousState = HIGH;
+  int _pulseState = HIGH;
+  int _pulsePreviousState = HIGH;
+  int _counter = 0;
 
-  unsigned long inDialChangeTime = 0;
-  unsigned long pulseChangeTime = 0;
+  unsigned long _inDialChangeTime = 0;
+  unsigned long _pulseChangeTime = 0;
 
   char _dialedDigit = 99;
-  char currentNumber[kSmallBufferSize] = "";
+  char _currentNumber[kSmallBufferSize] = "";
 };

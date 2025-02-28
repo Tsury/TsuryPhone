@@ -110,15 +110,11 @@ private:
   bool messageAvailable() const;
 
   RingBuffer<PendingMp3, 10> _pendingMp3Queue = RingBuffer<PendingMp3, 10>();
-
   VolumeMode _volumeMode = VolumeMode::Earpiece;
-
   TinyGsm _modemImpl;
-
-  char _enqueuedCall[kSmallBufferSize] = "";
-
   CallState _callState;
 
+  char _enqueuedCall[kSmallBufferSize] = "";
   bool _audioPlaying = false;
   bool _tonePlaying = false;
   bool _lastTimeCheckedLine = false;

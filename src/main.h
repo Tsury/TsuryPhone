@@ -13,51 +13,33 @@ public:
   PhoneApp();
 
   void setup();
-
   void loop();
 
 private:
   void setState(const AppState newState, const StateResult &result = StateResult());
 
   void processState();
-
   void processStateCheckHardware();
-
   void processStateCheckLine();
-
   void processStateIdle();
-
   void processStateIncomingCall();
-
   void processStateDialing();
-
   void processStateInCall();
 
   void onSetStateCheckHardwareState();
-
   void onSetStateCheckLineState();
-
   void onSetStateIdleState();
-
   void onSetStateIncomingCallState(const StateResult &result);
-
   void onSetStateIncomingCallRingState();
-
   void onSetStateInCallState();
 
-  Modem modem;
+  Modem _modem;
+  Ringer _ringer;
+  HookSwitch _hookSwitch;
+  RotaryDial _rotaryDial;
+  Wifi _wifi;
+  AppState _state = AppState::Startup;
 
-  Ringer ringer;
-
-  HookSwitch hookSwitch;
-
-  RotaryDial rotaryDial;
-
-  Wifi wifi;
-
-  AppState state = AppState::Startup;
-
-  unsigned long stateTime = 0;
-
-  bool firstTimeSystemReady = false;
+  unsigned long _stateTime = 0;
+  bool _firstTimeSystemReady = false;
 };

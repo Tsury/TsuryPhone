@@ -21,50 +21,50 @@ void RotaryDial::process() {
 
   int newInDialedState = digitalRead(kRotaryDialInDialPin);
 
-  if (newInDialedState != inDialPreviousState) {
-    inDialChangeTime = millis();
+  if (newInDialedState != _inDialPreviousState) {
+    _inDialChangeTime = millis();
   }
 
-  if ((millis() - inDialChangeTime) >= kRotaryDebounce) {
-    if (newInDialedState != inDialState) {
-      inDialState = newInDialedState;
+  if ((millis() - _inDialChangeTime) >= kRotaryDebounce) {
+    if (newInDialedState != _inDialState) {
+      _inDialState = newInDialedState;
 
-      if (inDialState == LOW) {
+      if (_inDialState == LOW) {
         Logger::infoln(F("Start of dial"));
-        counter = 0;
+        _counter = 0;
       } else {
         Logger::infoln(F("End of dial"));
 
-        if (counter > 0) {
-          if (counter == 10) {
-            counter = 0;
+        if (_counter > 0) {
+          if (_counter == 10) {
+            _counter = 0;
           }
 
-          _dialedDigit = counter;
+          _dialedDigit = _counter;
         }
       }
     }
   }
 
-  inDialPreviousState = newInDialedState;
+  _inDialPreviousState = newInDialedState;
 
   int newPulseState = digitalRead(kRotaryDialPulsePin);
 
-  if (newPulseState != pulsePreviousState) {
-    pulseChangeTime = millis();
+  if (newPulseState != _pulsePreviousState) {
+    _pulseChangeTime = millis();
   }
 
-  if ((millis() - pulseChangeTime) >= kRotaryDebounce) {
-    if (newPulseState != pulseState) {
-      pulseState = newPulseState;
+  if ((millis() - _pulseChangeTime) >= kRotaryDebounce) {
+    if (newPulseState != _pulseState) {
+      _pulseState = newPulseState;
 
-      if (pulseState == LOW) {
-        counter++;
+      if (_pulseState == LOW) {
+        _counter++;
       }
     }
   }
 
-  pulsePreviousState = newPulseState;
+  _pulsePreviousState = newPulseState;
 
   if (_dialedDigit != 99) {
     Logger::infoln(F("Dialed digit: %d"), _dialedDigit);
@@ -81,21 +81,21 @@ DialedNumberResult RotaryDial::getCurrentNumber() {
   int dialedDigit = getDialedDigit();
 
   if (dialedDigit != 99) {
-    size_t len = strlen(currentNumber);
+    size_t len = strlen(_currentNumber);
 
-    if (len < sizeof(currentNumber) - 1) {
-      currentNumber[len] = '0' + dialedDigit;
-      currentNumber[len + 1] = '\0';
+    if (len < sizeof(_currentNumber) - 1) {
+      _currentNumber[len] = '0' + dialedDigit;
+      _currentNumber[len + 1] = '\0';
     }
 
     res.dialedDigit = dialedDigit;
   }
 
-  snprintf(res.callerNumber, sizeof(res.callerNumber), "%s", currentNumber);
+  snprintf(res.callerNumber, sizeof(res.callerNumber), "%s", _currentNumber);
 
   return res;
 }
 
 void RotaryDial::resetCurrentNumber() {
-  currentNumber[0] = '\0';
+  _currentNumber[0] = '\0';
 }

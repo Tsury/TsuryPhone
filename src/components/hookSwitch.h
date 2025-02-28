@@ -15,8 +15,8 @@ public:
   bool justChangedOnHook();
 
 private:
-  int state = HIGH;
-  int statePrevious = HIGH;
-  unsigned long stateChangeTime = 0;
-  bool stateChanged = false;
+  int _state = HIGH;
+  int _statePrevious = HIGH;
+  unsigned long _stateChangeTime = 0;
+  bool _stateChanged = false;
 };

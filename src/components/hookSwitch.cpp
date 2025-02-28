@@ -7,7 +7,7 @@ namespace {
 }
 
 HookSwitch::HookSwitch()
-    : state(HIGH), statePrevious(HIGH), stateChangeTime(0), stateChanged(false) {}
+    : _state(HIGH), _statePrevious(HIGH), _stateChangeTime(0), _stateChanged(false) {}
 
 void HookSwitch::init() const {
   Logger::infoln(F("Initializing hook switch..."));
@@ -20,20 +20,20 @@ void HookSwitch::init() const {
 void HookSwitch::process() {
   int newState = digitalRead(kHookSwitchPin);
 
-  if (newState != statePrevious) {
-    stateChangeTime = millis();
+  if (newState != _statePrevious) {
+    _stateChangeTime = millis();
   } else {
     // We must set to false here so that the two "justChanged" functions
     // can return true only once when the state changes.
-    stateChanged = false;
+    _stateChanged = false;
   }
 
-  if ((millis() - stateChangeTime) >= kHookDebounce) {
-    if (newState != state) {
-      state = newState;
-      stateChanged = true;
+  if ((millis() - _stateChangeTime) >= kHookDebounce) {
+    if (newState != _state) {
+      _state = newState;
+      _stateChanged = true;
 
-      if (state == LOW) {
+      if (_state == LOW) {
         Logger::infoln(F("Off hook!"));
       } else {
         Logger::infoln(F("On hook!"));
@@ -41,23 +41,23 @@ void HookSwitch::process() {
     }
   }
 
-  statePrevious = newState;
+  _statePrevious = newState;
 }
 
 bool HookSwitch::isOffHook() const {
-  return (state == LOW);
+  return (_state == LOW);
 }
 
 bool HookSwitch::isOnHook() const {
-  return (state == HIGH);
+  return (_state == HIGH);
 }
 
 bool HookSwitch::justChangedOffHook() {
-  if (stateChanged && isOffHook()) {
+  if (_stateChanged && isOffHook()) {
     // Clear the flag so that this won't return true again until the state
     // changes.
     // TODO: Is this bad practice?
-    stateChanged = false;
+    _stateChanged = false;
     return true;
   }
 
@@ -65,8 +65,8 @@ bool HookSwitch::justChangedOffHook() {
 }
 
 bool HookSwitch::justChangedOnHook() {
-  if (stateChanged && isOnHook()) {
-    stateChanged = false;
+  if (_stateChanged && isOnHook()) {
+    _stateChanged = false;
     return true;
   }
 
