@@ -1,9 +1,11 @@
 #pragma once
 
+#include "common/state.h"
+
 class Ringer {
 public:
   void init() const;
-  void process();
+  void process(State &state);
 
   void startRinging();
   void stopRinging();

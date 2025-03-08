@@ -22,11 +22,11 @@ void HookSwitch::process() {
 
   if (newState != _statePrevious) {
     _stateChangeTime = millis();
-  } else {
-    // We must set to false here so that the two "justChanged" functions
-    // can return true only once when the state changes.
-    _stateChanged = false;
   }
+
+  // We must set to false here so that the two "justChanged" functions
+  // can return true only once, exactly when the state changes.
+  _stateChanged = false;
 
   if ((millis() - _stateChangeTime) >= kHookDebounce) {
     if (newState != _state) {
@@ -53,22 +53,9 @@ bool HookSwitch::isOnHook() const {
 }
 
 bool HookSwitch::justChangedOffHook() {
-  if (_stateChanged && isOffHook()) {
-    // Clear the flag so that this won't return true again until the state
-    // changes.
-    // TODO: Is this bad practice?
-    _stateChanged = false;
-    return true;
-  }
-
-  return false;
+  return _stateChanged && isOffHook();
 }
 
 bool HookSwitch::justChangedOnHook() {
-  if (_stateChanged && isOnHook()) {
-    _stateChanged = false;
-    return true;
-  }
-
-  return false;
+  return _stateChanged && isOnHook();
 }

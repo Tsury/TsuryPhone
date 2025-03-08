@@ -6,3 +6,4 @@ ColumnLimit: 100
 AllowShortFunctionsOnASingleLine: Empty
 FixNamespaceComments: false
 NamespaceIndentation: All
+ConstructorInitializerAllOnOneLineOrOnePerLine: true

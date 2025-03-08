@@ -1,7 +1,7 @@
 #pragma once
 
-#include "common/common.h"
 #include "common/ringBuffer.h"
+#include "common/state.h"
 #include "config.h"
 #include "generated/mp3.h"
 #include <Arduino.h>
@@ -25,33 +25,6 @@ enum class Tone {
   AmericanDialTone = 20,
 };
 
-struct CallState {
-  int callId;
-  int callWaitingId;
-  bool isCallWaitingOnHold = false;
-  char callerNumber[kSmallBufferSize];
-
-  CallState() : callId(-1), callWaitingId(-1), isCallWaitingOnHold(false), callerNumber("") {}
-
-  CallState(const char *number,
-            const int callId,
-            const int callWaitingId = -1,
-            const bool callWaitingOnHold = false)
-      : callId(callId), callWaitingId(callWaitingId), isCallWaitingOnHold(callWaitingOnHold) {
-    strncpy(callerNumber, number, kSmallBufferSize - 1);
-    callerNumber[kSmallBufferSize - 1] = '\0';
-  }
-};
-
-struct StateResult {
-  AppState newState;
-  AppState prevState;
-  char callerNumber[kSmallBufferSize];
-  char message[kBigBufferSize];
-  bool messageHandled;
-  bool callWaiting;
-};
-
 enum class VolumeMode { Earpiece, Speaker };
 
 struct PendingMp3 {
@@ -67,9 +40,11 @@ public:
   Modem();
 
   void init();
-  void process(const StateResult &result);
+  void process(const State &state);
 
-  StateResult deriveNewStateFromMessage(const AppState &currState);
+  void startModem();
+
+  void deriveStateFromMessage(State &currState);
 
   void enqueueCall(const char *number);
   void hangUp();
@@ -81,7 +56,7 @@ public:
   void sendCommand(const __FlashStringHelper *command);
   void sendCommand(const char *command);
 
-  void playTone(const int toneId, const int duration);
+  void playTone(const Tone toneId, const int duration);
   void stopTone();
 
   void sendCheckHardwareCommand();
@@ -106,13 +81,14 @@ private:
   void disableUnneededFeatures();
 
   void setVolume(const int volume);
+  void setMicGain(const int gain);
 
   bool messageAvailable() const;
+  bool isKnownMessage(const char *msg) const;
 
   RingBuffer<PendingMp3, 10> _pendingMp3Queue = RingBuffer<PendingMp3, 10>();
   VolumeMode _volumeMode = VolumeMode::Earpiece;
   TinyGsm _modemImpl;
-  CallState _callState;
 
   char _enqueuedCall[kSmallBufferSize] = "";
   bool _audioPlaying = false;

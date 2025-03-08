@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Arduino.h"
+#include <Arduino.h>
 
 enum class DialedNumberValidationResult { Valid, Pending, Invalid };
 

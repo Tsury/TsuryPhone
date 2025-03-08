@@ -2,9 +2,13 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat="
 
-#include "common.h"
+#include "consts.h"
 #include <Arduino.h>
 #include <stdio.h>
+
+#ifdef WEB_SERIAL
+#include <WebSerial.h>
+#endif
 
 enum class LogLevel { Debug = 0, Info, Warn, Error };
 
@@ -20,6 +24,10 @@ namespace Logger {
     char buffer[kBigBufferSize];
     snprintf(buffer, sizeof(buffer), format, args...);
     Serial.printf("%S %s\n", prefix, buffer);
+
+#ifdef WEB_SERIAL
+    WebSerial.printf("%S %s\n", prefix, buffer);
+#endif
   }
 
   template <typename... Args>
@@ -27,6 +35,10 @@ namespace Logger {
     char buffer[kBigBufferSize];
     snprintf(buffer, sizeof(buffer), format, args...);
     Serial.printf("%s %s", prefix, buffer);
+
+#ifdef WEB_SERIAL
+    WebSerial.printf("%s %s", prefix, buffer);
+#endif
   }
 
   template <typename... Args>
@@ -35,6 +47,10 @@ namespace Logger {
     char buffer[kBigBufferSize];
     snprintf_P(buffer, sizeof(buffer), reinterpret_cast<PGM_P>(format), args...);
     Serial.printf("%S %s\n", prefix, buffer);
+
+#ifdef WEB_SERIAL
+    WebSerial.printf("%S %s\n", prefix, buffer);
+#endif
   }
 
   template <typename... Args>
@@ -42,6 +58,10 @@ namespace Logger {
     char buffer[kBigBufferSize];
     snprintf_P(buffer, sizeof(buffer), reinterpret_cast<PGM_P>(format), args...);
     Serial.printf("%s %s", prefix, buffer);
+
+#ifdef WEB_SERIAL
+    WebSerial.printf("%s %s", prefix, buffer);
+#endif
   }
 
   template <typename... Args> inline void debugln(const char *format, const Args... args) {

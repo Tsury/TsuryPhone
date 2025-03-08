@@ -1,0 +1,1 @@
+python generate.py -o ../src/generated/phoneBook.h

@@ -1,164 +1,195 @@
 #include "main.h"
-#include "common/common.h"
-#include "common/helpers.h"
 #include "common/logger.h"
+#include "common/phoneBook.h"
+#include "common/string.h"
+#include "generated/phoneBook.h"
 
 namespace {
   const constexpr int kSerialBaudRate = kModemBaudRate;
   const constexpr int kCheckHardwareTimeout = 1500;
   const constexpr int kCheckLineTimeout = 1500;
+  const constexpr int kCallDroppedToneDuration = 5000;
+  const constexpr int kDialToneDuration = 100000;
+  const constexpr int kResetToneDuration = 500;
+  const constexpr int kWifiPortalToneDuration = 500;
+  const constexpr int kToggleVolumeToneDuration = 75;
+  const constexpr int kCallWaitingToneDuration = 500;
+  const constexpr int kInvalidNumberMp3RepeatCount = 100;
 }
 
 PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi() {}
 
 void PhoneApp::setup() {
   Serial.begin(kSerialBaudRate);
+
   Logger::infoln(F("TsuryPhone starting..."));
 
+  _wifi.init();
   _modem.init();
   _ringer.init();
   _rotaryDial.init();
   _hookSwitch.init();
-  _wifi.init();
+  _timeManager.init();
+
+  Logger::infoln(F("TsuryPhone started!"));
 
   setState(AppState::CheckHardware);
 }
 
 void PhoneApp::loop() {
-#if DEBUG
+#ifdef DEBUG
   if (Serial.available()) {
     char c = Serial.read();
     Serial.write(c);
     SerialAT.write(c);
-
-    if (c == '\r') {
-      Serial.write('\n');
-      SerialAT.write('\n');
-    }
   }
 #endif
 
-  processState();
+  // This is not the best way to do this, but I prefered it to having the state
+  // change inside the ringer loop, and have a designated state (e.g. AfterFirstRing)
+  // to handle this.
+  // Basically I need to know as soon as the first ring is over, so I can play the
+  // MP3 for the caller, to fit between the first and second ring.
+  // The MP3 is not played immediately, to not surprise the user.
+  bool prevRangAtLeastOnce = _state.callState.rangAtLeastOnce;
 
-  _ringer.process();
+  _modem.deriveStateFromMessage(_state);
+
+  _modem.process(_state);
   _wifi.process();
   _hookSwitch.process();
   _rotaryDial.process();
+  _ringer.process(_state);
+  _timeManager.process(_state);
 
-  StateResult stateResult = _modem.deriveNewStateFromMessage(_state);
-  _modem.process(stateResult);
+  bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
 
-  if (strlen(stateResult.callerNumber) > 0) {
-    Logger::infoln(F("We have caller number for state: %s"),
-                   appStateToString(stateResult.newState));
-    Logger::infoln(F("Caller number: %s"), stateResult.callerNumber);
+  if (afterFirstRing || _state.prevAppState != _state.newAppState) {
+    onStateChanged();
   }
 
-  if (stateResult.newState != _state) {
-    setState(stateResult.newState, stateResult);
-  }
+  processState();
 }
 
-void PhoneApp::setState(const AppState newState, const StateResult &result) {
-#if DEBUG
-  if (_state == newState) {
-    Logger::infoln(F("Retrying state %s"), appStateToString(_state));
-  } else {
-    Logger::infoln(
-        F("Changing state from %s to %s"), appStateToString(_state), appStateToString(newState));
+void PhoneApp::setState(const AppState newState) {
+  if (_state.newAppState == newState) {
+    return;
   }
-#endif
 
-  _state = newState;
+  _state.prevAppState = _state.newAppState;
+  _state.newAppState = newState;
+
+  onStateChanged();
+}
+
+void PhoneApp::onStateChanged() {
+  if (_state.newAppState == _state.prevAppState) {
+    Logger::infoln(F("Retrying state %s"), appStateToString(_state.newAppState));
+  } else {
+    Logger::infoln(F("Changing state from %s to %s"),
+                   appStateToString(_state.prevAppState),
+                   appStateToString(_state.newAppState));
+  }
+
   _stateTime = millis();
 
-  switch (newState) {
+  switch (_state.newAppState) {
   case AppState::CheckHardware:
-    onSetStateCheckHardwareState();
+    onStateCheckHardware();
     break;
   case AppState::CheckLine:
-    onSetStateCheckLineState();
+    onStateCheckLine();
     break;
   case AppState::Idle:
-    onSetStateIdleState();
+    onStateIdle();
     break;
   case AppState::IncomingCall:
-    onSetStateIncomingCallState(result);
-    break;
   case AppState::IncomingCallRing:
-    onSetStateIncomingCallRingState();
+    onStateIncomingCall();
     break;
   case AppState::InCall:
-    onSetStateInCallState();
+    onStateInCall();
     break;
   case AppState::Dialing:
-    break;
-  case AppState::WifiTool:
     break;
   default:
     break;
   }
 }
 
-void PhoneApp::onSetStateCheckHardwareState() {
+void PhoneApp::onStateCheckHardware() {
   _modem.sendCheckHardwareCommand();
 }
 
-void PhoneApp::onSetStateCheckLineState() {
+void PhoneApp::onStateCheckLine() {
   _modem.sendCheckLineCommand();
 }
 
-void PhoneApp::onSetStateIdleState() {
-  _ringer.stopRinging();
+void PhoneApp::onStateIdle() {
+  stopEverything();
+  _modem.setSpeakerVolume();
 
-  if (_firstTimeSystemReady) {
-    return;
+  if (_state.callState.otherPartyDropped) {
+    _modem.playTone(Tone::CallWaitingTone, kCallDroppedToneDuration);
   }
 
-  _firstTimeSystemReady = true;
-  _modem.enqueueMp3(state_ready);
-  // modem.playTone(1, 10000);
-  Logger::infoln(F("System ready!"));
+  if (!_firstTimeSystemReady) {
+    _firstTimeSystemReady = true;
+    _modem.enqueueMp3(state_ready);
+
+    Logger::infoln(F("System ready!"));
+  }
 }
 
-void PhoneApp::onSetStateIncomingCallState(const StateResult &result) {
-  // TODO: BIG TODO!!
-  // Need to only play the caller mp3 after the first ring!
-  if (result.callerNumber[0] != '\0') {
-    if (hasMp3ForCaller(result.callerNumber)) {
-      Logger::infoln(F("Playing MP3 for caller: %s"), result.callerNumber);
-      _modem.setSpeakerVolume();
-      const char *mp3Ptr = getMp3ForCaller(result.callerNumber);
+void PhoneApp::onStateIncomingCall() {
+  CallState &callState = _state.callState;
+  char *callNumber = callState.callNumber;
+
+  if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
+    callState.introducedCaller = true;
+
+    if (hasMp3ForCall(callNumber)) {
+      Logger::infoln(F("Playing MP3 for caller: %s"), callNumber);
+      const char *mp3Ptr = getMp3ForCall(callNumber);
 
       if (mp3Ptr != nullptr) {
         _modem.enqueueMp3(mp3Ptr);
       } else {
-        Logger::errorln(F("No MP3 for caller: %s"), result.callerNumber);
+        Logger::errorln(F("No MP3 for caller: %s"), callNumber);
       }
-
-      _modem.setEarpieceVolume();
     } else {
-      Logger::infoln(F("No MP3 for caller: %s"), result.callerNumber);
+      Logger::infoln(F("No MP3 for caller: %s"), callNumber);
       // TODO: TTS?
     }
   } else {
     // We ring on both incoming call and incoming call ring states.
+    Logger::infoln(F("Ringing..."));
     _ringer.startRinging();
   }
 }
 
-void PhoneApp::onSetStateIncomingCallRingState() {
-  Logger::infoln(F("Ringing..."));
-  _ringer.startRinging();
+void PhoneApp::processStateInvalidNumber() {
+  if (_hookSwitch.justChangedOnHook()) {
+    stopEverything();
+    setState(AppState::Idle);
+  }
 }
 
-void PhoneApp::onSetStateInCallState() {
+void PhoneApp::stopEverything() {
+  Logger::infoln(F("Stopping everything..."));
+  _modem.stopPlaying();
+  _modem.stopTone();
   _ringer.stopRinging();
+  _rotaryDial.resetCurrentNumber();
+}
+
+void PhoneApp::onStateInCall() {
+  stopEverything();
   _modem.setEarpieceVolume();
 }
 
 void PhoneApp::processState() {
-  switch (_state) {
+  switch (_state.newAppState) {
   case AppState::CheckHardware:
     processStateCheckHardware();
     break;
@@ -178,7 +209,8 @@ void PhoneApp::processState() {
   case AppState::IncomingCallRing:
     processStateIncomingCall();
     break;
-  case AppState::WifiTool:
+  case AppState::InvalidNumber:
+    processStateInvalidNumber();
     break;
   default:
     break;
@@ -187,43 +219,55 @@ void PhoneApp::processState() {
 
 void PhoneApp::processStateCheckHardware() {
   if (millis() - _stateTime > kCheckHardwareTimeout) {
-    setState(AppState::CheckHardware);
+    onStateChanged();
   }
 }
 
 void PhoneApp::processStateCheckLine() {
   if (millis() - _stateTime > kCheckLineTimeout) {
-    setState(AppState::CheckLine);
+    onStateChanged();
   }
 }
 
 void PhoneApp::processStateIdle() {
   if (_hookSwitch.justChangedOnHook()) {
-    _rotaryDial.resetCurrentNumber();
-    _modem.stopPlaying();
+    stopEverything();
+  } else if (_hookSwitch.justChangedOffHook()) {
+    _modem.playTone(Tone::DialTone, kDialToneDuration);
   }
 
   if (_hookSwitch.isOffHook()) {
     DialedNumberResult dialedNumberResult = _rotaryDial.getCurrentNumber();
-    char *dialedNumber = dialedNumberResult.callerNumber;
+    char *dialedNumber = dialedNumberResult.callNumber;
 
-    if (dialedNumberResult.dialedDigit != 99) {
+    if (dialedNumberResult.dialedDigit != kInvalidDialedDigit) {
+      _modem.stopTone();
       Logger::infoln(F("Dialed digit: %d"), dialedNumberResult.dialedDigit);
-      _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
-
       Logger::infoln(F("Dialed number: %s"), dialedNumber);
+
+      _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
     }
 
     DialedNumberValidationResult dialedNumberValidation = validateDialedNumber(dialedNumber);
 
-    if (dialedNumberValidation != DialedNumberValidationResult::Pending) {
-      if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
-        _modem.enqueueCall(dialedNumber);
-        _rotaryDial.resetCurrentNumber();
+    if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
+      if (strEqual(dialedNumber, kResetNumber)) {
+        _modem.playTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+        ESP.restart();
+      } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
+        _modem.playTone(Tone::GeneralBeep, kWifiPortalToneDuration);
+        _wifi.openConfigPortal();
       } else {
-        _modem.enqueueMp3(dial_error, 10);
+        const char *numberToDial = isPhoneBookEntry(dialedNumber)
+                                       ? getPhoneBookNumberForEntry(dialedNumber)
+                                       : dialedNumber;
+        _modem.enqueueCall(numberToDial);
+
         _rotaryDial.resetCurrentNumber();
       }
+    } else if (dialedNumberValidation == DialedNumberValidationResult::Invalid) {
+      _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+      setState(AppState::InvalidNumber);
     }
   }
 }
@@ -241,7 +285,6 @@ void PhoneApp::processStateDialing() {
 }
 
 void PhoneApp::processStateInCall() {
-  // TODO: This is copy-pasted from processStateDialing. Refactor!
   if (_hookSwitch.justChangedOnHook()) {
     _modem.hangUp();
   }
@@ -250,9 +293,15 @@ void PhoneApp::processStateInCall() {
 
   if (dialedDigit == 1) {
     Logger::infoln(F("Toggling volume..."));
+    _modem.playTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
     _modem.toggleVolume();
-  } else if (dialedDigit == 2) {
+  } else if (dialedDigit == 2 && _state.callState.hasCallWaiting()) {
     _modem.switchToCallWaiting();
+  }
+
+  if (_state.callState.hasCallWaiting() && !_state.callState.playedCallWaitingTone) {
+    _modem.playTone(Tone::IndianDialTone, kCallWaitingToneDuration);
+    _state.callState.playedCallWaitingTone = true;
   }
 
   _rotaryDial.resetCurrentNumber();

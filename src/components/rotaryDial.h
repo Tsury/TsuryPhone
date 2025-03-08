@@ -1,10 +1,12 @@
 #pragma once
 
-#include "common/common.h"
+#include "common/consts.h"
 #include <Arduino.h>
 
+const constexpr int kInvalidDialedDigit = 99;
+
 struct DialedNumberResult {
-  char callerNumber[kSmallBufferSize];
+  char callNumber[kSmallBufferSize];
   int dialedDigit;
 };
 
@@ -27,6 +29,6 @@ private:
   unsigned long _inDialChangeTime = 0;
   unsigned long _pulseChangeTime = 0;
 
-  char _dialedDigit = 99;
+  char _dialedDigit = kInvalidDialedDigit;
   char _currentNumber[kSmallBufferSize] = "";
 };

@@ -1,5 +1,4 @@
 #include "rotaryDial.h"
-#include "Arduino.h"
 #include "common/logger.h"
 #include "config.h"
 
@@ -17,7 +16,7 @@ void RotaryDial::init() const {
 }
 
 void RotaryDial::process() {
-  _dialedDigit = 99;
+  _dialedDigit = kInvalidDialedDigit;
 
   int newInDialedState = digitalRead(kRotaryDialInDialPin);
 
@@ -66,7 +65,7 @@ void RotaryDial::process() {
 
   _pulsePreviousState = newPulseState;
 
-  if (_dialedDigit != 99) {
+  if (_dialedDigit != kInvalidDialedDigit) {
     Logger::infoln(F("Dialed digit: %d"), _dialedDigit);
   }
 }
@@ -76,11 +75,11 @@ int RotaryDial::getDialedDigit() const {
 }
 
 DialedNumberResult RotaryDial::getCurrentNumber() {
-  DialedNumberResult res = {"", 99};
+  DialedNumberResult res = {"", kInvalidDialedDigit};
 
   int dialedDigit = getDialedDigit();
 
-  if (dialedDigit != 99) {
+  if (dialedDigit != kInvalidDialedDigit) {
     size_t len = strlen(_currentNumber);
 
     if (len < sizeof(_currentNumber) - 1) {
@@ -91,7 +90,7 @@ DialedNumberResult RotaryDial::getCurrentNumber() {
     res.dialedDigit = dialedDigit;
   }
 
-  snprintf(res.callerNumber, sizeof(res.callerNumber), "%s", _currentNumber);
+  snprintf(res.callNumber, sizeof(res.callNumber), "%s", _currentNumber);
 
   return res;
 }

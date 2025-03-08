@@ -1,13 +1,16 @@
 
 #include "modem.h"
-#include "Arduino.h"
-#include "common/common.h"
 #include "common/logger.h"
+#include "common/stream.h"
+#include "common/string.h"
+
+namespace {
+  constexpr std::array<const char *, 5> knownMessages = {
+      "ATE0", "+CCMXPLAY:", "+CCMXSTOP:", "+CSMS: 1,1,1", "NO CARRIER"};
 
 // Currently when developing and restarting a lot, I'm not interested
 // in restarting the modem every time. This low delay prevents it from
 // restarting when the modem is already on.
-namespace {
 #ifdef DEBUG
   const constexpr int kModemResetDelay = 50;
   const constexpr int kDebugModemInitializationDelay = 1750;
@@ -16,7 +19,6 @@ namespace {
 #endif
 
   const constexpr int kGenericDelay = 50;
-  const constexpr int kSendCommandBufferSize = 64;
 }
 
 Modem::Modem() : _modemImpl(SerialAT) {}
@@ -24,11 +26,20 @@ Modem::Modem() : _modemImpl(SerialAT) {}
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
 
+  startModem();
+  disableUnneededFeatures();
+  enableHangUp();
+  stopTone();
+
+  Logger::infoln(F("Modem initialized!"));
+}
+
+void Modem::startModem() {
   SerialAT.begin(kModemBaudRate, SERIAL_8N1, kModemRxPin, kModemTxPin);
 
 #ifdef BOARD_POWERON_PIN
-  pinMode(kBoardPowerOnPin, OUTPUT);
-  digitalWrite(kBoardPowerOnPin, HIGH);
+  pinMode(BOARD_POWERON_PIN, OUTPUT);
+  digitalWrite(BOARD_POWERON_PIN, HIGH);
 #endif
 
   pinMode(kModemResetPin, OUTPUT);
@@ -45,36 +56,39 @@ void Modem::init() {
     delay(kGenericDelay);
   }
 
-  // Seems like this delay is only required when debugging - it's related to the
-  // serial monitor.
+// Seems like this delay is only required when debugging - it's related to the
+// serial monitor. When not using this delay, a modem error occurs on startup.
 #ifdef DEBUG
   delay(kDebugModemInitializationDelay);
 #endif
-
-  disableUnneededFeatures();
-  enableHangUp();
-
-  Logger::infoln(F("Modem initialized!"));
 }
 
 void Modem::disableUnneededFeatures() {
-  // Disable command echo.
+  // Disables command echo.
   sendCommand(F("E0"));
 
-  // Disable SMS service.
+  // Disables enhanced SMS messaging services and advanced features,
+  // reverting the modem to basic SMS mode.
   sendCommand(F("+CSMS=0"));
 
-  // Disable new SMS indications.
+  // Disables unsolicited new message indications.
   sendCommand(F("+CNMI=0,0,0,0,0"));
 
-  // Disable network registration unsolicited result code.
+  // Disables network registration unsolicited result codes (GSM).
   sendCommand(F("+CREG=0"));
 
-  // Disable GPRS unsolicited result code.
+  // Disables GPRS registration unsolicited result codes.
   sendCommand(F("+CGREG=0"));
 
-  // Disable EPS network registration status unsolicited result code.
+  // Disables EPS (E-UTRAN) network registration unsolicited result codes.
   sendCommand(F("+CEREG=0"));
+
+  // Disables connected line identification presentation notifications.
+  sendCommand(F("+COLP=0"));
+
+  // Disables unsolicited PDP context event notifications.
+  sendCommand(F("+CGEREP=0"));
+  ;
 }
 
 void Modem::enableHangUp() {
@@ -85,14 +99,20 @@ void Modem::setVolume(const int volume) {
   sendCommand(F("+COUTGAIN=%d"), volume);
 }
 
+void Modem::setMicGain(const int gain) {
+  sendCommand(F("+CMICGAIN=%d"), gain);
+}
+
 void Modem::setEarpieceVolume() {
   _volumeMode = VolumeMode::Earpiece;
   setVolume(kEarpieceVolume);
+  setMicGain(kEarpieceMicGain);
 }
 
 void Modem::setSpeakerVolume() {
   _volumeMode = VolumeMode::Speaker;
   setVolume(kSpeakerVolume);
+  setMicGain(kSpeakerMicGain);
 }
 
 void Modem::toggleVolume() {
@@ -104,7 +124,7 @@ void Modem::toggleVolume() {
 }
 
 void Modem::enqueueCall(const char *number) {
-  if (strlen(_enqueuedCall) > 0) {
+  if (_enqueuedCall[0] != '\0') {
     Logger::warnln(F("Call already enqueued!"));
     return;
   }
@@ -134,12 +154,8 @@ void Modem::answer() {
 }
 
 void Modem::switchToCallWaiting() {
-  if (_callState.callWaitingId == -1) {
-    Logger::warnln(F("No call waiting to switch to!"));
-    return;
-  }
+  Logger::infoln(F("Switching to call waiting..."));
 
-  Logger::infoln(F("Switching to call waiting %d..."), _callState.callWaitingId);
   sendCommand(F("+CHLD=2"));
   verifyCallState();
 }
@@ -152,40 +168,57 @@ bool Modem::messageAvailable() const {
   return SerialAT.available() > 0;
 }
 
-StateResult Modem::deriveNewStateFromMessage(const AppState &currState) {
-  StateResult result = {currState, currState, "", "", true, false};
+bool Modem::isKnownMessage(const char *msg) const {
+  return std::any_of(knownMessages.begin(), knownMessages.end(), [msg](const char *known) {
+    return strEqual(msg, known);
+  });
+}
+
+void Modem::deriveStateFromMessage(State &state) {
+  state.prevAppState = state.newAppState;
+  state.lastModemMessage[0] = '\0';
+  state.messageHandled = true;
 
   if (!messageAvailable()) {
-    return result;
+    return;
   }
 
   char msg[kBigBufferSize];
   readLineFromStream(SerialAT, msg, kBigBufferSize);
-  trimString(msg);
+  strTrim(msg);
 
-  if (strlen(msg) == 0) {
-    return result;
+  if (msg[0] == '\0') {
+    return;
   }
 
-  snprintf(result.message, kBigBufferSize, "%s", msg);
+  if (Modem::isKnownMessage(msg) || strStartsWith(msg, "VOICE CALL:") ||
+      strStartsWith(msg, "+CCWA")) {
+    return;
+  }
+
+  snprintf(state.lastModemMessage, kBigBufferSize, "%s", msg);
 
   Logger::infoln(F("Received from modem: %s"), msg);
 
-  if (strEqual(msg, "OK") && currState == AppState::CheckHardware) {
-    result.newState = AppState::CheckLine;
-  } else if (startsWith(msg, "+CGREG") && currState == AppState::CheckLine) {
+  AppState prevAppState = state.prevAppState;
+  CallState &callState = state.callState;
+
+  if (strEqual(msg, "OK") && prevAppState == AppState::CheckHardware) {
+    state.newAppState = AppState::CheckLine;
+  } else if (strStartsWith(msg, "+CGREG") && prevAppState == AppState::CheckLine) {
     int status = -1;
     int n = -1;
 
     sscanf(msg, "+CGREG: %d,%d", &status, &n);
 
+    // 0,1 means registered, home network
     if (status == 0 && n == 1) {
-      result.newState = AppState::Idle;
+      state.newAppState = AppState::Idle;
     }
-  } else if (startsWith(msg, "+CLCC") &&
-             (currState == AppState::Idle || currState == AppState::IncomingCall ||
-              currState == AppState::IncomingCallRing || currState == AppState::InCall ||
-              currState == AppState::Dialing)) {
+  } else if (strStartsWith(msg, "+CLCC") &&
+             (prevAppState == AppState::Idle || prevAppState == AppState::IncomingCall ||
+              prevAppState == AppState::IncomingCallRing || prevAppState == AppState::InCall ||
+              prevAppState == AppState::Dialing)) {
     int callId = -1;
     int callDirection = -1;
     int callStatus = -1;
@@ -219,106 +252,102 @@ StateResult Modem::deriveNewStateFromMessage(const AppState &currState) {
 
     switch (callStatus) {
     case 0:
-      // Call is active.
-      result.newState = AppState::InCall;
-      _callState =
-          CallState{callNumber, callId, _callState.callWaitingId, _callState.isCallWaitingOnHold};
+      // Active
+      state.newAppState = AppState::InCall;
+      callState.setcallNumber(callNumber);
+      callState.callId = callId;
       break;
     case 1:
-      Logger::infoln(F("Call %d is held."), callId);
-
-      // Call is held.
-      _callState.isCallWaitingOnHold = true;
-      _callState.callWaitingId = callId;
+      // Held
+      callState.isCallWaitingOnHold = true;
+      callState.callWaitingId = callId;
       break;
     case 2:
-      // Outgoing call initiated.
-      result.newState = AppState::Dialing;
+      // Dialing
+      state.newAppState = AppState::Dialing;
       break;
     case 3:
-      // Outgoing call ringing.
+      // Alerting (other party needs to pick up)
       break;
     case 4:
-      // Incoming call.
-      // TODO: Does this trigger when receiving a call waiting?
-      result.newState = AppState::IncomingCall;
-      snprintf(result.callerNumber, kSmallBufferSize, "%s", callNumber);
+      // Incoming (doesn't include call waiting)
+      state.newAppState = AppState::IncomingCall;
+      callState.setcallNumber(callNumber);
+      callState.callId = callId;
       break;
     case 5:
-      // Call waiting.
-      _callState.callWaitingId = callId;
-      result.callWaiting = true;
+      // Waiting
+      callState.callWaitingId = callId;
       break;
     case 6:
-      // Call is disconnected.
-      // TODO: Handle case when call is disconnected and we have a call waiting.
-      if (_callState.callId == callId) {
-        Logger::infoln(F("Current call %d is disconnected."), callId);
+      // Disconnected (by the other party)
+      // TODO: I have chosen not to handle the very rare case of having the other party disconnect
+      // the incoming call, all the while there's a call waiting (not on hold).
+      if (callState.callId == callId) {
+        Logger::infoln(F("Current call %d was disconnected by the other party."), callId);
 
-        if (_callState.isCallWaitingOnHold) {
-          Logger::infoln(F("We have call waiting %d..."), _callState.callWaitingId);
+        if (callState.isCallWaitingOnHold) {
+          Logger::infoln(F("Switching to call waiting %d..."), callState.callWaitingId);
+
+          callState.isCallWaitingOnHold = false;
+          callState.callId = callState.callWaitingId;
+          callState.callWaitingId = -1;
           switchToCallWaiting();
-          _callState.isCallWaitingOnHold = false;
-          _callState.callId = _callState.callWaitingId;
-          _callState.callWaitingId = -1;
-          // TODO: Will CLCC take care of setting the new call number?
         } else {
-          Logger::infoln(F("No call waiting."));
-          result.newState = AppState::Idle;
-          _callState = CallState{"", -1, -1, false};
+          state.newAppState = AppState::Idle;
+          state.callState = CallState{};
+          state.callState.otherPartyDropped = true;
         }
-      } else if (_callState.callWaitingId == callId) {
-        Logger::infoln(F("Call waiting %d is disconnected."), callId);
-        _callState.callWaitingId = -1;
-        _callState.isCallWaitingOnHold = false;
+      } else if (callState.callWaitingId == callId) {
+        Logger::infoln(F("Call waiting %d was disconnected by the other party."), callId);
+        callState.callWaitingId = -1;
+        callState.isCallWaitingOnHold = false;
       } else {
-        result.newState = AppState::Idle;
-
-        // TODO: Probably only need to print here is if we were in an active
-        // call, and not ringing/incoming call.
-        Logger::warnln(F("Unknown call %d is disconnected."), callId);
+        state.newAppState = AppState::Idle;
+        state.callState = CallState{};
+        Logger::warnln(F("Unknown call %d was disconnected by the other party."), callId);
       }
       break;
     default:
       Logger::warnln(F("Unknown call status: %d"), callStatus);
       break;
     }
-  } else if (startsWith(msg, "RING")) {
-    if ((currState == AppState::IncomingCall || currState == AppState::Idle)) {
-      result.newState = AppState::IncomingCallRing;
-    } else if (currState == AppState::IncomingCallRing) {
-      result.newState = AppState::IncomingCall;
+  } else if (strStartsWith(msg, "RING")) {
+    if ((prevAppState == AppState::IncomingCall || prevAppState == AppState::Idle)) {
+      state.newAppState = AppState::IncomingCallRing;
+    } else if (prevAppState == AppState::IncomingCallRing) {
+      state.newAppState = AppState::IncomingCall;
     }
-  } else if (startsWith(msg, "+CPAS") &&
-             (currState == AppState::IncomingCallRing || currState == AppState::IncomingCall ||
-              currState == AppState::InCall || currState == AppState::Dialing)) {
+  } else if (strStartsWith(msg, "+CPAS") &&
+             (prevAppState == AppState::IncomingCallRing ||
+              prevAppState == AppState::IncomingCall || prevAppState == AppState::InCall ||
+              prevAppState == AppState::Dialing)) {
     int callStatus = -1;
 
     sscanf(msg, "+CPAS: %d", &callStatus);
 
-    // TODO: What does this show when we have a call waiting?
     Logger::infoln(F("Call Status: %d"), callStatus);
 
     switch (callStatus) {
-    // CPAS values:
-    // 0: Ready (not in call)
-    // 3: Ringing
-    // 4: Call in progress
     case 0:
-      result.newState = AppState::Idle;
+      // Ready
+      state.newAppState = AppState::Idle;
+      state.callState = CallState{};
+      break;
+    case 3:
+      // Ringing
       break;
     case 4:
-      result.newState = AppState::InCall;
+      // Call in progress
+      state.newAppState = AppState::InCall;
       break;
     }
   } else {
-    result.messageHandled = false;
+    state.messageHandled = false;
   }
-
-  return result;
 }
 
-void Modem::process(const StateResult &result) {
+void Modem::process(const State &state) {
   if (!_audioPlaying) {
     playPendingMp3();
 
@@ -327,51 +356,39 @@ void Modem::process(const StateResult &result) {
     }
   }
 
-  if (!result.messageHandled && strlen(result.message) > 0) {
-    if (startsWith(result.message, "+AUDIOSTATE: ")) {
-      if (strEqual(result.message, "+AUDIOSTATE: audio play stop")) {
-        Logger::infoln(F("Audio stopped."));
-        _audioPlaying = false;
-      } else if (strEqual(result.message, "+AUDIOSTATE: audio play")) {
-        Logger::infoln(F("Audio playing..."));
-        _audioPlaying = true;
-      }
-    } else if (startsWith(result.message, "AT+STTONE=1")) {
-      int toneId = -1;
-      int duration = -1;
-
-      sscanf(result.message, "AT+STTONE=1,%d,%d", &toneId, &duration);
-      _tonePlaying = true;
-
-      Logger::infoln(F("Playing tone %d for %dms."), toneId, duration);
-    } else if (strEqual(result.message, "+STTONE: 0")) {
-      Logger::infoln(F("Tone stopped."));
-      _tonePlaying = false;
-    } else {
-      // TODO: Maybe put these in some collection/function.
-      if (!strEqual(result.message, "OK") && !strEqual(result.message, "ATE0") &&
-          !strEqual(result.message, "+CCMXPLAY:") && !strEqual(result.message, "+CSMS: 1,1,1")) {
-        Logger::infoln(F("Unknown message: %s"), result.message);
-      }
-    }
-  }
-
-  if (result.newState == result.prevState) {
+  if (state.messageHandled || state.lastModemMessage[0] == '\0') {
     return;
   }
 
-  if (result.newState == AppState::InCall) {
-    setEarpieceVolume();
-  }
+  if (strStartsWith(state.lastModemMessage, "+AUDIOSTATE: ")) {
+    if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play stop")) {
+      Logger::infoln(F("Audio stopped."));
+      _audioPlaying = false;
+    } else if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play")) {
+      Logger::infoln(F("Audio playing..."));
+      _audioPlaying = true;
+    }
+  } else if (strStartsWith(state.lastModemMessage, "AT+STTONE=1")) {
+    int toneId = -1;
+    int duration = -1;
 
-  if (result.newState == AppState::Idle) {
-    setSpeakerVolume();
+    sscanf(state.lastModemMessage, "AT+STTONE=1,%d,%d", &toneId, &duration);
+    _tonePlaying = true;
+
+    Logger::infoln(F("Playing tone %d for %dms."), toneId, duration);
+  } else if (strEqual(state.lastModemMessage, "+STTONE: 0")) {
+    Logger::infoln(F("Tone stopped."));
+    _tonePlaying = false;
+  } else {
+    if (!strEqual(state.lastModemMessage, "OK")) {
+      Logger::infoln(F("Unknown message: %s"), state.lastModemMessage);
+    }
   }
 }
 
 template <typename... Args>
 inline void Modem::sendCommand(const __FlashStringHelper *command, Args... args) {
-  char buffer[kSendCommandBufferSize];
+  char buffer[kMediumBufferSize];
   snprintf_P(buffer, sizeof(buffer), reinterpret_cast<PGM_P>(command), args...);
   sendCommand(buffer);
 }
@@ -399,7 +416,7 @@ void Modem::sendCheckLineCommand() {
   sendCommand(F("+CGREG?"));
 }
 
-void Modem::playTone(const int toneId, const int duration) {
+void Modem::playTone(const Tone toneId, const int duration) {
   sendCommand(F("+STTONE=1,%d,%d"), toneId, duration);
 }
 
@@ -408,22 +425,23 @@ void Modem::stopTone() {
 }
 
 void Modem::playMp3(const char *fileName, const int repeat) {
+  // Setting true and not waiting for the AUDIOSTATE message to make sure nothing
+  // gets in the way of playing the MP3 (call/other MP3).
   _audioPlaying = true;
 
   Logger::infoln(F("Playing MP3: %s"), fileName);
 
-  if (fileName == nullptr) {
-    _audioPlaying = false;
+  if (fileName != nullptr) {
+    char playCmd[kBigBufferSize];
+    snprintf(playCmd, sizeof(playCmd), "+CCMXPLAY=\"%s/%s\",0,%d", kMp3Dir, fileName, repeat);
+
+    sendCommand(playCmd);
+
+    Logger::infoln(F("Playing MP3: %s success!"), fileName);
+  } else {
     Logger::errorln(F("Error: MP3File has a null fileName!"));
-    return;
+    _audioPlaying = false;
   }
-
-  char playCmd[kBigBufferSize];
-  snprintf(playCmd, sizeof(playCmd), "+CCMXPLAY=\"%s/%s\",0,%d", kMp3Dir, fileName, repeat);
-
-  sendCommand(playCmd);
-
-  Logger::infoln(F("Playing MP3: %s success!"), fileName);
 }
 
 void Modem::enqueueMp3(const char *file, const int repeat) {
@@ -444,7 +462,7 @@ void Modem::playPendingMp3() {
 }
 
 void Modem::callPending() {
-  if (strlen(_enqueuedCall) == 0) {
+  if (_enqueuedCall[0] == '\0') {
     return;
   }
 

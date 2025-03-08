@@ -1,6 +1,6 @@
 #include "timeManager.h"
-#include "Arduino.h"
-#include "common/logger.h"
+#include "config.h"
+#include "logger.h"
 #include <stdio.h>
 #include <time.h>
 
@@ -8,10 +8,15 @@ namespace {
   const constexpr char *kNtpServer = "pool.ntp.org";
   const constexpr long kGmtOffsetSec = 7200;
   const constexpr int kDaylightOffsetSec = 3600;
+  const constexpr int kDndCheckIntervalMillis = 60000;
 }
 
 void TimeManager::init() const {
+  Logger::infoln(F("Initializing time manager..."));
+
   configTime(kGmtOffsetSec, kDaylightOffsetSec, kNtpServer);
+
+  Logger::infoln(F("Time manager initialized!"));
 }
 
 bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
@@ -23,38 +28,37 @@ bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
   return true;
 }
 
-LocalTimeShort TimeManager::getLocalTimeShort() const {
-  LocalTimeShort localTime;
-  struct tm timeinfo;
-  if (!fetchLocalTime(timeinfo)) {
-    return LocalTimeShort();
-  }
-  localTime.hour = timeinfo.tm_hour;
-  localTime.minute = timeinfo.tm_min;
-  return localTime;
-}
+void TimeManager::process(State &state) {
+  unsigned long currentMillis = millis();
 
-LocalTimeFull TimeManager::getLocalTimeFull() const {
-  LocalTimeFull localTime = {};
+  // _lastDndCheckTime != 0 is a workaround for the first time the time manager is called.
+  if (currentMillis - _lastDndCheckTime < kDndCheckIntervalMillis && _lastDndCheckTime != 0) {
+    return;
+  }
+
+  _lastDndCheckTime = currentMillis;
+
   struct tm timeinfo;
 
   if (!fetchLocalTime(timeinfo)) {
-    return localTime;
+    state.isDnd = false;
+    return;
   }
 
-  strftime(localTime.formatted, sizeof(localTime.formatted), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-  strftime(localTime.dayOfWeek, sizeof(localTime.dayOfWeek), "%A", &timeinfo);
-  strftime(localTime.month, sizeof(localTime.month), "%B", &timeinfo);
+  int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  int startMinutes = kDndStartHour * 60 + kDndStartMinute;
+  int endMinutes = kDndEndHour * 60 + kDndEndMinute;
 
-  localTime.day = timeinfo.tm_mday;
-  localTime.year = timeinfo.tm_year + 1900;
-  localTime.hour = timeinfo.tm_hour;
-  localTime.minute = timeinfo.tm_min;
-  localTime.second = timeinfo.tm_sec;
+  bool isDnd;
 
-  return localTime;
-}
+  if (startMinutes < endMinutes) {
+    isDnd = (currentMinutes >= startMinutes && currentMinutes < endMinutes);
+  } else {
+    isDnd = (currentMinutes >= startMinutes || currentMinutes < endMinutes);
+  }
 
-void TimeManager::process() const {
-  // TODO: Implement
+  state.isDnd = isDnd;
+
+  Logger::debugln(F("Current time: %02d:%02d"), timeinfo.tm_hour, timeinfo.tm_min);
+  Logger::debugln(F("DND state: %s"), state.isDnd ? F("true") : F("false"));
 }

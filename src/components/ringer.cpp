@@ -1,7 +1,7 @@
 #include "ringer.h"
-#include "Arduino.h"
 #include "common/logger.h"
 #include "config.h"
+#include <Arduino.h>
 
 namespace {
   const constexpr int kRingCycleDuration = 30;
@@ -32,13 +32,19 @@ void Ringer::startRinging() {
   _ringState = false;
 }
 
-void Ringer::process() {
+void Ringer::process(State &state) {
   if (!_ringing) {
+    return;
+  }
+
+  if (state.isDnd) {
+    stopRinging();
     return;
   }
 
   if (millis() - _ringStartTime >= kRingDuration) {
     stopRinging();
+    state.callState.rangAtLeastOnce = true;
     return;
   }
 

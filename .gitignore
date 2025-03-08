@@ -3,3 +3,5 @@
 mp3/mp3/*.*
 mp3/generated/*.*
 src/generated/*.*
+phoneBook/pb.txt
+mp3/numbers.txt
