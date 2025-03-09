@@ -296,7 +296,7 @@ void Modem::deriveStateFromMessage(State &state) {
         } else {
           state.newAppState = AppState::Idle;
           state.callState = CallState{};
-          state.callState.otherPartyDropped = true;
+          state.callState.otherPartyDropped = prevAppState == AppState::InCall;
         }
       } else if (callState.callWaitingId == callId) {
         Logger::infoln(F("Call waiting %d was disconnected by the other party."), callId);
