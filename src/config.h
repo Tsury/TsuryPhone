@@ -7,6 +7,7 @@ const constexpr char kMp3Dir[] = "C:/mp3";
 const constexpr char *kWifiWebPortalNumber = "3123";
 const constexpr char *kWifiSsid = "TsuryPhone";
 const constexpr char *kResetNumber = "5555";
+const constexpr char *timeZone = "IST-2IDT,M3.4.4/26,M10.5.0";
 const constexpr int kEarpieceVolume = 2;
 const constexpr int kEarpieceMicGain = 2;
 const constexpr int kSpeakerVolume = 2;

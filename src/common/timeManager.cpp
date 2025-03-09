@@ -6,15 +6,13 @@
 
 namespace {
   const constexpr char *kNtpServer = "pool.ntp.org";
-  const constexpr long kGmtOffsetSec = 7200;
-  const constexpr int kDaylightOffsetSec = 3600;
   const constexpr int kDndCheckIntervalMillis = 60000;
 }
 
 void TimeManager::init() const {
   Logger::infoln(F("Initializing time manager..."));
 
-  configTime(kGmtOffsetSec, kDaylightOffsetSec, kNtpServer);
+  configTzTime(timeZone, kNtpServer);
 
   Logger::infoln(F("Time manager initialized!"));
 }
