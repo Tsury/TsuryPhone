@@ -88,7 +88,10 @@ void Modem::disableUnneededFeatures() {
 
   // Disables unsolicited PDP context event notifications.
   sendCommand(F("+CGEREP=0"));
-  ;
+
+  // Disables Extended Discontinuous Reception (eDRX) to ensure
+  // immediate network responsiveness for voice calls.
+  sendCommand(F("+CEDRXS=0"));
 }
 
 void Modem::enableHangUp() {
