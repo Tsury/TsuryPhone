@@ -16,6 +16,6 @@ private:
   bool _ringing = false;
   bool _ringState = false;
 
-  unsigned long _ringStartTime = 0;
-  unsigned long _lastCycleTime = 0;
+  unsigned long _ringStartTime = 0UL;
+  unsigned long _lastCycleTime = 0UL;
 };

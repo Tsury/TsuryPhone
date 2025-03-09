@@ -94,4 +94,5 @@ private:
   bool _audioPlaying = false;
   bool _tonePlaying = false;
   bool _lastTimeCheckedLine = false;
+  unsigned long _lastKeepAliveSent = 0UL;
 };

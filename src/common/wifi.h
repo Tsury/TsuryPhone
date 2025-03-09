@@ -20,6 +20,6 @@ private:
   WiFiManager _wifiManager;
 
 #ifdef WEB_SERIAL
-  unsigned long _lastWebSerialPrint = 0;
+  unsigned long _lastWebSerialPrint = 0UL;
 #endif
 };
