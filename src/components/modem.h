@@ -86,6 +86,10 @@ private:
   bool messageAvailable() const;
   bool isKnownMessage(const char *msg) const;
 
+  void keepAliveWatchdog();
+  void sendKeepAlive();
+  void resetModem();
+
   RingBuffer<PendingMp3, 10> _pendingMp3Queue = RingBuffer<PendingMp3, 10>();
   VolumeMode _volumeMode = VolumeMode::Earpiece;
   TinyGsm _modemImpl;
@@ -94,5 +98,7 @@ private:
   bool _audioPlaying = false;
   bool _tonePlaying = false;
   bool _lastTimeCheckedLine = false;
+  bool _keepAlivePending = false;
+
   unsigned long _lastKeepAliveSent = 0UL;
 };

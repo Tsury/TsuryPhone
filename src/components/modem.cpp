@@ -1,4 +1,3 @@
-
 #include "modem.h"
 #include "common/logger.h"
 #include "common/stream.h"
@@ -8,10 +7,10 @@ namespace {
   constexpr std::array<const char *, 5> knownMessages = {
       "ATE0", "+CCMXPLAY:", "+CCMXSTOP:", "+CSMS: 1,1,1", "NO CARRIER"};
 
-// Currently when developing and restarting a lot, I'm not interested
-// in restarting the modem every time. This low delay prevents it from
-// restarting when the modem is already on.
 #ifdef DEBUG
+  // Currently when developing and restarting a lot, I'm not interested
+  // in restarting the modem every time. This low delay prevents it from
+  // restarting when the modem is already on.
   const constexpr int kModemResetDelay = 50;
   const constexpr int kDebugModemInitializationDelay = 1750;
 #else
@@ -19,9 +18,14 @@ namespace {
 #endif
 
   const constexpr int kGenericDelay = 50;
+
+  // TODO: Check how this affects power consumption.
+  const constexpr unsigned long kKeepAliveIntervalMs = 30000UL;
+  const constexpr unsigned long kKeepAliveTimeoutMs = 5000UL;
+
 }
 
-Modem::Modem() : _modemImpl(SerialAT) {}
+Modem::Modem() : _modemImpl(SerialAT), _keepAlivePending(false), _lastKeepAliveSent(0) {}
 
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
@@ -56,11 +60,14 @@ void Modem::startModem() {
     delay(kGenericDelay);
   }
 
-// Seems like this delay is only required when debugging - it's related to the
-// serial monitor. When not using this delay, a modem error occurs on startup.
 #ifdef DEBUG
+  // Seems like this delay is only required when debugging - it's related to the
+  // serial monitor. When not using this delay, a modem error occurs on startup.
   delay(kDebugModemInitializationDelay);
 #endif
+
+  _keepAlivePending = false;
+  _lastKeepAliveSent = millis();
 }
 
 void Modem::disableUnneededFeatures() {
@@ -192,6 +199,10 @@ void Modem::deriveStateFromMessage(State &state) {
 
   if (msg[0] == '\0') {
     return;
+  }
+
+  if (strEqual(msg, "OK") && _keepAlivePending) {
+    _keepAlivePending = false;
   }
 
   if (Modem::isKnownMessage(msg) || strStartsWith(msg, "VOICE CALL:") ||
@@ -359,6 +370,8 @@ void Modem::process(const State &state) {
     }
   }
 
+  keepAliveWatchdog();
+
   if (state.messageHandled || state.lastModemMessage[0] == '\0') {
     return;
   }
@@ -387,6 +400,32 @@ void Modem::process(const State &state) {
       Logger::infoln(F("Unknown message: %s"), state.lastModemMessage);
     }
   }
+}
+
+void Modem::keepAliveWatchdog() {
+  unsigned long now = millis();
+
+  if (!_keepAlivePending) {
+    if ((now - _lastKeepAliveSent) >= kKeepAliveIntervalMs) {
+      sendKeepAlive();
+      _lastKeepAliveSent = now;
+      _keepAlivePending = true;
+    }
+  } else {
+    if ((now - _lastKeepAliveSent) > kKeepAliveTimeoutMs) {
+      Logger::warnln(F("No keep-alive response, resetting modem..."));
+      resetModem();
+    }
+  }
+}
+
+void Modem::sendKeepAlive() {
+  _modemImpl.sendAT("");
+}
+
+void Modem::resetModem() {
+  startModem();
+  Logger::warnln(F("Modem has been reset via keep-alive watchdog."));
 }
 
 template <typename... Args>
