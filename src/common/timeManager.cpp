@@ -1,8 +1,8 @@
 #include "timeManager.h"
 #include "config.h"
 #include "logger.h"
-#include <stdio.h>
-#include <time.h>
+#include <cstdio>
+#include <ctime>
 
 namespace {
   const constexpr char *kNtpServer = "pool.ntp.org";
@@ -27,7 +27,7 @@ bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
 }
 
 void TimeManager::process(State &state) {
-  unsigned long currentMillis = millis();
+  uint32_t currentMillis = millis();
 
   // _lastDndCheckTime != 0 is a workaround for the first time the time manager is called.
   if (currentMillis - _lastDndCheckTime < kDndCheckIntervalMillis && _lastDndCheckTime != 0) {
@@ -43,9 +43,9 @@ void TimeManager::process(State &state) {
     return;
   }
 
-  int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  int startMinutes = kDndStartHour * 60 + kDndStartMinute;
-  int endMinutes = kDndEndHour * 60 + kDndEndMinute;
+  const int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  const int startMinutes = kDndStartHour * 60 + kDndStartMinute;
+  const int endMinutes = kDndEndHour * 60 + kDndEndMinute;
 
   bool isDnd;
 

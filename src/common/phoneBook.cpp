@@ -22,7 +22,7 @@ DialedNumberValidationResult validateDialedNumber(const char *number) {
     if (len < 2) {
       res = DialedNumberValidationResult::Pending;
     } else {
-      char second = number[1];
+      const char second = number[1];
 
       // Landline patterns: 9-digit numbers starting with 02,03,04,08,09.
       if (second == '2' || second == '3' || second == '4' || second == '8' || second == '9') {

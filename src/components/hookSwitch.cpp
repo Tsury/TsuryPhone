@@ -7,7 +7,7 @@ namespace {
 }
 
 HookSwitch::HookSwitch()
-    : _state(HIGH), _statePrevious(HIGH), _stateChangeTime(0), _stateChanged(false) {}
+    : _state(HIGH), _statePrevious(HIGH), _stateChangeTime(0UL), _stateChanged(false) {}
 
 void HookSwitch::init() const {
   Logger::infoln(F("Initializing hook switch..."));

@@ -47,6 +47,6 @@ private:
   TimeManager _timeManager;
   State _state = {AppState::Startup, AppState::Startup, CallState(), "", false, false};
 
-  unsigned long _stateTime = 0UL;
+  uint32_t _stateTime = 0UL;
   bool _firstTimeSystemReady = false;
 };

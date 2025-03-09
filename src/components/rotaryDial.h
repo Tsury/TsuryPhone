@@ -26,8 +26,8 @@ private:
   int _pulsePreviousState = HIGH;
   int _counter = 0;
 
-  unsigned long _inDialChangeTime = 0UL;
-  unsigned long _pulseChangeTime = 0UL;
+  uint32_t _inDialChangeTime = 0UL;
+  uint32_t _pulseChangeTime = 0UL;
 
   char _dialedDigit = kInvalidDialedDigit;
   char _currentNumber[kSmallBufferSize] = "";

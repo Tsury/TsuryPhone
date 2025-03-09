@@ -77,7 +77,7 @@ int RotaryDial::getDialedDigit() const {
 DialedNumberResult RotaryDial::getCurrentNumber() {
   DialedNumberResult res = {"", kInvalidDialedDigit};
 
-  int dialedDigit = getDialedDigit();
+  const int dialedDigit = getDialedDigit();
 
   if (dialedDigit != kInvalidDialedDigit) {
     size_t len = strlen(_currentNumber);

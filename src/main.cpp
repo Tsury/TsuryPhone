@@ -51,7 +51,7 @@ void PhoneApp::loop() {
   // Basically I need to know as soon as the first ring is over, so I can play the
   // MP3 for the caller, to fit between the first and second ring.
   // The MP3 is not played immediately, to not surprise the user.
-  bool prevRangAtLeastOnce = _state.callState.rangAtLeastOnce;
+  const bool prevRangAtLeastOnce = _state.callState.rangAtLeastOnce;
 
   _modem.deriveStateFromMessage(_state);
 
@@ -62,7 +62,7 @@ void PhoneApp::loop() {
   _ringer.process(_state);
   _timeManager.process(_state);
 
-  bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
+  const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
 
   if (afterFirstRing || _state.prevAppState != _state.newAppState) {
     onStateChanged();
@@ -248,7 +248,7 @@ void PhoneApp::processStateIdle() {
       _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
     }
 
-    DialedNumberValidationResult dialedNumberValidation = validateDialedNumber(dialedNumber);
+    const DialedNumberValidationResult dialedNumberValidation = validateDialedNumber(dialedNumber);
 
     if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
       if (strEqual(dialedNumber, kResetNumber)) {
@@ -289,7 +289,7 @@ void PhoneApp::processStateInCall() {
     _modem.hangUp();
   }
 
-  int dialedDigit = _rotaryDial.getDialedDigit();
+  const int dialedDigit = _rotaryDial.getDialedDigit();
 
   if (dialedDigit == 1) {
     Logger::infoln(F("Toggling volume..."));

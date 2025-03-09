@@ -11,5 +11,5 @@ public:
 private:
   bool fetchLocalTime(struct tm &timeinfo) const;
 
-  unsigned long _lastDndCheckTime = 0UL;
+  uint32_t _lastDndCheckTime = 0UL;
 };

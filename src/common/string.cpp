@@ -4,7 +4,7 @@
 void strTrim(char *str) {
   int start = 0;
 
-  while (str[start] && isspace((unsigned char)str[start])) {
+  while (str[start] && isspace(static_cast<unsigned char>(str[start]))) {
     start++;
   }
 
@@ -21,7 +21,7 @@ void strTrim(char *str) {
 
   int end = strlen(str) - 1;
 
-  while (end >= 0 && isspace((unsigned char)str[end])) {
+  while (end >= 0 && isspace(static_cast<unsigned char>(str[end]))) {
     str[end] = '\0';
     end--;
   }

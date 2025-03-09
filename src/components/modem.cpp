@@ -20,12 +20,12 @@ namespace {
   const constexpr int kGenericDelay = 50;
 
   // TODO: Check how this affects power consumption.
-  const constexpr unsigned long kKeepAliveIntervalMs = 30000UL;
-  const constexpr unsigned long kKeepAliveTimeoutMs = 5000UL;
+  const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
+  const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
 
 }
 
-Modem::Modem() : _modemImpl(SerialAT), _keepAlivePending(false), _lastKeepAliveSent(0) {}
+Modem::Modem() : _modemImpl(SerialAT), _keepAlivePending(false), _lastKeepAliveSent(0UL) {}
 
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
@@ -214,7 +214,7 @@ void Modem::deriveStateFromMessage(State &state) {
 
   Logger::infoln(F("Received from modem: %s"), msg);
 
-  AppState prevAppState = state.prevAppState;
+  const AppState prevAppState = state.prevAppState;
   CallState &callState = state.callState;
 
   if (strEqual(msg, "OK") && prevAppState == AppState::CheckHardware) {
@@ -355,6 +355,9 @@ void Modem::deriveStateFromMessage(State &state) {
       // Call in progress
       state.newAppState = AppState::InCall;
       break;
+    default:
+      Logger::warnln(F("Unknown call status: %d"), callStatus);
+      break;
     }
   } else {
     state.messageHandled = false;
@@ -403,7 +406,7 @@ void Modem::process(const State &state) {
 }
 
 void Modem::keepAliveWatchdog() {
-  unsigned long now = millis();
+  uint32_t now = millis();
 
   if (!_keepAlivePending) {
     if ((now - _lastKeepAliveSent) >= kKeepAliveIntervalMs) {
@@ -487,7 +490,7 @@ void Modem::playMp3(const char *fileName, const int repeat) {
 }
 
 void Modem::enqueueMp3(const char *file, const int repeat) {
-  PendingMp3 pending = {file, repeat};
+  const PendingMp3 pending = {file, repeat};
   _pendingMp3Queue.push(pending);
 }
 
@@ -498,7 +501,7 @@ void Modem::playPendingMp3() {
 
   Logger::infoln(F("Playing pending MP3..."));
 
-  PendingMp3 pending = _pendingMp3Queue.front();
+  const PendingMp3 pending = _pendingMp3Queue.front();
   _pendingMp3Queue.pop();
   playMp3(pending.filename, pending.repeat);
 }

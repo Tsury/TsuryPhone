@@ -17,6 +17,6 @@ public:
 private:
   int _state = HIGH;
   int _statePrevious = HIGH;
-  unsigned long _stateChangeTime = 0UL;
+  uint32_t _stateChangeTime = 0UL;
   bool _stateChanged = false;
 };

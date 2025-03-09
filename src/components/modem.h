@@ -100,5 +100,5 @@ private:
   bool _lastTimeCheckedLine = false;
   bool _keepAlivePending = false;
 
-  unsigned long _lastKeepAliveSent = 0UL;
+  uint32_t _lastKeepAliveSent = 0UL;
 };

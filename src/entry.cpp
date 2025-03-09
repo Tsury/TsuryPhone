@@ -1,11 +1,14 @@
 #include "main.h"
 
-PhoneApp app;
+PhoneApp &getApp() {
+  static PhoneApp app;
+  return app;
+}
 
 void setup() {
-  app.setup();
+  getApp().setup();
 }
 
 void loop() {
-  app.loop();
+  getApp().loop();
 }
