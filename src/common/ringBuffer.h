@@ -58,6 +58,11 @@ public:
     return _buffer[_tail];
   }
 
+  void clear() {
+    _head = _tail;
+    _full = false;
+  }
+
 private:
   T _buffer[N];
   size_t _head;

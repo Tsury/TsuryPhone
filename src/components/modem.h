@@ -27,6 +27,16 @@ enum class Tone {
 
 enum class VolumeMode { Earpiece, Speaker };
 
+enum class AudioType { Tone, Mp3 };
+
+struct AudioItem {
+  AudioType type;
+  Tone toneId;
+  int toneDuration;
+  const char *filename;
+  int repeat;
+};
+
 struct PendingMp3 {
   PendingMp3() : filename(nullptr), repeat(0) {}
   PendingMp3(const char *filename, const int repeat = 0) : filename(filename), repeat(repeat) {}
@@ -42,8 +52,6 @@ public:
   void init();
   void process(const State &state);
 
-  void startModem();
-
   void deriveStateFromMessage(State &currState);
 
   void enqueueCall(const char *number);
@@ -51,13 +59,11 @@ public:
   void answer();
   void switchToCallWaiting();
 
-  template <typename... Args> void sendCommand(const __FlashStringHelper *command, Args... args);
-  void sendCommand(const StringSumHelper &command);
-  void sendCommand(const __FlashStringHelper *command);
-  void sendCommand(const char *command);
-
-  void playTone(const Tone toneId, const int duration);
+  void enqueueTone(const Tone toneId, const int duration);
   void stopTone();
+  void enqueueMp3(const char *file, const int repeat = 0);
+  void stopMp3();
+  void stopAllAudio();
 
   void sendCheckHardwareCommand();
   void sendCheckLineCommand();
@@ -66,12 +72,18 @@ public:
   void setEarpieceVolume();
   void setSpeakerVolume();
 
-  void enqueueMp3(const char *file, const int repeat = 0);
-  void stopPlaying();
-
 private:
-  void playMp3(const char *file, const int repeat = 0);
-  void playPendingMp3();
+  void startModem();
+
+  template <typename... Args> void sendCommand(const __FlashStringHelper *command, Args... args);
+  void sendCommand(const StringSumHelper &command);
+  void sendCommand(const __FlashStringHelper *command);
+  void sendCommand(const char *command);
+
+  void playMp3(const char *fileName, const int repeat = 0);
+  void playTone(const Tone toneId, const int duration);
+  bool hasAudioToPlay();
+  void playNextAudioItem();
 
   void callPending();
   void call(const char *number);
@@ -90,15 +102,17 @@ private:
   void sendKeepAlive();
   void resetModem();
 
-  RingBuffer<PendingMp3, 10> _pendingMp3Queue = RingBuffer<PendingMp3, 10>();
+  RingBuffer<AudioItem, 10> _audioQueue;
+
   VolumeMode _volumeMode = VolumeMode::Earpiece;
   TinyGsm _modemImpl;
 
   char _enqueuedCall[kSmallBufferSize] = "";
-  bool _audioPlaying = false;
-  bool _tonePlaying = false;
+
+  bool _isPlayingAudio = false;
   bool _lastTimeCheckedLine = false;
   bool _keepAlivePending = false;
 
+  uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
 };

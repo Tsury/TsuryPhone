@@ -23,6 +23,8 @@ namespace {
   const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
   const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
 
+  // A safety margin between audio plays to prevent conflicts.
+  static constexpr int kIntervalBetweenAudioPlaysMillis = 40;
 }
 
 Modem::Modem() : _modemImpl(SerialAT), _keepAlivePending(false), _lastKeepAliveSent(0UL) {}
@@ -31,9 +33,6 @@ void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
 
   startModem();
-  disableUnneededFeatures();
-  enableHangUp();
-  stopTone();
 
   Logger::infoln(F("Modem initialized!"));
 }
@@ -66,8 +65,9 @@ void Modem::startModem() {
   delay(kDebugModemInitializationDelay);
 #endif
 
-  _keepAlivePending = false;
-  _lastKeepAliveSent = millis();
+  disableUnneededFeatures();
+  enableHangUp();
+  stopAllAudio();
 }
 
 void Modem::disableUnneededFeatures() {
@@ -365,13 +365,8 @@ void Modem::deriveStateFromMessage(State &state) {
 }
 
 void Modem::process(const State &state) {
-  if (!_audioPlaying) {
-    playPendingMp3();
-
-    if (!_audioPlaying) {
-      callPending();
-    }
-  }
+  playNextAudioItem();
+  callPending();
 
   keepAliveWatchdog();
 
@@ -382,22 +377,16 @@ void Modem::process(const State &state) {
   if (strStartsWith(state.lastModemMessage, "+AUDIOSTATE: ")) {
     if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play stop")) {
       Logger::infoln(F("Audio stopped."));
-      _audioPlaying = false;
+      _isPlayingAudio = false;
+      _lastAudioStopMillis = millis();
     } else if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play")) {
       Logger::infoln(F("Audio playing..."));
-      _audioPlaying = true;
+      _isPlayingAudio = true;
     }
-  } else if (strStartsWith(state.lastModemMessage, "AT+STTONE=1")) {
-    int toneId = -1;
-    int duration = -1;
-
-    sscanf(state.lastModemMessage, "AT+STTONE=1,%d,%d", &toneId, &duration);
-    _tonePlaying = true;
-
-    Logger::infoln(F("Playing tone %d for %dms."), toneId, duration);
   } else if (strEqual(state.lastModemMessage, "+STTONE: 0")) {
     Logger::infoln(F("Tone stopped."));
-    _tonePlaying = false;
+    _isPlayingAudio = false;
+    _lastAudioStopMillis = millis();
   } else {
     if (!strEqual(state.lastModemMessage, "OK")) {
       Logger::infoln(F("Unknown message: %s"), state.lastModemMessage);
@@ -428,6 +417,8 @@ void Modem::sendKeepAlive() {
 
 void Modem::resetModem() {
   startModem();
+  _keepAlivePending = false;
+  _lastKeepAliveSent = millis();
   Logger::warnln(F("Modem has been reset via keep-alive watchdog."));
 }
 
@@ -461,64 +452,100 @@ void Modem::sendCheckLineCommand() {
   sendCommand(F("+CGREG?"));
 }
 
-void Modem::playTone(const Tone toneId, const int duration) {
-  sendCommand(F("+STTONE=1,%d,%d"), toneId, duration);
+void Modem::enqueueTone(const Tone toneId, const int duration) {
+  AudioItem item{AudioType::Tone, toneId, duration, nullptr, 0};
+  _audioQueue.push(item);
 }
 
 void Modem::stopTone() {
   sendCommand(F("+STTONE=0"));
 }
 
+void Modem::enqueueMp3(const char *file, const int repeat) {
+  AudioItem item{AudioType::Mp3, Tone::DialTone, 0, file, repeat};
+  _audioQueue.push(item);
+}
+
+void Modem::stopMp3() {
+  sendCommand(F("+CCMXSTOP"));
+}
+
+void Modem::stopAllAudio() {
+  _audioQueue.clear();
+  stopTone();
+  stopMp3();
+  _isPlayingAudio = false;
+  _lastAudioStopMillis = 0UL;
+}
+
+void Modem::playTone(const Tone toneId, const int duration) {
+  // We set this right away so the next item won't start
+  _isPlayingAudio = true;
+  sendCommand(F("+STTONE=1,%d,%d"), toneId, duration);
+}
+
 void Modem::playMp3(const char *fileName, const int repeat) {
-  // Setting true and not waiting for the AUDIOSTATE message to make sure nothing
-  // gets in the way of playing the MP3 (call/other MP3).
-  _audioPlaying = true;
+  // We set this right away so the next item won't start
+  _isPlayingAudio = true;
 
   Logger::infoln(F("Playing MP3: %s"), fileName);
 
   if (fileName != nullptr) {
     char playCmd[kBigBufferSize];
     snprintf(playCmd, sizeof(playCmd), "+CCMXPLAY=\"%s/%s\",0,%d", kMp3Dir, fileName, repeat);
-
     sendCommand(playCmd);
 
     Logger::infoln(F("Playing MP3: %s success!"), fileName);
   } else {
     Logger::errorln(F("Error: MP3File has a null fileName!"));
-    _audioPlaying = false;
+    _isPlayingAudio = false;
   }
 }
 
-void Modem::enqueueMp3(const char *file, const int repeat) {
-  const PendingMp3 pending = {file, repeat};
-  _pendingMp3Queue.push(pending);
+bool Modem::hasAudioToPlay() {
+  return !_audioQueue.empty();
 }
 
-void Modem::playPendingMp3() {
-  if (_pendingMp3Queue.empty()) {
+void Modem::playNextAudioItem() {
+  if (_isPlayingAudio) {
     return;
   }
 
-  Logger::infoln(F("Playing pending MP3..."));
+  if (!hasAudioToPlay()) {
+    return;
+  }
 
-  const PendingMp3 pending = _pendingMp3Queue.front();
-  _pendingMp3Queue.pop();
-  playMp3(pending.filename, pending.repeat);
+  // Wait a bit between audio plays to prevent conflicts
+  if (millis() - _lastAudioStopMillis < kIntervalBetweenAudioPlaysMillis) {
+    return;
+  }
+
+  const AudioItem &nextItem = _audioQueue.front();
+
+  switch (nextItem.type) {
+  case AudioType::Tone:
+    Logger::infoln(F("Playing queued tone..."));
+    playTone(nextItem.toneId, nextItem.toneDuration);
+    break;
+  case AudioType::Mp3:
+    Logger::infoln(F("Playing queued MP3..."));
+    playMp3(nextItem.filename, nextItem.repeat);
+    break;
+  }
+
+  // Once we've initiated play, pop it from the queue
+  _audioQueue.pop();
 }
 
 void Modem::callPending() {
+  if (_isPlayingAudio) {
+    return;
+  }
+
   if (_enqueuedCall[0] == '\0') {
     return;
   }
 
   call(_enqueuedCall);
   _enqueuedCall[0] = '\0';
-}
-
-void Modem::stopPlaying() {
-  if (!_audioPlaying) {
-    return;
-  }
-
-  sendCommand(F("+CCMXSTOP"));
 }

@@ -9,7 +9,7 @@ namespace {
   const constexpr int kCheckHardwareTimeout = 1500;
   const constexpr int kCheckLineTimeout = 1500;
   const constexpr int kCallDroppedToneDuration = 5000;
-  const constexpr int kDialToneDuration = 100000;
+  const constexpr int kDialToneDuration = 1000000;
   const constexpr int kResetToneDuration = 500;
   const constexpr int kWifiPortalToneDuration = 500;
   const constexpr int kToggleVolumeToneDuration = 75;
@@ -130,7 +130,7 @@ void PhoneApp::onStateIdle() {
   _modem.setSpeakerVolume();
 
   if (_state.callState.otherPartyDropped) {
-    _modem.playTone(Tone::CallWaitingTone, kCallDroppedToneDuration);
+    _modem.enqueueTone(Tone::CallWaitingTone, kCallDroppedToneDuration);
   }
 
   if (!_firstTimeSystemReady) {
@@ -177,8 +177,7 @@ void PhoneApp::processStateInvalidNumber() {
 
 void PhoneApp::stopEverything() {
   Logger::infoln(F("Stopping everything..."));
-  _modem.stopPlaying();
-  _modem.stopTone();
+  _modem.stopAllAudio();
   _ringer.stopRinging();
   _rotaryDial.resetCurrentNumber();
 }
@@ -233,7 +232,7 @@ void PhoneApp::processStateIdle() {
   if (_hookSwitch.justChangedOnHook()) {
     stopEverything();
   } else if (_hookSwitch.justChangedOffHook()) {
-    _modem.playTone(Tone::DialTone, kDialToneDuration);
+    _modem.enqueueTone(Tone::DialTone, kDialToneDuration);
   }
 
   if (_hookSwitch.isOffHook()) {
@@ -252,10 +251,10 @@ void PhoneApp::processStateIdle() {
 
     if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
       if (strEqual(dialedNumber, kResetNumber)) {
-        _modem.playTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+        _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
         ESP.restart();
       } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
-        _modem.playTone(Tone::GeneralBeep, kWifiPortalToneDuration);
+        _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
         _wifi.openConfigPortal();
       } else {
         const char *numberToDial = isPhoneBookEntry(dialedNumber)
@@ -293,14 +292,14 @@ void PhoneApp::processStateInCall() {
 
   if (dialedDigit == 1) {
     Logger::infoln(F("Toggling volume..."));
-    _modem.playTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
+    _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
     _modem.toggleVolume();
   } else if (dialedDigit == 2 && _state.callState.hasCallWaiting()) {
     _modem.switchToCallWaiting();
   }
 
   if (_state.callState.hasCallWaiting() && !_state.callState.playedCallWaitingTone) {
-    _modem.playTone(Tone::IndianDialTone, kCallWaitingToneDuration);
+    _modem.enqueueTone(Tone::IndianDialTone, kCallWaitingToneDuration);
     _state.callState.playedCallWaitingTone = true;
   }
 
