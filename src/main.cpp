@@ -8,7 +8,7 @@ namespace {
   const constexpr int kSerialBaudRate = kModemBaudRate;
   const constexpr int kCheckHardwareTimeout = 1500;
   const constexpr int kCheckLineTimeout = 1500;
-  const constexpr int kCallDroppedToneDuration = 5000;
+  const constexpr int kCallDroppedToneDuration = 1000000;
   const constexpr int kDialToneDuration = 1000000;
   const constexpr int kResetToneDuration = 500;
   const constexpr int kWifiPortalToneDuration = 500;
