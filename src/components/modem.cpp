@@ -294,6 +294,9 @@ void Modem::deriveStateFromMessage(State &state) {
       callState.callWaitingId = callId;
       break;
     case 6:
+      // Since at least one party dropped, reset the call waiting tone state.
+      callState.playedCallWaitingTone = false;
+
       // Disconnected (by the other party)
       // TODO: I have chosen not to handle the very rare case of having the other party disconnect
       // the incoming call, all the while there's a call waiting (not on hold).
