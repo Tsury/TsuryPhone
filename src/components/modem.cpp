@@ -20,6 +20,7 @@ namespace {
   const constexpr int kGenericDelay = 50;
 
   // TODO: Check how this affects power consumption.
+  // TODO: Might make it more aggressive.
   const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
   const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
 
