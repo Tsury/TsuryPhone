@@ -10,9 +10,8 @@ namespace {
   const constexpr int kModemResetDelay = 1500;
   const constexpr int kGenericDelay = 50;
 
-  // TODO: Check how these affects power consumption.
-  const constexpr uint32_t kKeepAliveIntervalMs = 15000UL;
-  const constexpr uint32_t kKeepAliveTimeoutMs = 2500UL;
+  const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
+  const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
 
   // A safety margin between audio plays to prevent conflicts.
   static constexpr int kIntervalBetweenAudioPlaysMillis = 40;
