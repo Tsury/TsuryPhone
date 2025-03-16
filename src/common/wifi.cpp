@@ -88,6 +88,8 @@ void Wifi::processWebSerial() {
     WebSerial.print(F("IP address: "));
     WebSerial.println(WiFi.localIP());
     WebSerial.printf("Uptime: %lums\n", millis());
+    // TODO: Consider implementing a free heap watchdog that will reset the device if the free heap
+    // drops below a certain threshold.
     WebSerial.printf("Free heap: %u\n", ESP.getFreeHeap());
     _lastWebSerialPrint = millis();
   }
