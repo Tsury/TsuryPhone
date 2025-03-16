@@ -7,28 +7,18 @@ namespace {
   constexpr std::array<const char *, 5> knownMessages = {
       "ATE0", "+CCMXPLAY:", "+CCMXSTOP:", "+CSMS: 1,1,1", "NO CARRIER"};
 
-#ifdef DEBUG
-  // Currently when developing and restarting a lot, I'm not interested
-  // in restarting the modem every time. This low delay prevents it from
-  // restarting when the modem is already on.
-  const constexpr int kModemResetDelay = 50;
-  const constexpr int kDebugModemInitializationDelay = 1750;
-#else
   const constexpr int kModemResetDelay = 1500;
-#endif
-
   const constexpr int kGenericDelay = 50;
 
-  // TODO: Check how this affects power consumption.
-  // TODO: Might make it more aggressive.
-  const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
-  const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
+  // TODO: Check how these affects power consumption.
+  const constexpr uint32_t kKeepAliveIntervalMs = 15000UL;
+  const constexpr uint32_t kKeepAliveTimeoutMs = 2500UL;
 
   // A safety margin between audio plays to prevent conflicts.
   static constexpr int kIntervalBetweenAudioPlaysMillis = 40;
 }
 
-Modem::Modem() : _modemImpl(SerialAT), _keepAlivePending(false), _lastKeepAliveSent(0UL) {}
+Modem::Modem() : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL) {}
 
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
@@ -59,12 +49,6 @@ void Modem::startModem() {
   while (!_modemImpl.testAT(kGenericDelay)) {
     delay(kGenericDelay);
   }
-
-#ifdef DEBUG
-  // Seems like this delay is only required when debugging - it's related to the
-  // serial monitor. When not using this delay, a modem error occurs on startup.
-  delay(kDebugModemInitializationDelay);
-#endif
 
   disableUnneededFeatures();
   enableHangUp();
@@ -202,8 +186,8 @@ void Modem::deriveStateFromMessage(State &state) {
     return;
   }
 
-  if (strEqual(msg, "OK") && _keepAlivePending) {
-    _keepAlivePending = false;
+  if (strEqual(msg, "OK") && _waitingForKeepAlive) {
+    _waitingForKeepAlive = false;
   }
 
   if (Modem::isKnownMessage(msg) || strStartsWith(msg, "VOICE CALL:") ||
@@ -372,6 +356,7 @@ void Modem::process(const State &state) {
   playNextAudioItem();
   callPending();
 
+  // TODO: Maybe only call this when state is after AppState::CheckLine.
   keepAliveWatchdog();
 
   if (state.messageHandled || state.lastModemMessage[0] == '\0') {
@@ -400,17 +385,18 @@ void Modem::process(const State &state) {
 
 void Modem::keepAliveWatchdog() {
   uint32_t now = millis();
+  uint32_t timeSinceLastKeepAlive = now - _lastKeepAliveSent;
 
-  if (!_keepAlivePending) {
-    if ((now - _lastKeepAliveSent) >= kKeepAliveIntervalMs) {
-      sendKeepAlive();
-      _lastKeepAliveSent = now;
-      _keepAlivePending = true;
-    }
-  } else {
-    if ((now - _lastKeepAliveSent) > kKeepAliveTimeoutMs) {
+  if (_waitingForKeepAlive) {
+    if (timeSinceLastKeepAlive > kKeepAliveTimeoutMs) {
       Logger::warnln(F("No keep-alive response, resetting modem..."));
       resetModem();
+    }
+  } else {
+    if (timeSinceLastKeepAlive >= kKeepAliveIntervalMs) {
+      sendKeepAlive();
+      _lastKeepAliveSent = now;
+      _waitingForKeepAlive = true;
     }
   }
 }
@@ -421,7 +407,7 @@ void Modem::sendKeepAlive() {
 
 void Modem::resetModem() {
   startModem();
-  _keepAlivePending = false;
+  _waitingForKeepAlive = false;
   _lastKeepAliveSent = millis();
   Logger::warnln(F("Modem has been reset via keep-alive watchdog."));
 }

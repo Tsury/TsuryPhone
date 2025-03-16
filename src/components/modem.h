@@ -111,7 +111,7 @@ private:
 
   bool _isPlayingAudio = false;
   bool _lastTimeCheckedLine = false;
-  bool _keepAlivePending = false;
+  bool _waitingForKeepAlive = false;
 
   uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
