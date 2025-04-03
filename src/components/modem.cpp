@@ -190,6 +190,7 @@ void Modem::deriveStateFromMessage(State &state) {
 
   if (strEqual(msg, "OK") && _waitingForKeepAlive) {
     _waitingForKeepAlive = false;
+    Logger::infoln(F("Keep-alive received after %lu ms"), millis() - _lastKeepAliveSent);
   }
 
   if (Modem::isKnownMessage(msg) || strStartsWith(msg, "VOICE CALL:") ||
@@ -392,6 +393,7 @@ void Modem::keepAliveWatchdog() {
   if (_waitingForKeepAlive) {
     if (timeSinceLastKeepAlive > kKeepAliveTimeoutMs) {
       Logger::warnln(F("No keep-alive response, resetting modem..."));
+      Logger::infoln(F("Watchdog resets so far: %lu"), _watchdogResetCounter);
       resetModem();
     }
   } else {
@@ -404,6 +406,7 @@ void Modem::keepAliveWatchdog() {
 }
 
 void Modem::sendKeepAlive() {
+  Logger::infoln(F("Sending keep-alive..."));
   _modemImpl.sendAT("");
 }
 
@@ -411,6 +414,7 @@ void Modem::resetModem() {
   startModem();
   _waitingForKeepAlive = false;
   _lastKeepAliveSent = millis();
+  _watchdogResetCounter++;
   Logger::warnln(F("Modem has been reset via keep-alive watchdog."));
 }
 

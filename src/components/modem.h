@@ -115,4 +115,5 @@ private:
 
   uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
+  uint32_t _watchdogResetCounter = 0;
 };
