@@ -18,9 +18,9 @@ const constexpr int kDndEndHour = 8;
 const constexpr int kDndEndMinute = 30;
 
 // Pin definitions:
-const constexpr int kRingerIn1Pin = 19;
-const constexpr int kRingerIn2Pin = 18;
-const constexpr int kRingerInhPin = 5;
+const constexpr int kRingerIn1Pin = 33;
+const constexpr int kRingerIn2Pin = 12;
+const constexpr int kRingerInhPin = 32;
 const constexpr int kHookSwitchPin = 2;
 const constexpr int kRotaryDialInDialPin = 0;
 const constexpr int kRotaryDialPulsePin = 15;
