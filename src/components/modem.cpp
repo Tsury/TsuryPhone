@@ -83,6 +83,9 @@ void Modem::disableUnneededFeatures() {
   // Disables Extended Discontinuous Reception (eDRX) to ensure
   // immediate network responsiveness for voice calls.
   sendCommand(F("+CEDRXS=0"));
+
+  // Disables unsolicited Sim Toolkit Proactive Commands (STK) notifications.
+  sendCommand(F("+MSTK=0,0"));
 }
 
 void Modem::enableHangUp() {
