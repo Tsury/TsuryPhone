@@ -112,6 +112,9 @@ void writeMp3s() {
 
 void setup() {
   Serial.begin(115200);
+
+  Logger::infoln(F("TsuryPhone starting..."));
+
   SerialAT.begin(kModemBaudRate, SERIAL_8N1, kModemRxPin, kModemTxPin);
 
 #ifdef BOARD_POWERON_PIN
