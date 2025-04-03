@@ -393,7 +393,6 @@ void Modem::keepAliveWatchdog() {
   if (_waitingForKeepAlive) {
     if (timeSinceLastKeepAlive > kKeepAliveTimeoutMs) {
       Logger::warnln(F("No keep-alive response, resetting modem..."));
-      Logger::infoln(F("Watchdog resets so far: %lu"), _watchdogResetCounter);
       resetModem();
     }
   } else {
@@ -406,7 +405,7 @@ void Modem::keepAliveWatchdog() {
 }
 
 void Modem::sendKeepAlive() {
-  Logger::infoln(F("Sending keep-alive..."));
+  Logger::infoln(F("Sending keep-alive. (Watchdog resets so far: %lu)"), _watchdogResetCounter);
   _modemImpl.sendAT("");
 }
 
