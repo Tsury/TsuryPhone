@@ -73,7 +73,9 @@ public:
   void setSpeakerVolume();
 
 private:
-  void startModem();
+  void initModem();
+  void hardResetModem();
+  bool probeOK(uint32_t timeoutMs);
 
   template <typename... Args> void sendCommand(const __FlashStringHelper *command, Args... args);
   void sendCommand(const StringSumHelper &command);
@@ -91,6 +93,7 @@ private:
 
   void enableHangUp();
   void disableUnneededFeatures();
+  void disableUnneededFeaturesAfterInit();
 
   void setVolume(const int volume);
   void setMicGain(const int gain);
@@ -100,7 +103,7 @@ private:
 
   void keepAliveWatchdog();
   void sendKeepAlive();
-  void resetModem();
+  void reset();
 
   RingBuffer<AudioItem, 10> _audioQueue;
 

@@ -19,10 +19,11 @@ const constexpr int kDndEndMinute = 30;
 
 // Pin definitions:
 const constexpr int kRingerIn1Pin = 33;
-const constexpr int kRingerIn2Pin = 12;
+const constexpr int kRingerIn2Pin =
+    14; // The LilyGO-T-A7670E v1.0 uses pin 14 for DTR, but we don't use it.
 const constexpr int kRingerInhPin = 32;
-const constexpr int kHookSwitchPin = 2;
-const constexpr int kRotaryDialInDialPin = 0;
+const constexpr int kHookSwitchPin = 0;
+const constexpr int kRotaryDialInDialPin = 2;
 const constexpr int kRotaryDialPulsePin = 15;
 
 // Manufacturer definitions:

@@ -4,17 +4,61 @@
 #include "common/string.h"
 
 namespace {
-  constexpr std::array<const char *, 5> knownMessages = {
-      "ATE0", "+CCMXPLAY:", "+CCMXSTOP:", "+CSMS: 1,1,1", "NO CARRIER"};
+  constexpr std::array<const char *, 8> knownMessages = {"ATE0",
+                                                         "+CCMXPLAY:",
+                                                         "+CCMXSTOP:",
+                                                         "+CSMS: 1,1,1",
+                                                         "NO CARRIER",
+                                                         "+CPIN: READY",
+                                                         "SMS DONE",
+                                                         "PB DONE"};
 
-  const constexpr int kModemResetDelay = 1500;
-  const constexpr int kGenericDelay = 50;
+  const constexpr uint16_t kModemResetDelay = 1500;
 
+  const constexpr uint32_t kInitTimeoutMs = 5000UL;
   const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
   const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
 
+  const constexpr uint16_t kModemHardResetRetries = 5;
+  const constexpr uint32_t kModemHardResetRetryDelay = 500UL;
+  const constexpr uint32_t kModemHardResetTimeoutMs = 12000UL;
+
+  const constexpr uint16_t kResetSettleMs = 10;
+  const constexpr uint16_t kResetPullMs = 1600;
+
+  const constexpr uint16_t kPwrKeyLowMs = 70;
+  const constexpr uint16_t kPwrKeyHighMs = 120;
+
+  const constexpr uint16_t kProbeRespTimeoutMs = 200;
+  const constexpr uint16_t kProbeRetryDelayMs = 150;
+
   // A safety margin between audio plays to prevent conflicts.
-  static constexpr int kIntervalBetweenAudioPlaysMillis = 40;
+  const constexpr uint16_t kIntervalBetweenAudioPlaysMillis = 40;
+}
+
+bool Modem::probeOK(uint32_t timeoutMs) {
+  uint32_t start = millis();
+
+  unsigned long originalTimeout = SerialAT.getTimeout();
+  SerialAT.setTimeout(kProbeRespTimeoutMs);
+
+  bool found = false;
+
+  while (millis() - start < timeoutMs) {
+    SerialAT.print(F("AT\r"));
+
+    if (SerialAT.find((char *)"OK")) {
+      Logger::infoln(F("Modem OK! Took %lu ms"), millis() - start);
+      found = true;
+      break;
+    }
+
+    delay(kProbeRetryDelayMs);
+  }
+
+  SerialAT.setTimeout(originalTimeout);
+
+  return found;
 }
 
 Modem::Modem() : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL) {}
@@ -22,36 +66,60 @@ Modem::Modem() : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAli
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
 
-  startModem();
+  SerialAT.begin(kModemBaudRate, SERIAL_8N1, kModemRxPin, kModemTxPin);
+
+  pinMode(BOARD_POWERON_PIN, OUTPUT);
+  digitalWrite(BOARD_POWERON_PIN, HIGH);
+
+  initModem();
 
   Logger::infoln(F("Modem initialized!"));
 }
 
-void Modem::startModem() {
-  SerialAT.begin(kModemBaudRate, SERIAL_8N1, kModemRxPin, kModemTxPin);
+void Modem::initModem() {
+  bool modemUp = false;
+  uint8_t tries = 0;
 
-#ifdef BOARD_POWERON_PIN
-  pinMode(BOARD_POWERON_PIN, OUTPUT);
-  digitalWrite(BOARD_POWERON_PIN, HIGH);
-#endif
+  while (!modemUp && tries < kModemHardResetRetries) {
+    ++tries;
+    Logger::infoln(F("Modem start attempt %u…\n"), tries);
 
-  pinMode(kModemResetPin, OUTPUT);
-  digitalWrite(kModemResetPin, kModemResetLevel);
-  delay(kModemResetDelay);
-  digitalWrite(kModemResetPin, !kModemResetLevel);
+    hardResetModem();
 
-  pinMode(kBoardPowerKeyPin, OUTPUT);
-  digitalWrite(kBoardPowerKeyPin, HIGH);
-  delay(kGenericDelay);
-  digitalWrite(kBoardPowerKeyPin, LOW);
+    modemUp = probeOK(kModemHardResetTimeoutMs);
 
-  while (!_modemImpl.testAT(kGenericDelay)) {
-    delay(kGenericDelay);
+    if (!modemUp) {
+      Logger::warnln(F("No OK - retrying…"));
+      delay(kModemHardResetRetryDelay);
+    }
+  }
+
+  if (modemUp) {
+    Logger::infoln(F("Modem ready!"));
+  } else {
+    Logger::errorln(F("Modem unreachable - rebooting MCU in 5 s"));
+    ESP.restart();
   }
 
   disableUnneededFeatures();
   enableHangUp();
   stopAllAudio();
+}
+
+void Modem::hardResetModem() {
+  pinMode(kModemResetPin, OUTPUT);
+  digitalWrite(kModemResetPin, !kModemResetLevel);
+  delay(kResetSettleMs);
+  digitalWrite(kModemResetPin, kModemResetLevel);
+  delay(kResetPullMs);
+  digitalWrite(kModemResetPin, !kModemResetLevel);
+
+  pinMode(kBoardPowerKeyPin, OUTPUT);
+  digitalWrite(kBoardPowerKeyPin, LOW);
+  delay(kPwrKeyLowMs);
+  digitalWrite(kBoardPowerKeyPin, HIGH);
+  delay(kPwrKeyHighMs);
+  digitalWrite(kBoardPowerKeyPin, LOW);
 }
 
 void Modem::disableUnneededFeatures() {
@@ -74,9 +142,6 @@ void Modem::disableUnneededFeatures() {
   // Disables EPS (E-UTRAN) network registration unsolicited result codes.
   sendCommand(F("+CEREG=0"));
 
-  // Disables connected line identification presentation notifications.
-  sendCommand(F("+COLP=0"));
-
   // Disables unsolicited PDP context event notifications.
   sendCommand(F("+CGEREP=0"));
 
@@ -86,6 +151,17 @@ void Modem::disableUnneededFeatures() {
 
   // Disables unsolicited Sim Toolkit Proactive Commands (STK) notifications.
   sendCommand(F("+MSTK=0,0"));
+
+  // Disables DTR.AT
+  sendCommand(F("&D0"));
+
+  // Disables UART sleep.
+  sendCommand(F("+CSCLK=0"));
+}
+
+void Modem::disableUnneededFeaturesAfterInit() {
+  // Disables connected line identification presentation notifications.
+  sendCommand(F("+COLP=0"));
 }
 
 void Modem::enableHangUp() {
@@ -216,6 +292,11 @@ void Modem::deriveStateFromMessage(State &state) {
     // 0,1 means registered, home network
     if (status == 0 && n == 1) {
       state.newAppState = AppState::Idle;
+
+      // TODO: I didn't want to add side effects to this function, but this is kinda tame.
+      // The "correct" way would be to do this from the main loop - onStateIdle should do this
+      // if the previous state was AppState::CheckLine.
+      disableUnneededFeaturesAfterInit();
     }
   } else if (strStartsWith(msg, "+CLCC") &&
              (prevAppState == AppState::Idle || prevAppState == AppState::IncomingCall ||
@@ -393,7 +474,7 @@ void Modem::keepAliveWatchdog() {
   if (_waitingForKeepAlive) {
     if (timeSinceLastKeepAlive > kKeepAliveTimeoutMs) {
       Logger::warnln(F("No keep-alive response, resetting modem..."));
-      resetModem();
+      reset();
     }
   } else {
     if (timeSinceLastKeepAlive >= kKeepAliveIntervalMs) {
@@ -409,11 +490,13 @@ void Modem::sendKeepAlive() {
   _modemImpl.sendAT("");
 }
 
-void Modem::resetModem() {
-  startModem();
+void Modem::reset() {
+  Logger::warnln(F("No keep-alive - resetting modem (%lu)..."), ++_watchdogResetCounter);
+
+  initModem();
   _waitingForKeepAlive = false;
   _lastKeepAliveSent = millis();
-  _watchdogResetCounter++;
+
   Logger::warnln(F("Modem has been reset via keep-alive watchdog."));
 }
 
