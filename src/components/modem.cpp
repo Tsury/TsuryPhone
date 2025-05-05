@@ -4,14 +4,15 @@
 #include "common/string.h"
 
 namespace {
-  constexpr std::array<const char *, 8> knownMessages = {"ATE0",
+  constexpr std::array<const char *, 9> knownMessages = {"ATE0",
                                                          "+CCMXPLAY:",
                                                          "+CCMXSTOP:",
                                                          "+CSMS: 1,1,1",
                                                          "NO CARRIER",
                                                          "+CPIN: READY",
                                                          "SMS DONE",
-                                                         "PB DONE"};
+                                                         "PB DONE",
+                                                         "+CPIN: SIM REMOVED"};
 
   const constexpr uint16_t kModemResetDelay = 1500;
 
