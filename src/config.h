@@ -18,10 +18,9 @@ const constexpr int kDndEndHour = 8;
 const constexpr int kDndEndMinute = 30;
 
 // Pin definitions:
-const constexpr int kRingerIn1Pin = 33;
-const constexpr int kRingerIn2Pin =
-    14; // The LilyGO-T-A7670E v1.0 uses pin 14 for DTR, but we don't use it.
-const constexpr int kRingerInhPin = 32;
+const constexpr int kRingerIn1Pin = 14;
+const constexpr int kRingerIn2Pin = 25;
+const constexpr int kRingerInhPin = 12;
 const constexpr int kHookSwitchPin = 0;
 const constexpr int kRotaryDialInDialPin = 2;
 const constexpr int kRotaryDialPulsePin = 15;
@@ -32,18 +31,18 @@ const constexpr int kRotaryDialPulsePin = 15;
 #endif
 
 #define SerialAT Serial1
-#define BOARD_LED_PIN 12
+#define BOARD_LED_PIN 13
 #define BOARD_POWERON_PIN BOARD_LED_PIN
 
 const constexpr int kBoardPowerKeyPin = 4;
-const constexpr int kModemRxPin = 25;
-const constexpr int kModemTxPin = 26;
-const constexpr int kModemResetPin = 27;
+const constexpr int kModemRxPin = 26;
+const constexpr int kModemTxPin = 27;
+const constexpr int kModemResetPin = 5;
 const constexpr int kModemBaudRate = 115200;
 const constexpr int kModemResetLevel = LOW;
 
 // Unused manufacturer definitions:
-// const constexpr int MODEM_RING_PIN = 13;
-// const constexpr int MODEM_DTR_PIN = 14;
+// const constexpr int MODEM_RING_PIN = 33;
+// const constexpr int MODEM_DTR_PIN = 32;
 // const constexpr int MODEM_GPS_ENABLE_GPIO = -1;
 // const constexpr int MODEM_GPS_ENABLE_LEVEL = -1;
