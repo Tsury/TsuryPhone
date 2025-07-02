@@ -9,9 +9,12 @@ const constexpr char *kWifiSsid = "TsuryPhone";
 const constexpr char *kResetNumber = "5555";
 const constexpr char *timeZone = "IST-2IDT,M3.4.4/26,M10.5.0";
 const constexpr int kEarpieceVolume = 2;
-const constexpr int kEarpieceMicGain = 2;
+const constexpr int kEarpieceMicGain = 7;
 const constexpr int kSpeakerVolume = 7;
-const constexpr int kSpeakerMicGain = 7;
+const constexpr int kSpeakerMicGain =
+    7; // Seems like connecting the mic in "production" (e.g. not on the breadboard) requires a
+       // higher mic gain, kinda ruins "speaker mode" unless I find a way to amplify/clean the
+       // signal.
 const constexpr int kDndStartHour = 18;
 const constexpr int kDndStartMinute = 30;
 const constexpr int kDndEndHour = 8;
@@ -19,8 +22,8 @@ const constexpr int kDndEndMinute = 30;
 
 // Pin definitions:
 const constexpr int kRingerIn1Pin = 33;
-const constexpr int kRingerIn2Pin =
-    32; // The LilyGO-T-A7670E v1.0 uses pin 14 for DTR, but we don't use it.
+const constexpr int kRingerIn2Pin = 32;
+// The LilyGO-T-A7670E v1.0 uses pin 14 for DTR, but we don't use it.
 const constexpr int kRingerInhPin = 14;
 const constexpr int kHookSwitchPin = 0;
 const constexpr int kRotaryDialInDialPin = 2;
