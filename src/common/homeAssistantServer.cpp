@@ -355,9 +355,10 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request) {
     if (colonPos > 0 && colonPos < startTimeStr.length() - 1) {
       int parsedStartHour = startTimeStr.substring(0, colonPos).toInt();
       int parsedStartMinute = startTimeStr.substring(colonPos + 1).toInt();
-      
+
       // Validate parsed start time
-      if (parsedStartHour >= 0 && parsedStartHour < 24 && parsedStartMinute >= 0 && parsedStartMinute < 60) {
+      if (parsedStartHour >= 0 && parsedStartHour < 24 && parsedStartMinute >= 0 &&
+          parsedStartMinute < 60) {
         startHour = parsedStartHour;
         startMinute = parsedStartMinute;
       } else {
@@ -374,9 +375,10 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request) {
     if (colonPos > 0 && colonPos < endTimeStr.length() - 1) {
       int parsedEndHour = endTimeStr.substring(0, colonPos).toInt();
       int parsedEndMinute = endTimeStr.substring(colonPos + 1).toInt();
-      
+
       // Validate parsed end time
-      if (parsedEndHour >= 0 && parsedEndHour < 24 && parsedEndMinute >= 0 && parsedEndMinute < 60) {
+      if (parsedEndHour >= 0 && parsedEndHour < 24 && parsedEndMinute >= 0 &&
+          parsedEndMinute < 60) {
         endHour = parsedEndHour;
         endMinute = parsedEndMinute;
       } else {
@@ -606,15 +608,16 @@ String HomeAssistantServer::getDndConfigJson() {
   JsonDocument doc;
 
   doc["enabled"] = haConfig.dndEnabled;
-  
+
   // Time format (HH:MM)
   char timeBuffer[6]; // HH:MM\0
-  snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d", haConfig.dndStartHour, haConfig.dndStartMinute);
+  snprintf(
+      timeBuffer, sizeof(timeBuffer), "%02d:%02d", haConfig.dndStartHour, haConfig.dndStartMinute);
   doc["start_time"] = timeBuffer;
-  
+
   snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d", haConfig.dndEndHour, haConfig.dndEndMinute);
   doc["end_time"] = timeBuffer;
-  
+
   doc["currently_active"] = _lastState.isDnd;
 
   String response;
