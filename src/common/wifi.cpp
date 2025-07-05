@@ -8,6 +8,7 @@
 #endif
 
 namespace {
+  const constexpr int kWifiManagerHttpPort = 8080;
   const constexpr int kWifiManagerPortalTimeout = 60 * 5;
 
 #ifdef WEB_SERIAL
@@ -26,6 +27,7 @@ void Wifi::init() {
 
   WiFi.mode(WIFI_STA);
 
+  _wifiManager.setHttpPort(kWifiManagerHttpPort);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
