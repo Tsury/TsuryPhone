@@ -53,6 +53,7 @@ struct State {
   char lastModemMessage[kBigBufferSize];
   bool messageHandled;
   bool isDnd;
+  bool isMaintenanceMode;
 #ifdef HOME_ASSISTANT_INTEGRATION
   bool haDndOverride = false; // HA can override DnD
   int haDndStartHour = -1;    // -1 means use default from config.h

@@ -8,6 +8,8 @@ public:
   void process();
 
   void openConfigPortal();
+  void openConfigPortalAsync();
+  bool isConfigPortalActive() const;
 
 private:
   void onWifiConnected();
@@ -18,6 +20,8 @@ private:
 #endif
 
   WiFiManager _wifiManager;
+  bool _configPortalActive = false;
+  bool _configPortalRequested = false;
 
 #ifdef WEB_SERIAL
   uint32_t _lastWebSerialPrint = 0UL;

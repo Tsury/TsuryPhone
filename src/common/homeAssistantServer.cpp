@@ -156,6 +156,8 @@ extern void haPerformCall(const char *number);
 extern void haPerformHangup();
 extern void haPerformReset();
 extern void haPerformRing(int durationMs);
+extern void haPerformSetMaintenanceMode(bool enabled);
+extern void haPerformSwitchToCallWaiting();
 extern void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
 
 void HomeAssistantServer::init() {
@@ -235,6 +237,26 @@ void HomeAssistantServer::setupRoutes() {
                          " ms\"}");
   });
 
+  _server.on("/action/maintenance_mode", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    if (!request->hasParam("enabled", true)) {
+      sendErrorResponse(request, "Missing 'enabled' parameter");
+      return;
+    }
+
+    String enabledStr = request->getParam("enabled", true)->value();
+    bool enabled = (enabledStr == "true");
+
+    haPerformSetMaintenanceMode(enabled);
+    sendJsonResponse(request,
+                     "{\"success\":true,\"message\":\"Maintenance mode " +
+                         String(enabled ? "enabled" : "disabled") + "\"}");
+  });
+
+  _server.on("/action/switch_call_waiting", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    haPerformSwitchToCallWaiting();
+    sendJsonResponse(request, "{\"success\":true,\"message\":\"Switched to call waiting\"}");
+  });
+
   // DnD configuration
   _server.on("/dnd", HTTP_GET, [this](AsyncWebServerRequest *request) {
     sendJsonResponse(request, getDndConfigJson());
@@ -290,6 +312,8 @@ void HomeAssistantServer::handleRoot(AsyncWebServerRequest *request) {
   doc["endpoints"]["actions"]["hangup"] = "/action/hangup";
   doc["endpoints"]["actions"]["reset"] = "/action/reset";
   doc["endpoints"]["actions"]["ring"] = "/action/ring";
+  doc["endpoints"]["actions"]["maintenance_mode"] = "/action/maintenance_mode";
+  doc["endpoints"]["actions"]["switch_call_waiting"] = "/action/switch_call_waiting";
 
   String response;
   serializeJson(doc, response);
@@ -561,6 +585,7 @@ String HomeAssistantServer::getStatusJson() {
   doc["state"] = appStateToString(_lastState.newAppState);
   doc["previous_state"] = appStateToString(_lastState.prevAppState);
   doc["dnd_enabled"] = _lastState.isDnd;
+  doc["maintenance_mode"] = _lastState.isMaintenanceMode;
   doc["uptime"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
   doc["wifi"]["connected"] = WiFi.isConnected();
@@ -573,6 +598,8 @@ String HomeAssistantServer::getStatusJson() {
     doc["call"]["id"] = _lastState.callState.callId;
     doc["call"]["number"] = _lastState.callState.callNumber;
     doc["call"]["has_waiting"] = _lastState.callState.hasCallWaiting();
+    doc["call"]["has_call_waiting"] =
+        _lastState.callState.hasCallWaiting(); // For HA integration compatibility
     if (_lastState.callState.hasCallWaiting()) {
       doc["call"]["waiting_id"] = _lastState.callState.callWaitingId;
     }

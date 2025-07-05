@@ -30,6 +30,7 @@ PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi(
   _state.lastModemMessage[0] = '\0';
   _state.messageHandled = false;
   _state.isDnd = false;
+  _state.isMaintenanceMode = false;
 #ifdef HOME_ASSISTANT_INTEGRATION
   _state.haDndOverride = false;
   _state.haDndStartHour = -1;
@@ -269,6 +270,12 @@ void PhoneApp::processStateCheckLine() {
 }
 
 void PhoneApp::processStateIdle() {
+  // Check if maintenance mode should be disabled (WiFi portal closed)
+  if (_state.isMaintenanceMode && !_wifi.isConfigPortalActive()) {
+    Logger::infoln(F("WiFi config portal closed, disabling maintenance mode"));
+    _state.isMaintenanceMode = false;
+  }
+
   if (_hookSwitch.justChangedOnHook()) {
     stopEverything();
   } else if (_hookSwitch.justChangedOffHook()) {
@@ -295,7 +302,8 @@ void PhoneApp::processStateIdle() {
         ESP.restart();
       } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
         _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
-        _wifi.openConfigPortal();
+        _state.isMaintenanceMode = true;
+        _wifi.openConfigPortalAsync();
       } else {
         const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
                                        ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
@@ -387,6 +395,25 @@ void PhoneApp::haSetDndHours(int startHour, int startMinute, int endHour, int en
   _state.haDndEndMinute = endMinute;
 }
 
+void PhoneApp::haPerformSetMaintenanceMode(bool enabled) {
+  Logger::infoln(F("HA set maintenance mode: %s"), enabled ? F("enabled") : F("disabled"));
+  _state.isMaintenanceMode = enabled;
+
+  if (enabled) {
+    // Open WiFi config portal when maintenance mode is enabled
+    _wifi.openConfigPortalAsync();
+  }
+}
+
+void PhoneApp::haPerformSwitchToCallWaiting() {
+  if (_state.callState.hasCallWaiting()) {
+    Logger::infoln(F("HA initiated switch to call waiting"));
+    _modem.switchToCallWaiting();
+  } else {
+    Logger::errorln(F("HA attempted to switch to call waiting but no call waiting available"));
+  }
+}
+
 // Global callback functions for HomeAssistantServer
 void haPerformCall(const char *number) {
   if (g_phoneApp) {
@@ -423,6 +450,18 @@ void haSetDndEnabled(bool enabled) {
 void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute) {
   if (g_phoneApp) {
     g_phoneApp->haSetDndHours(startHour, startMinute, endHour, endMinute);
+  }
+}
+
+void haPerformSetMaintenanceMode(bool enabled) {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformSetMaintenanceMode(enabled);
+  }
+}
+
+void haPerformSwitchToCallWaiting() {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformSwitchToCallWaiting();
   }
 }
 #endif

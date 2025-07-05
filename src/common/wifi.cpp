@@ -77,6 +77,12 @@ void Wifi::onWifiConnected() {
 }
 
 void Wifi::process() {
+  // Handle async config portal request
+  if (_configPortalRequested && !_configPortalActive) {
+    _configPortalRequested = false;
+    openConfigPortal();
+  }
+
   _wifiManager.process();
 
 #ifdef WEB_SERIAL
@@ -101,6 +107,18 @@ void Wifi::processWebSerial() {
 #endif
 
 void Wifi::openConfigPortal() {
+  _configPortalActive = true;
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.startConfigPortal(kWifiSsid);
+  _configPortalActive = false;
+}
+
+void Wifi::openConfigPortalAsync() {
+  if (!_configPortalActive) {
+    _configPortalRequested = true;
+  }
+}
+
+bool Wifi::isConfigPortalActive() const {
+  return _configPortalActive;
 }

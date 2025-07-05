@@ -29,6 +29,8 @@ public:
   void haPerformHangup();
   void haPerformReset();
   void haPerformRing(int durationMs);
+  void haPerformSetMaintenanceMode(bool enabled);
+  void haPerformSwitchToCallWaiting();
   void haSetDndEnabled(bool enabled);
   void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
 #endif
