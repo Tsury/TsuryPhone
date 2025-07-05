@@ -51,10 +51,10 @@ void Ringer::process(State &state) {
     return;
   }
 
-  // if (state.isDnd) {
-  //   stopRinging();
-  //   return;
-  // }
+  if (state.isDnd) {
+    stopRinging();
+    return;
+  }
 
   // Use custom duration if set, otherwise use default
   int ringDuration = (_customRingingDuration > 0) ? _customRingingDuration : kRingDuration;
