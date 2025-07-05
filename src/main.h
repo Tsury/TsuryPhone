@@ -3,11 +3,18 @@
 #include "common\consts.h"
 #include "common\timeManager.h"
 #include "common\wifi.h"
+#ifdef HOME_ASSISTANT_INTEGRATION
+#include "common\homeAssistantServer.h"
+#endif
 #include "components\hookSwitch.h"
 #include "components\modem.h"
 #include "components\ringer.h"
 #include "components\rotaryDial.h"
 #include <Arduino.h>
+
+// Forward declaration
+class PhoneApp;
+extern PhoneApp *g_phoneApp;
 
 class PhoneApp {
 public:
@@ -15,6 +22,16 @@ public:
 
   void setup();
   void loop();
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+  // HA Integration callbacks
+  void haPerformCall(const char *number);
+  void haPerformHangup();
+  void haPerformReset();
+  void haPerformRing(int durationMs);
+  void haSetDndEnabled(bool enabled);
+  void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
+#endif
 
 private:
   void setState(const AppState newState);
@@ -45,7 +62,7 @@ private:
   RotaryDial _rotaryDial;
   Wifi _wifi;
   TimeManager _timeManager;
-  State _state = {AppState::Startup, AppState::Startup, CallState(), "", false, false};
+  State _state{};
 
   uint32_t _stateTime = 0UL;
   bool _firstTimeSystemReady = false;

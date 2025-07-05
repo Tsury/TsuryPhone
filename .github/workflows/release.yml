@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create integration directory
+        run: |
+          mkdir -p tsuryphone
+          cp -r home_assistant/custom_components/tsuryphone/* tsuryphone/
+
+      - name: Update manifest version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tsuryphone/manifest.json
+
+      - name: Create zip
+        run: |
+          zip -r tsuryphone.zip tsuryphone/
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./tsuryphone.zip
+          asset_name: tsuryphone.zip
+          asset_content_type: application/zip

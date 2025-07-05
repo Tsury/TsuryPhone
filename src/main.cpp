@@ -4,6 +4,11 @@
 #include "common/string.h"
 #include "generated/phoneBook.h"
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+// Global instance pointer for HA integration
+PhoneApp *g_phoneApp = nullptr;
+#endif
+
 namespace {
   const constexpr int kSerialBaudRate = kModemBaudRate;
   const constexpr int kCheckHardwareTimeout = 1500;
@@ -17,7 +22,22 @@ namespace {
   const constexpr int kInvalidNumberMp3RepeatCount = 100;
 }
 
-PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi() {}
+PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi() {
+  // Initialize state
+  _state.newAppState = AppState::Startup;
+  _state.prevAppState = AppState::Startup;
+  _state.callState = CallState();
+  _state.lastModemMessage[0] = '\0';
+  _state.messageHandled = false;
+  _state.isDnd = false;
+#ifdef HOME_ASSISTANT_INTEGRATION
+  _state.haDndOverride = false;
+  _state.haDndStartHour = -1;
+  _state.haDndStartMinute = -1;
+  _state.haDndEndHour = -1;
+  _state.haDndEndMinute = -1;
+#endif
+}
 
 void PhoneApp::setup() {
   Serial.begin(kSerialBaudRate);
@@ -30,6 +50,11 @@ void PhoneApp::setup() {
   _rotaryDial.init();
   _hookSwitch.init();
   _timeManager.init();
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+  g_phoneApp = this;
+  haServer.init();
+#endif
 
   Logger::infoln(F("TsuryPhone started!"));
 
@@ -61,6 +86,11 @@ void PhoneApp::loop() {
   _rotaryDial.process();
   _ringer.process(_state);
   _timeManager.process(_state);
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+  haServer.process();
+  haServer.updateState(_state);
+#endif
 
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
 
@@ -144,6 +174,16 @@ void PhoneApp::onStateIdle() {
 void PhoneApp::onStateIncomingCall() {
   CallState &callState = _state.callState;
   char *callNumber = callState.callNumber;
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+  // Check if number is screened (blocked)
+  if (callNumber[0] != '\0' && isNumberScreened(callNumber)) {
+    Logger::infoln(F("Screening (blocking) incoming call from: %s"), callNumber);
+    _modem.hangUp();
+    setState(AppState::Idle);
+    return;
+  }
+#endif
 
   if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
     callState.introducedCaller = true;
@@ -257,8 +297,8 @@ void PhoneApp::processStateIdle() {
         _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
         _wifi.openConfigPortal();
       } else {
-        const char *numberToDial = isPhoneBookEntry(dialedNumber)
-                                       ? getPhoneBookNumberForEntry(dialedNumber)
+        const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
+                                       ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
                                        : dialedNumber;
         _modem.enqueueCall(numberToDial);
 
@@ -305,3 +345,84 @@ void PhoneApp::processStateInCall() {
 
   _rotaryDial.resetCurrentNumber();
 }
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+// HA Integration callback implementations - we need to access the global PhoneApp instance
+
+void PhoneApp::haPerformCall(const char *number) {
+  if (_state.newAppState == AppState::Idle && _hookSwitch.isOnHook()) {
+    Logger::infoln(F("HA initiated call to: %s"), number);
+    _modem.enqueueCall(number);
+  }
+}
+
+void PhoneApp::haPerformHangup() {
+  if (_state.newAppState == AppState::InCall || _state.newAppState == AppState::Dialing) {
+    Logger::infoln(F("HA initiated hangup"));
+    _modem.hangUp();
+  }
+}
+
+void PhoneApp::haPerformReset() {
+  Logger::infoln(F("HA initiated reset"));
+  ESP.restart();
+}
+
+void PhoneApp::haPerformRing(int durationMs) {
+  Logger::infoln(F("HA initiated ring for %d ms"), durationMs);
+  _ringer.startRinging(durationMs);
+}
+
+void PhoneApp::haSetDndEnabled(bool enabled) {
+  Logger::infoln(F("HA set DnD enabled: %s"), enabled ? F("true") : F("false"));
+  _state.haDndOverride = enabled;
+}
+
+void PhoneApp::haSetDndHours(int startHour, int startMinute, int endHour, int endMinute) {
+  Logger::infoln(
+      F("HA set DnD hours: %02d:%02d - %02d:%02d"), startHour, startMinute, endHour, endMinute);
+  _state.haDndStartHour = startHour;
+  _state.haDndStartMinute = startMinute;
+  _state.haDndEndHour = endHour;
+  _state.haDndEndMinute = endMinute;
+}
+
+// Global callback functions for HomeAssistantServer
+void haPerformCall(const char *number) {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformCall(number);
+  }
+}
+
+void haPerformHangup() {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformHangup();
+  }
+}
+
+void haPerformReset() {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformReset();
+  } else {
+    ESP.restart();
+  }
+}
+
+void haPerformRing(int durationMs) {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformRing(durationMs);
+  }
+}
+
+void haSetDndEnabled(bool enabled) {
+  if (g_phoneApp) {
+    g_phoneApp->haSetDndEnabled(enabled);
+  }
+}
+
+void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute) {
+  if (g_phoneApp) {
+    g_phoneApp->haSetDndHours(startHour, startMinute, endHour, endMinute);
+  }
+}
+#endif

@@ -53,6 +53,13 @@ struct State {
   char lastModemMessage[kBigBufferSize];
   bool messageHandled;
   bool isDnd;
+#ifdef HOME_ASSISTANT_INTEGRATION
+  bool haDndOverride = false; // HA can override DnD
+  int haDndStartHour = -1;    // -1 means use default from config.h
+  int haDndStartMinute = -1;
+  int haDndEndHour = -1;
+  int haDndEndMinute = -1;
+#endif
 };
 
 const __FlashStringHelper *appStateToString(const AppState state);

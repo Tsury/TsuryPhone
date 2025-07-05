@@ -30,6 +30,20 @@ void Ringer::startRinging() {
   _ringStartTime = millis();
   _lastCycleTime = millis() + kRingCycleDuration;
   _ringState = false;
+  _customRingingDuration = 0; // Use default duration
+}
+
+void Ringer::startRinging(int durationMs) {
+  if (_ringing) {
+    return;
+  }
+
+  setRingerEnabled(true);
+  _ringing = true;
+  _ringStartTime = millis();
+  _lastCycleTime = millis() + kRingCycleDuration;
+  _ringState = false;
+  _customRingingDuration = durationMs;
 }
 
 void Ringer::process(State &state) {
@@ -37,12 +51,15 @@ void Ringer::process(State &state) {
     return;
   }
 
-  if (state.isDnd) {
-    stopRinging();
-    return;
-  }
+  // if (state.isDnd) {
+  //   stopRinging();
+  //   return;
+  // }
 
-  if (millis() - _ringStartTime >= kRingDuration) {
+  // Use custom duration if set, otherwise use default
+  int ringDuration = (_customRingingDuration > 0) ? _customRingingDuration : kRingDuration;
+
+  if (millis() - _ringStartTime >= ringDuration) {
     stopRinging();
     state.callState.rangAtLeastOnce = true;
     return;

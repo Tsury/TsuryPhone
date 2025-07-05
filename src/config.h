@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+const constexpr char *kHaDeviceName = "tsuryphone";
+#endif
+
 // General configuration:
 const constexpr char kMp3Dir[] = "C:/mp3";
 const constexpr char *kWifiWebPortalNumber = "3123";
@@ -15,6 +19,8 @@ const constexpr int kSpeakerMicGain =
     7; // Seems like connecting the mic in "production" (e.g. not on the breadboard) requires a
        // higher mic gain, kinda ruins "speaker mode" unless I find a way to amplify/clean the
        // signal.
+
+const constexpr bool kDndEnabled = true;
 const constexpr int kDndStartHour = 18;
 const constexpr int kDndStartMinute = 30;
 const constexpr int kDndEndHour = 8;
