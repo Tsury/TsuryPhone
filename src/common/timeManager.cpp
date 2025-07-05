@@ -46,27 +46,26 @@ void TimeManager::process(State &state) {
     return;
   }
 
-  const int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  int startHour, startMinute, endHour, endMinute;
 
 #ifdef HOME_ASSISTANT_INTEGRATION
   // When HA integration is enabled, ONLY use HA DnD settings
 
-  // Check if HA has overridden DnD completely (force enabled)
-  if (state.haDndOverride && isDndConfigEnabled()) {
+  // Check if HA has force DnD enabled (takes priority over everything)
+  if (isDndForceEnabled()) {
     state.isDnd = true;
-    Logger::debugln(F("DND forced enabled by HA"));
+    Logger::debugln(F("DND force enabled by HA"));
     return;
   }
 
-  // Check if HA DnD is enabled at all
-  if (!isDndConfigEnabled()) {
+  // Check if schedule-based DnD is enabled
+  if (!isDndScheduleEnabled()) {
     state.isDnd = false;
-    Logger::debugln(F("HA DND disabled"));
+    Logger::debugln(F("HA DND schedule disabled"));
     return;
   }
 
-  // Get HA DnD hours
-  int startHour, startMinute, endHour, endMinute;
+  // Get HA DnD hours for schedule
   getHaDndHours(startHour, startMinute, endHour, endMinute);
 
   // If HA has custom hours set in state, use those instead
@@ -85,11 +84,14 @@ void TimeManager::process(State &state) {
   }
 
   // When HA integration is disabled, use local config settings
-  int startHour = kDndStartHour;
-  int startMinute = kDndStartMinute;
-  int endHour = kDndEndHour;
-  int endMinute = kDndEndMinute;
+  startHour = kDndStartHour;
+  startMinute = kDndStartMinute;
+  endHour = kDndEndHour;
+  endMinute = kDndEndMinute;
 #endif
+
+  // Now we calculate the schedule-based DnD
+  const int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
 
   const int startMinutes = startHour * 60 + startMinute;
   const int endMinutes = endHour * 60 + endMinute;
@@ -103,7 +105,4 @@ void TimeManager::process(State &state) {
   }
 
   state.isDnd = isDnd;
-
-  Logger::debugln(F("Current time: %02d:%02d"), timeinfo.tm_hour, timeinfo.tm_min);
-  Logger::debugln(F("DND state: %s"), state.isDnd ? F("true") : F("false"));
 }

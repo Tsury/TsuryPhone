@@ -24,7 +24,8 @@ namespace {
 
 // Storage for dynamic configuration
 struct HaConfig {
-  bool dndEnabled = false;
+  bool dndForceEnabled = false;    // Force DnD regardless of schedule
+  bool dndScheduleEnabled = false; // Enable/disable schedule-based DnD
   int dndStartHour = kDndStartHour;
   int dndStartMinute = kDndStartMinute;
   int dndEndHour = kDndEndHour;
@@ -65,7 +66,8 @@ void loadConfiguration() {
     return;
   }
 
-  haConfig.dndEnabled = doc["dnd_enabled"] | kDndEnabled;
+  haConfig.dndForceEnabled = doc["dnd_force_enabled"] | false;
+  haConfig.dndScheduleEnabled = doc["dnd_schedule_enabled"] | false;
   haConfig.dndStartHour = doc["dnd_start_hour"] | kDndStartHour;
   haConfig.dndStartMinute = doc["dnd_start_minute"] | kDndStartMinute;
   haConfig.dndEndHour = doc["dnd_end_hour"] | kDndEndHour;
@@ -109,7 +111,8 @@ void loadConfiguration() {
 void saveConfiguration() {
   JsonDocument doc;
 
-  doc["dnd_enabled"] = haConfig.dndEnabled;
+  doc["dnd_force_enabled"] = haConfig.dndForceEnabled;
+  doc["dnd_schedule_enabled"] = haConfig.dndScheduleEnabled;
   doc["dnd_start_hour"] = haConfig.dndStartHour;
   doc["dnd_start_minute"] = haConfig.dndStartMinute;
   doc["dnd_end_hour"] = haConfig.dndEndHour;
@@ -153,7 +156,6 @@ extern void haPerformCall(const char *number);
 extern void haPerformHangup();
 extern void haPerformReset();
 extern void haPerformRing(int durationMs);
-extern void haSetDndEnabled(bool enabled);
 extern void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
 
 void HomeAssistantServer::init() {
@@ -337,10 +339,16 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request) {
   }
 
   // Handle POST - update DnD settings
-  if (request->hasParam("enabled", true)) {
-    bool enabled = request->getParam("enabled", true)->value() == "true";
-    haConfig.dndEnabled = enabled;
-    haSetDndEnabled(enabled);
+  // Handle force_enabled parameter
+  if (request->hasParam("force_enabled", true)) {
+    bool forceEnabled = request->getParam("force_enabled", true)->value() == "true";
+    haConfig.dndForceEnabled = forceEnabled;
+  }
+
+  // Handle schedule_enabled parameter
+  if (request->hasParam("schedule_enabled", true)) {
+    bool scheduleEnabled = request->getParam("schedule_enabled", true)->value() == "true";
+    haConfig.dndScheduleEnabled = scheduleEnabled;
   }
 
   // Handle start_time and end_time parameters (HH:MM format)
@@ -397,6 +405,39 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request) {
     haConfig.dndEndMinute = endMinute;
 
     haSetDndHours(startHour, startMinute, endHour, endMinute);
+  }
+
+  // Handle individual hour/minute parameters for compatibility with HA number entities
+  if (request->hasParam("start_hour", true) || request->hasParam("start_minute", true) ||
+      request->hasParam("end_hour", true) || request->hasParam("end_minute", true)) {
+
+    int startHour = request->hasParam("start_hour", true)
+                        ? request->getParam("start_hour", true)->value().toInt()
+                        : haConfig.dndStartHour;
+    int startMinute = request->hasParam("start_minute", true)
+                          ? request->getParam("start_minute", true)->value().toInt()
+                          : haConfig.dndStartMinute;
+    int endHour = request->hasParam("end_hour", true)
+                      ? request->getParam("end_hour", true)->value().toInt()
+                      : haConfig.dndEndHour;
+    int endMinute = request->hasParam("end_minute", true)
+                        ? request->getParam("end_minute", true)->value().toInt()
+                        : haConfig.dndEndMinute;
+
+    // Validate time values
+    if (startHour >= 0 && startHour < 24 && startMinute >= 0 && startMinute < 60 && endHour >= 0 &&
+        endHour < 24 && endMinute >= 0 && endMinute < 60) {
+
+      haConfig.dndStartHour = startHour;
+      haConfig.dndStartMinute = startMinute;
+      haConfig.dndEndHour = endHour;
+      haConfig.dndEndMinute = endMinute;
+
+      haSetDndHours(startHour, startMinute, endHour, endMinute);
+    } else {
+      sendErrorResponse(request, "Invalid hour or minute values");
+      return;
+    }
   }
 
   saveConfiguration();
@@ -527,7 +568,6 @@ String HomeAssistantServer::getStatusJson() {
   doc["state"] = appStateToString(_lastState.newAppState);
   doc["previous_state"] = appStateToString(_lastState.prevAppState);
   doc["dnd_enabled"] = _lastState.isDnd;
-  doc["dnd_config_enabled"] = haConfig.dndEnabled;
   doc["uptime"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
   doc["wifi"]["connected"] = WiFi.isConnected();
@@ -607,7 +647,8 @@ String HomeAssistantServer::getScreenedNumbersJson() {
 String HomeAssistantServer::getDndConfigJson() {
   JsonDocument doc;
 
-  doc["enabled"] = haConfig.dndEnabled;
+  doc["force_enabled"] = haConfig.dndForceEnabled;
+  doc["schedule_enabled"] = haConfig.dndScheduleEnabled;
 
   // Time format (HH:MM)
   char timeBuffer[6]; // HH:MM\0
@@ -617,6 +658,12 @@ String HomeAssistantServer::getDndConfigJson() {
 
   snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d", haConfig.dndEndHour, haConfig.dndEndMinute);
   doc["end_time"] = timeBuffer;
+
+  // Individual time components for compatibility with HA number entities
+  doc["start_hour"] = haConfig.dndStartHour;
+  doc["start_minute"] = haConfig.dndStartMinute;
+  doc["end_hour"] = haConfig.dndEndHour;
+  doc["end_minute"] = haConfig.dndEndMinute;
 
   doc["currently_active"] = _lastState.isDnd;
 
@@ -676,7 +723,16 @@ bool isNumberScreened(const char *number) {
 }
 
 bool isDndConfigEnabled() {
-  return haConfig.dndEnabled;
+  // DnD is enabled if either force is enabled OR schedule is enabled
+  return haConfig.dndForceEnabled || haConfig.dndScheduleEnabled;
+}
+
+bool isDndForceEnabled() {
+  return haConfig.dndForceEnabled;
+}
+
+bool isDndScheduleEnabled() {
+  return haConfig.dndScheduleEnabled;
 }
 
 void getHaDndHours(int &startHour, int &startMinute, int &endHour, int &endMinute) {

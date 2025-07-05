@@ -71,6 +71,8 @@ extern HomeAssistantServer haServer;
 // Utility functions for integration with rest of codebase
 bool isNumberScreened(const char *number);
 bool isDndConfigEnabled();
+bool isDndForceEnabled();
+bool isDndScheduleEnabled();
 void getHaDndHours(int &startHour, int &startMinute, int &endHour, int &endMinute);
 
 // HA Phonebook functions for runtime selection
