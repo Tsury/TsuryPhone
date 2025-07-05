@@ -213,14 +213,8 @@ void HomeAssistantServer::setupRoutes() {
   });
 
   _server.on("/action/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    haPerformReset();
     sendJsonResponse(request, "{\"success\":true,\"message\":\"Reset initiated\"}");
-  });
-
-  _server.on("/action/reboot", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    sendJsonResponse(request, "{\"success\":true,\"message\":\"Reboot initiated\"}");
-    delay(1000);
-    ESP.restart();
+    haPerformReset();
   });
 
   _server.on("/action/ring", HTTP_POST, [this](AsyncWebServerRequest *request) {
@@ -295,7 +289,6 @@ void HomeAssistantServer::handleRoot(AsyncWebServerRequest *request) {
   doc["endpoints"]["actions"]["call"] = "/action/call";
   doc["endpoints"]["actions"]["hangup"] = "/action/hangup";
   doc["endpoints"]["actions"]["reset"] = "/action/reset";
-  doc["endpoints"]["actions"]["reboot"] = "/action/reboot";
   doc["endpoints"]["actions"]["ring"] = "/action/ring";
 
   String response;

@@ -21,30 +21,14 @@ public:
   void process();
   void updateState(const State &state);
 
-  // Configuration methods
-  void setDndEnabled(bool enabled);
-  void setDndHours(int startHour, int startMinute, int endHour, int endMinute);
-  void addPhoneBookEntry(const char *name, const char *number);
-  void removePhoneBookEntry(const char *name);
-  void addScreenedNumber(const char *number);
-  void removeScreenedNumber(const char *number);
-
-  // Action methods
-  void performCall(const char *number);
-  void performHangup();
-  void performReset();
-  void performFactoryReset();
-  void performReboot();
-
 private:
   void setupRoutes();
   void handleRoot(AsyncWebServerRequest *request);
   void handleStatus(AsyncWebServerRequest *request);
   void handleAction(AsyncWebServerRequest *request);
-  void handleConfig(AsyncWebServerRequest *request);
+  void handleDnd(AsyncWebServerRequest *request);
   void handlePhoneBook(AsyncWebServerRequest *request);
   void handleScreenedNumbers(AsyncWebServerRequest *request);
-  void handleDnd(AsyncWebServerRequest *request);
   void handleStats(AsyncWebServerRequest *request);
 
   String getStatusJson();
