@@ -7,10 +7,10 @@
 #include "state.h"
 #include "string.h"
 #include <ArduinoJson.h>
+#include <AsyncWebSocket.h>
 #include <ESPmDNS.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
-#include <AsyncWebSocket.h>
 #include <vector>
 
 namespace {
@@ -21,6 +21,32 @@ namespace {
   const constexpr char *kPhoneBookFile = "/ha_phonebook.json";
   const constexpr char *kBlockedFile = "/ha_blocked.json";
   const constexpr int kJsonBufferSize = 2048;
+
+  // Helper function to format uptime in human-readable format
+  String formatUptime(unsigned long uptimeMs) {
+    unsigned long seconds = uptimeMs / 1000;
+    unsigned long minutes = seconds / 60;
+    unsigned long hours = minutes / 60;
+    unsigned long days = hours / 24;
+
+    seconds %= 60;
+    minutes %= 60;
+    hours %= 24;
+
+    String result = "";
+    if (days > 0) {
+      result += String(days) + "d ";
+    }
+    if (hours > 0 || days > 0) {
+      result += String(hours) + "h ";
+    }
+    if (minutes > 0 || hours > 0 || days > 0) {
+      result += String(minutes) + "m ";
+    }
+    result += String(seconds) + "s";
+
+    return result;
+  }
 }
 
 // Storage for dynamic configuration
@@ -161,17 +187,17 @@ extern void haPerformSetMaintenanceMode(bool enabled);
 extern void haPerformSwitchToCallWaiting();
 extern void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
 
-HomeAssistantServer::HomeAssistantServer() 
-  : _server(80),
-    _ws("/ws"),
-    _uptime(0),
-    _totalCalls(0),
-    _totalIncomingCalls(0),
-    _totalOutgoingCalls(0),
-    _totalBlockedCalls(0),
-    _totalResets(0),
-    _isInitialized(false),
-    _stateChanged(false) {}
+HomeAssistantServer::HomeAssistantServer()
+    : _server(80),
+      _ws("/ws"),
+      _uptime(0),
+      _totalCalls(0),
+      _totalIncomingCalls(0),
+      _totalOutgoingCalls(0),
+      _totalBlockedCalls(0),
+      _totalResets(0),
+      _isInitialized(false),
+      _stateChanged(false) {}
 
 void HomeAssistantServer::init() {
   Logger::infoln(F("Initializing Home Assistant HTTP Server..."));
@@ -220,10 +246,15 @@ void HomeAssistantServer::setupRoutes() {
   _server.on("/stats", HTTP_GET, [this](AsyncWebServerRequest *request) { handleStats(request); });
 
   // Action endpoints
-  _server.on("/action/call", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-    [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handleAction(request, data, len, index, total);
-    });
+  _server.on(
+      "/action/call",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handleAction(request, data, len, index, total);
+      });
 
   _server.on("/action/hangup", HTTP_POST, [this](AsyncWebServerRequest *request) {
     haPerformHangup();
@@ -237,15 +268,25 @@ void HomeAssistantServer::setupRoutes() {
     haPerformReset();
   });
 
-  _server.on("/action/ring", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-    [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handleRing(request, data, len, index, total);
-    });
+  _server.on(
+      "/action/ring",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handleRing(request, data, len, index, total);
+      });
 
-  _server.on("/action/maintenance_mode", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-    [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handleMaintenanceMode(request, data, len, index, total);
-    });
+  _server.on(
+      "/action/maintenance_mode",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handleMaintenanceMode(request, data, len, index, total);
+      });
 
   _server.on("/action/switch_call_waiting", HTTP_POST, [this](AsyncWebServerRequest *request) {
     haPerformSwitchToCallWaiting();
@@ -258,10 +299,15 @@ void HomeAssistantServer::setupRoutes() {
     sendJsonResponse(request, getDndConfigJson());
   });
 
-  _server.on("/dnd", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-    [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handleDnd(request, data, len, index, total);
-    });
+  _server.on(
+      "/dnd",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handleDnd(request, data, len, index, total);
+      });
 
   // PhoneBook management
   _server.on("/phonebook", HTTP_GET, [this](AsyncWebServerRequest *request) {
@@ -312,7 +358,7 @@ void HomeAssistantServer::handleRoot(AsyncWebServerRequest *request) {
   doc["device"]["manufacturer"] = "TsuryPhone Project";
   doc["device"]["ip"] = WiFi.localIP().toString();
   doc["device"]["mac"] = WiFi.macAddress();
-  doc["device"]["uptime"] = millis();
+  doc["device"]["uptime"] = formatUptime(millis());
 
   doc["endpoints"]["status"] = "/status";
   doc["endpoints"]["stats"] = "/stats";
@@ -336,7 +382,8 @@ void HomeAssistantServer::handleStatus(AsyncWebServerRequest *request) {
   sendJsonResponse(request, getStatusJson());
 }
 
-void HomeAssistantServer::handleAction(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+void HomeAssistantServer::handleAction(
+    AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   if (data == nullptr || len == 0) {
     sendErrorResponse(request, "Missing JSON body");
     return;
@@ -344,7 +391,7 @@ void HomeAssistantServer::handleAction(AsyncWebServerRequest *request, uint8_t *
 
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, data, len);
-  
+
   if (error) {
     sendErrorResponse(request, "Invalid JSON format");
     return;
@@ -365,12 +412,13 @@ void HomeAssistantServer::handleAction(AsyncWebServerRequest *request, uint8_t *
   haPerformCall(number.c_str());
   _totalOutgoingCalls++;
   sendJsonResponse(request, "{\"success\":true,\"message\":\"Call initiated to " + number + "\"}");
-  
+
   // Broadcast state change immediately
   broadcastStateUpdate();
 }
 
-void HomeAssistantServer::handleRing(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+void HomeAssistantServer::handleRing(
+    AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   if (data == nullptr || len == 0) {
     sendErrorResponse(request, "Missing JSON body");
     return;
@@ -378,7 +426,7 @@ void HomeAssistantServer::handleRing(AsyncWebServerRequest *request, uint8_t *da
 
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, data, len);
-  
+
   if (error) {
     sendErrorResponse(request, "Invalid JSON format");
     return;
@@ -396,12 +444,12 @@ void HomeAssistantServer::handleRing(AsyncWebServerRequest *request, uint8_t *da
   }
 
   haPerformRing(duration);
-  sendJsonResponse(request,
-                   "{\"success\":true,\"message\":\"Ring initiated for " + String(duration) +
-                       " ms\"}");
+  sendJsonResponse(
+      request, "{\"success\":true,\"message\":\"Ring initiated for " + String(duration) + " ms\"}");
 }
 
-void HomeAssistantServer::handleMaintenanceMode(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+void HomeAssistantServer::handleMaintenanceMode(
+    AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   if (data == nullptr || len == 0) {
     sendErrorResponse(request, "Missing JSON body");
     return;
@@ -409,7 +457,7 @@ void HomeAssistantServer::handleMaintenanceMode(AsyncWebServerRequest *request, 
 
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, data, len);
-  
+
   if (error) {
     sendErrorResponse(request, "Invalid JSON format");
     return;
@@ -428,7 +476,8 @@ void HomeAssistantServer::handleMaintenanceMode(AsyncWebServerRequest *request, 
                        String(enabled ? "enabled" : "disabled") + "\"}");
 }
 
-void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+void HomeAssistantServer::handleDnd(
+    AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   if (request->method() == HTTP_GET) {
     sendJsonResponse(request, getDndConfigJson());
     return;
@@ -442,7 +491,7 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request, uint8_t *dat
 
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, data, len);
-  
+
   if (error) {
     sendErrorResponse(request, "Invalid JSON format");
     return;
@@ -517,8 +566,8 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request, uint8_t *dat
   }
 
   // Handle individual hour/minute parameters for compatibility with HA number entities
-  if (doc["start_hour"].is<int>() || doc["start_minute"].is<int>() ||
-      doc["end_hour"].is<int>() || doc["end_minute"].is<int>()) {
+  if (doc["start_hour"].is<int>() || doc["start_minute"].is<int>() || doc["end_hour"].is<int>() ||
+      doc["end_minute"].is<int>()) {
 
     int startHour = doc["start_hour"].is<int>() ? doc["start_hour"] : haConfig.dndStartHour;
     int startMinute = doc["start_minute"].is<int>() ? doc["start_minute"] : haConfig.dndStartMinute;
@@ -543,7 +592,7 @@ void HomeAssistantServer::handleDnd(AsyncWebServerRequest *request, uint8_t *dat
 
   saveConfiguration();
   sendJsonResponse(request, getDndConfigJson());
-  
+
   // Broadcast configuration change
   broadcastStateUpdate();
 }
@@ -595,7 +644,7 @@ void HomeAssistantServer::handlePhoneBook(
 
     sendJsonResponse(
         request, "{\"success\":true,\"message\":\"Entry added: " + name + " -> " + number + "\"}");
-    
+
     // Broadcast phonebook change
     broadcastStateUpdate();
 
@@ -721,7 +770,7 @@ String HomeAssistantServer::getStatusJson() {
   doc["previous_state"] = appStateToString(_lastState.prevAppState);
   doc["dnd_enabled"] = _lastState.isDnd;
   doc["maintenance_mode"] = _lastState.isMaintenanceMode;
-  doc["uptime"] = millis();
+  doc["uptime"] = formatUptime(millis());
   doc["free_heap"] = ESP.getFreeHeap();
   doc["wifi"]["connected"] = WiFi.isConnected();
   doc["wifi"]["ip"] = WiFi.localIP().toString();
@@ -750,7 +799,7 @@ String HomeAssistantServer::getStatusJson() {
 String HomeAssistantServer::getStatsJson() {
   JsonDocument doc;
 
-  doc["uptime"] = millis();
+  doc["uptime"] = formatUptime(millis());
   doc["total_calls"] = _totalCalls;
   doc["total_incoming_calls"] = _totalIncomingCalls;
   doc["total_outgoing_calls"] = _totalOutgoingCalls;
@@ -867,16 +916,15 @@ void HomeAssistantServer::process() {
 void HomeAssistantServer::updateState(const State &state) {
   AppState prevState = _lastState.newAppState;
   bool stateChanged = false;
-  
+
   // Check if state actually changed
-  if (_lastState.newAppState != state.newAppState || 
-      _lastState.isDnd != state.isDnd ||
+  if (_lastState.newAppState != state.newAppState || _lastState.isDnd != state.isDnd ||
       _lastState.isMaintenanceMode != state.isMaintenanceMode ||
       _lastState.callState.callId != state.callState.callId ||
       strcmp(_lastState.callState.callNumber, state.callState.callNumber) != 0) {
     stateChanged = true;
   }
-  
+
   _lastState = state;
 
   // Track call statistics
@@ -889,7 +937,7 @@ void HomeAssistantServer::updateState(const State &state) {
     _totalIncomingCalls++;
     stateChanged = true;
   }
-  
+
   // Broadcast state changes via WebSocket
   if (stateChanged) {
     broadcastStateUpdate();
@@ -899,45 +947,53 @@ void HomeAssistantServer::updateState(const State &state) {
 void HomeAssistantServer::notifyBlockedCall(const char *number) {
   Logger::infoln(F("Notifying HA about blocked call from: %s"), number);
   _totalBlockedCalls++;
-  
+
   // Broadcast the updated stats immediately via WebSocket
   broadcastStateUpdate();
 }
 
 // WebSocket setup and event handling
 void HomeAssistantServer::setupWebSocket() {
-  _ws.onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
-    this->onWebSocketEvent(server, client, type, arg, data, len);
-  });
+  _ws.onEvent([this](AsyncWebSocket *server,
+                     AsyncWebSocketClient *client,
+                     AwsEventType type,
+                     void *arg,
+                     uint8_t *data,
+                     size_t len) { this->onWebSocketEvent(server, client, type, arg, data, len); });
   _server.addHandler(&_ws);
   Logger::infoln(F("WebSocket server configured on /ws"));
 }
 
-void HomeAssistantServer::onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+void HomeAssistantServer::onWebSocketEvent(AsyncWebSocket *server,
+                                           AsyncWebSocketClient *client,
+                                           AwsEventType type,
+                                           void *arg,
+                                           uint8_t *data,
+                                           size_t len) {
   switch (type) {
-    case WS_EVT_CONNECT:
-      Logger::infoln(F("WebSocket client connected: %u"), client->id());
-      // Send current state immediately to new client
-      client->text(getStatusJson());
-      break;
-      
-    case WS_EVT_DISCONNECT:
-      Logger::infoln(F("WebSocket client disconnected: %u"), client->id());
-      break;
-      
-    case WS_EVT_DATA: {
-      AwsFrameInfo *info = (AwsFrameInfo*)arg;
-      if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-        // Handle WebSocket messages if needed (for bidirectional communication)
-        data[len] = 0; // Null terminate
-        Logger::debugln(F("WebSocket message from %u: %s"), client->id(), (char*)data);
-      }
-      break;
+  case WS_EVT_CONNECT:
+    Logger::infoln(F("WebSocket client connected: %u"), client->id());
+    // Send current state immediately to new client
+    client->text(getStatusJson());
+    break;
+
+  case WS_EVT_DISCONNECT:
+    Logger::infoln(F("WebSocket client disconnected: %u"), client->id());
+    break;
+
+  case WS_EVT_DATA: {
+    AwsFrameInfo *info = (AwsFrameInfo *)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+      // Handle WebSocket messages if needed (for bidirectional communication)
+      data[len] = 0; // Null terminate
+      Logger::debugln(F("WebSocket message from %u: %s"), client->id(), (char *)data);
     }
-      
-    case WS_EVT_PONG:
-    case WS_EVT_ERROR:
-      break;
+    break;
+  }
+
+  case WS_EVT_PONG:
+  case WS_EVT_ERROR:
+    break;
   }
 }
 
