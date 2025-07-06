@@ -21,32 +21,6 @@ namespace {
   const constexpr char *kPhoneBookFile = "/ha_phonebook.json";
   const constexpr char *kBlockedFile = "/ha_blocked.json";
   const constexpr int kJsonBufferSize = 2048;
-
-  // Helper function to format uptime in human-readable format
-  String formatUptime(unsigned long uptimeMs) {
-    unsigned long seconds = uptimeMs / 1000;
-    unsigned long minutes = seconds / 60;
-    unsigned long hours = minutes / 60;
-    unsigned long days = hours / 24;
-
-    seconds %= 60;
-    minutes %= 60;
-    hours %= 24;
-
-    String result = "";
-    if (days > 0) {
-      result += String(days) + "d ";
-    }
-    if (hours > 0 || days > 0) {
-      result += String(hours) + "h ";
-    }
-    if (minutes > 0 || hours > 0 || days > 0) {
-      result += String(minutes) + "m ";
-    }
-    result += String(seconds) + "s";
-
-    return result;
-  }
 }
 
 // Storage for dynamic configuration
@@ -358,7 +332,7 @@ void HomeAssistantServer::handleRoot(AsyncWebServerRequest *request) {
   doc["device"]["manufacturer"] = "TsuryPhone Project";
   doc["device"]["ip"] = WiFi.localIP().toString();
   doc["device"]["mac"] = WiFi.macAddress();
-  doc["device"]["uptime"] = formatUptime(millis());
+  doc["device"]["uptime"] = millis();
 
   doc["endpoints"]["status"] = "/status";
   doc["endpoints"]["stats"] = "/stats";
@@ -770,7 +744,7 @@ String HomeAssistantServer::getStatusJson() {
   doc["previous_state"] = appStateToString(_lastState.prevAppState);
   doc["dnd_enabled"] = _lastState.isDnd;
   doc["maintenance_mode"] = _lastState.isMaintenanceMode;
-  doc["uptime"] = formatUptime(millis());
+  doc["uptime"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
   doc["wifi"]["connected"] = WiFi.isConnected();
   doc["wifi"]["ip"] = WiFi.localIP().toString();
@@ -799,7 +773,7 @@ String HomeAssistantServer::getStatusJson() {
 String HomeAssistantServer::getStatsJson() {
   JsonDocument doc;
 
-  doc["uptime"] = formatUptime(millis());
+  doc["uptime"] = millis();
   doc["total_calls"] = _totalCalls;
   doc["total_incoming_calls"] = _totalIncomingCalls;
   doc["total_outgoing_calls"] = _totalOutgoingCalls;
