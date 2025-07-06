@@ -177,11 +177,14 @@ void PhoneApp::onStateIncomingCall() {
   char *callNumber = callState.callNumber;
 
 #ifdef HOME_ASSISTANT_INTEGRATION
-  // Check if number is screened (blocked)
-  if (callNumber[0] != '\0' && isNumberScreened(callNumber)) {
-    Logger::infoln(F("Screening (blocking) incoming call from: %s"), callNumber);
+  // Check if number is blocked
+  if (callNumber[0] != '\0' && isNumberBlocked(callNumber)) {
+    Logger::infoln(F("Blocking incoming call from: %s"), callNumber);
     _modem.hangUp();
     setState(AppState::Idle);
+    
+    // Notify Home Assistant about the blocked call
+    haServer.notifyBlockedCall(callNumber);
     return;
   }
 #endif

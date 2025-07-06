@@ -3,57 +3,60 @@
 #include "config.h"
 #include "state.h"
 #include <ESPAsyncWebServer.h>
+#include <AsyncWebSocket.h>
 
 #ifdef HOME_ASSISTANT_INTEGRATION
 
 class HomeAssistantServer {
 public:
-  HomeAssistantServer()
-      : _server(80),
-        _uptime(0),
-        _totalCalls(0),
-        _totalIncomingCalls(0),
-        _totalOutgoingCalls(0),
-        _totalResets(0),
-        _isInitialized(false) {}
+  HomeAssistantServer();
 
   void init();
   void process();
   void updateState(const State &state);
+  void notifyBlockedCall(const char *number);  // Notify HA when a call is blocked
+  void broadcastStateUpdate();  // Broadcast state changes via WebSocket
 
 private:
   void setupRoutes();
+  void setupWebSocket();
+  void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
   void handleRoot(AsyncWebServerRequest *request);
   void handleStatus(AsyncWebServerRequest *request);
-  void handleAction(AsyncWebServerRequest *request);
-  void handleDnd(AsyncWebServerRequest *request);
-  void handlePhoneBook(AsyncWebServerRequest *request);
-  void handleScreenedNumbers(AsyncWebServerRequest *request);
+  void handleAction(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+  void handleRing(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+  void handleMaintenanceMode(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+  void handleDnd(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+  void handlePhoneBook(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+  void handleBlockedNumbers(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
   void handleStats(AsyncWebServerRequest *request);
 
   String getStatusJson();
   String getStatsJson();
   String getPhoneBookJson();
-  String getScreenedNumbersJson();
+  String getBlockedNumbersJson();
   String getDndConfigJson();
 
   void sendJsonResponse(AsyncWebServerRequest *request, const String &json, int code = 200);
   void sendErrorResponse(AsyncWebServerRequest *request, const String &error, int code = 400);
 
   AsyncWebServer _server;
+  AsyncWebSocket _ws;
   State _lastState;
   uint32_t _uptime;
   uint32_t _totalCalls;
   uint32_t _totalIncomingCalls;
   uint32_t _totalOutgoingCalls;
+  uint32_t _totalBlockedCalls;
   uint32_t _totalResets;
   bool _isInitialized;
+  bool _stateChanged;
 };
 
 extern HomeAssistantServer haServer;
 
 // Utility functions for integration with rest of codebase
-bool isNumberScreened(const char *number);
+bool isNumberBlocked(const char *number);
 bool isDndConfigEnabled();
 bool isDndForceEnabled();
 bool isDndScheduleEnabled();
