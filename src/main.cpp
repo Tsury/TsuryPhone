@@ -308,12 +308,29 @@ void PhoneApp::processStateIdle() {
         _state.isMaintenanceMode = true;
         _wifi.openConfigPortalAsync();
       } else {
-        const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
-                                       ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
-                                       : dialedNumber;
-        _modem.enqueueCall(numberToDial);
-
-        _rotaryDial.resetCurrentNumber();
+#ifdef HOME_ASSISTANT_INTEGRATION
+        // Check if this is a webhook entry first
+        if (isWebhookEntry(dialedNumber)) {
+          Logger::infoln(F("Executing webhook for number: %s"), dialedNumber);
+          const char* webhookId = getWebhookIdForNumber(dialedNumber);
+          if (webhookId) {
+            executeWebhook(webhookId);
+            _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
+          } else {
+            Logger::errorln(F("Failed to get webhook ID for number: %s"), dialedNumber);
+            _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+          }
+          _rotaryDial.resetCurrentNumber();
+        } else {
+#endif
+          const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
+                                         ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
+                                         : dialedNumber;
+          _modem.enqueueCall(numberToDial);
+          _rotaryDial.resetCurrentNumber();
+#ifdef HOME_ASSISTANT_INTEGRATION
+        }
+#endif
       }
     } else if (dialedNumberValidation == DialedNumberValidationResult::Invalid) {
       _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
@@ -384,6 +401,11 @@ void PhoneApp::haPerformRing(int durationMs) {
   _ringer.startRinging(durationMs);
 }
 
+void PhoneApp::haPerformRingWithPattern(const char *pattern) {
+  Logger::infoln(F("HA initiated ring with pattern: %s"), pattern);
+  _ringer.startRingingWithPattern(pattern);
+}
+
 void PhoneApp::haSetDndEnabled(bool enabled) {
   Logger::infoln(F("HA set DnD enabled: %s"), enabled ? F("true") : F("false"));
   _state.haDndOverride = enabled;
@@ -441,6 +463,12 @@ void haPerformReset() {
 void haPerformRing(int durationMs) {
   if (g_phoneApp) {
     g_phoneApp->haPerformRing(durationMs);
+  }
+}
+
+void haPerformRingWithPattern(const char *pattern) {
+  if (g_phoneApp) {
+    g_phoneApp->haPerformRingWithPattern(pattern);
   }
 }
 

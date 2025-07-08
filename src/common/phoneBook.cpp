@@ -116,8 +116,8 @@ DialedNumberValidationResult validateDialedNumber(const char *number) {
 // Runtime phonebook functions that choose between local and HA data
 bool isPhoneBookEntry_Runtime(const char *number) {
 #ifdef HOME_ASSISTANT_INTEGRATION
-  // When HA integration is enabled, only use HA phonebook
-  return isHaPhoneBookEntry(number);
+  // When HA integration is enabled, check both HA phonebook and webhooks
+  return isHaPhoneBookEntry(number) || isWebhookEntry(number);
 #else
   // When HA integration is disabled, use local generated phonebook
   return isPhoneBookEntry(number);
@@ -126,8 +126,8 @@ bool isPhoneBookEntry_Runtime(const char *number) {
 
 bool isPartialOfFullPhoneBookEntry_Runtime(const char *number) {
 #ifdef HOME_ASSISTANT_INTEGRATION
-  // When HA integration is enabled, only use HA phonebook
-  return isPartialOfHaPhoneBookEntry(number);
+  // When HA integration is enabled, check both HA phonebook and webhooks
+  return isPartialOfHaPhoneBookEntry(number) || isPartialOfWebhookEntry(number);
 #else
   // When HA integration is disabled, use local generated phonebook
   return isPartialOfFullPhoneBookEntry(number);
@@ -136,8 +136,15 @@ bool isPartialOfFullPhoneBookEntry_Runtime(const char *number) {
 
 const char *getPhoneBookNumberForEntry_Runtime(const char *entry) {
 #ifdef HOME_ASSISTANT_INTEGRATION
-  // When HA integration is enabled, only use HA phonebook
-  return getHaPhoneBookNumberForEntry(entry);
+  // When HA integration is enabled, check HA phonebook first, then webhooks
+  const char* haNumber = getHaPhoneBookNumberForEntry(entry);
+  if (haNumber) return haNumber;
+  
+  // If not found in HA phonebook, it might be a webhook entry - return the entry itself as the "number"
+  if (isWebhookEntry(entry)) {
+    return entry; // For webhooks, the "number" is the entry itself
+  }
+  return nullptr;
 #else
   // When HA integration is disabled, use local generated phonebook
   return getPhoneBookNumberForEntry(entry);

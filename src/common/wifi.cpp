@@ -27,7 +27,6 @@ void Wifi::init() {
 
   WiFi.mode(WIFI_STA);
 
-  _wifiManager.setHttpPort(kWifiManagerHttpPort);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
@@ -108,6 +107,7 @@ void Wifi::processWebSerial() {
 
 void Wifi::openConfigPortal() {
   _configPortalActive = true;
+  _wifiManager.setHttpPort(kWifiManagerHttpPort);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.startConfigPortal(kWifiSsid);
   _configPortalActive = false;

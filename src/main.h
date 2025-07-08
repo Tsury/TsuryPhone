@@ -16,6 +16,19 @@
 class PhoneApp;
 extern PhoneApp *g_phoneApp;
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+// Global HA integration callback functions
+void haPerformCall(const char *number);
+void haPerformHangup();
+void haPerformReset();
+void haPerformRing(int durationMs);
+void haPerformRingWithPattern(const char *pattern);
+void haSetDndEnabled(bool enabled);
+void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
+void haPerformSetMaintenanceMode(bool enabled);
+void haPerformSwitchToCallWaiting();
+#endif
+
 class PhoneApp {
 public:
   PhoneApp();
@@ -29,6 +42,7 @@ public:
   void haPerformHangup();
   void haPerformReset();
   void haPerformRing(int durationMs);
+  void haPerformRingWithPattern(const char* pattern);
   void haPerformSetMaintenanceMode(bool enabled);
   void haPerformSwitchToCallWaiting();
   void haSetDndEnabled(bool enabled);
