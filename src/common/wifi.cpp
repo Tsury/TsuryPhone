@@ -22,15 +22,39 @@ namespace {
 AsyncWebServer server(kWebSerialPort);
 #endif
 
+String Wifi::generateDeviceId() {
+  if (_deviceId.length() == 0) {
+    // Get the last 3 bytes of MAC address for device ID
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char deviceIdBuffer[7];
+    sprintf(deviceIdBuffer, "%02X%02X%02X", mac[3], mac[4], mac[5]);
+    _deviceId = String(deviceIdBuffer);
+  }
+  return _deviceId;
+}
+
+String Wifi::generateWifiSsid() {
+  if (_wifiSsid.length() == 0) {
+    _wifiSsid = String(kWifiSsidBase) + "-" + generateDeviceId();
+  }
+  return _wifiSsid;
+}
+
 void Wifi::init() {
   Logger::infoln(F("Initializing WiFi..."));
 
   WiFi.mode(WIFI_STA);
+  
+  // Set hostname to TsuryPhone-[ID]
+  String hostname = "TsuryPhone-" + generateDeviceId();
+  WiFi.setHostname(hostname.c_str());
 
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
-  if (_wifiManager.autoConnect(kWifiSsid)) {
+  String wifiSsid = generateWifiSsid();
+  if (_wifiManager.autoConnect(wifiSsid.c_str())) {
     onWifiConnected();
   } else {
     Logger::infoln(F("Config portal running"));
@@ -109,7 +133,8 @@ void Wifi::openConfigPortal() {
   _configPortalActive = true;
   _wifiManager.setHttpPort(kWifiManagerHttpPort);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
-  _wifiManager.startConfigPortal(kWifiSsid);
+  String wifiSsid = generateWifiSsid();
+  _wifiManager.startConfigPortal(wifiSsid.c_str());
   _configPortalActive = false;
 }
 
