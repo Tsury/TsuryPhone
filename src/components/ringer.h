@@ -16,12 +16,11 @@ public:
 
   void startRinging();
   void startRinging(int durationMs); // Ring for specific duration
-  void startRingingWithPattern(const char* pattern); // Ring with pattern
+  void startRingingWithStructuredPattern(const RingPattern& pattern); // Ring with pre-parsed pattern
   void stopRinging();
 
 private:
   void setRingerEnabled(const bool enabled) const;
-  RingPattern parseRingPattern(const char* pattern);
 
   bool _ringing = false;
   bool _ringState = false;

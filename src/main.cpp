@@ -182,7 +182,7 @@ void PhoneApp::onStateIncomingCall() {
     Logger::infoln(F("Blocking incoming call from: %s"), callNumber);
     _modem.hangUp();
     setState(AppState::Idle);
-    
+
     // Notify Home Assistant about the blocked call
     haServer.notifyBlockedCall(callNumber);
     return;
@@ -287,54 +287,57 @@ void PhoneApp::processStateIdle() {
 
   if (_hookSwitch.isOffHook()) {
     DialedNumberResult dialedNumberResult = _rotaryDial.getCurrentNumber();
-    char *dialedNumber = dialedNumberResult.callNumber;
 
+    // Only process dialing logic when a new digit has been dialed
     if (dialedNumberResult.dialedDigit != kInvalidDialedDigit) {
+      char *dialedNumber = dialedNumberResult.callNumber;
+
       _modem.stopTone();
       Logger::infoln(F("Dialed digit: %d"), dialedNumberResult.dialedDigit);
       Logger::infoln(F("Dialed number: %s"), dialedNumber);
 
       _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
-    }
 
-    const DialedNumberValidationResult dialedNumberValidation = validateDialedNumber(dialedNumber);
+      const DialedNumberValidationResult dialedNumberValidation =
+          validateDialedNumber(dialedNumber);
 
-    if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
-      if (strEqual(dialedNumber, kResetNumber)) {
-        _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
-        ESP.restart();
-      } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
-        _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
-        _state.isMaintenanceMode = true;
-        _wifi.openConfigPortalAsync();
-      } else {
-#ifdef HOME_ASSISTANT_INTEGRATION
-        // Check if this is a webhook entry first
-        if (isWebhookEntry(dialedNumber)) {
-          Logger::infoln(F("Executing webhook for number: %s"), dialedNumber);
-          const char* webhookId = getWebhookIdForNumber(dialedNumber);
-          if (webhookId) {
-            executeWebhook(webhookId);
-            _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
-          } else {
-            Logger::errorln(F("Failed to get webhook ID for number: %s"), dialedNumber);
-            _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
-          }
-          _rotaryDial.resetCurrentNumber();
+      if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
+        if (strEqual(dialedNumber, kResetNumber)) {
+          _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+          ESP.restart();
+        } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
+          _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
+          _state.isMaintenanceMode = true;
+          _wifi.openConfigPortalAsync();
         } else {
-#endif
-          const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
-                                         ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
-                                         : dialedNumber;
-          _modem.enqueueCall(numberToDial);
-          _rotaryDial.resetCurrentNumber();
 #ifdef HOME_ASSISTANT_INTEGRATION
-        }
+          // Check if this is a webhook entry first
+          if (isWebhookEntry(dialedNumber)) {
+            Logger::infoln(F("Executing webhook for number: %s"), dialedNumber);
+            const char *webhookId = getWebhookIdForNumber(dialedNumber);
+            if (webhookId) {
+              executeWebhook(webhookId);
+              _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
+            } else {
+              Logger::errorln(F("Failed to get webhook ID for number: %s"), dialedNumber);
+              _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+            }
+            _rotaryDial.resetCurrentNumber();
+          } else {
 #endif
+            const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
+                                           ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
+                                           : dialedNumber;
+            _modem.enqueueCall(numberToDial);
+            _rotaryDial.resetCurrentNumber();
+#ifdef HOME_ASSISTANT_INTEGRATION
+          }
+#endif
+        }
+      } else if (dialedNumberValidation == DialedNumberValidationResult::Invalid) {
+        _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+        setState(AppState::InvalidNumber);
       }
-    } else if (dialedNumberValidation == DialedNumberValidationResult::Invalid) {
-      _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
-      setState(AppState::InvalidNumber);
     }
   }
 }
@@ -401,9 +404,11 @@ void PhoneApp::haPerformRing(int durationMs) {
   _ringer.startRinging(durationMs);
 }
 
-void PhoneApp::haPerformRingWithPattern(const char *pattern) {
-  Logger::infoln(F("HA initiated ring with pattern: %s"), pattern);
-  _ringer.startRingingWithPattern(pattern);
+void PhoneApp::haPerformRingWithStructuredPattern(const RingPattern &pattern) {
+  Logger::infoln(F("HA initiated ring with structured pattern: %d durations, %d repeats"),
+                 pattern.durations.size(),
+                 pattern.repeats);
+  _ringer.startRingingWithStructuredPattern(pattern);
 }
 
 void PhoneApp::haSetDndEnabled(bool enabled) {
@@ -466,9 +471,9 @@ void haPerformRing(int durationMs) {
   }
 }
 
-void haPerformRingWithPattern(const char *pattern) {
+void haPerformRingWithStructuredPattern(const RingPattern& pattern) {
   if (g_phoneApp) {
-    g_phoneApp->haPerformRingWithPattern(pattern);
+    g_phoneApp->haPerformRingWithStructuredPattern(pattern);
   }
 }
 

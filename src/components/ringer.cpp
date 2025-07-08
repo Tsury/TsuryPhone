@@ -48,21 +48,23 @@ void Ringer::startRinging(int durationMs) {
   _usingPattern = false;
 }
 
-void Ringer::startRingingWithPattern(const char* pattern) {
+void Ringer::startRingingWithStructuredPattern(const RingPattern &pattern) {
   if (_ringing) {
     return;
   }
 
-  _currentPattern = parseRingPattern(pattern);
-  if (!_currentPattern.isValid) {
-    Logger::errorln(F("Invalid ring pattern: %s"), pattern);
+  if (!pattern.isValid) {
+    Logger::errorln(F("Invalid structured ring pattern"));
     // Fall back to default ringing
     startRinging();
     return;
   }
 
-  Logger::infoln(F("Starting ring pattern: %s"), pattern);
-  
+  _currentPattern = pattern;
+  Logger::infoln(F("Starting structured ring pattern: %d durations, %d repeats"),
+                 pattern.durations.size(),
+                 pattern.repeats);
+
   setRingerEnabled(true);
   _ringing = true;
   _ringStartTime = millis();
@@ -71,61 +73,11 @@ void Ringer::startRingingWithPattern(const char* pattern) {
   _usingPattern = true;
   _currentPatternIndex = 0;
   _currentPatternRepeat = 0;
-  
+
   // Start with first duration (should be a ring)
   if (_currentPattern.durations.size() > 0) {
     _ringState = true; // Start ringing
   }
-}
-
-RingPattern Ringer::parseRingPattern(const char* pattern) {
-  RingPattern rp;
-  String patternStr(pattern);
-  
-  // Check for repeat syntax: pattern/num
-  int slashPos = patternStr.indexOf('/');
-  String mainPattern = patternStr;
-  int repeats = 1;
-  
-  if (slashPos > 0) {
-    mainPattern = patternStr.substring(0, slashPos);
-    repeats = patternStr.substring(slashPos + 1).toInt();
-    if (repeats <= 0) repeats = 1;
-  }
-  
-  // Parse comma-separated durations
-  int startPos = 0;
-  int commaPos;
-  std::vector<int> durations;
-  
-  do {
-    commaPos = mainPattern.indexOf(',', startPos);
-    String durStr = (commaPos > 0) ? mainPattern.substring(startPos, commaPos) : mainPattern.substring(startPos);
-    int duration = durStr.toInt();
-    
-    if (duration <= 0 || duration > 30000) { // Max 30 seconds per duration
-      return rp; // Invalid
-    }
-    
-    durations.push_back(duration);
-    startPos = commaPos + 1;
-  } while (commaPos > 0);
-  
-  // Validate pattern
-  if (durations.empty()) {
-    return rp; // Invalid
-  }
-  
-  // If there are repeats, pattern must end with even number (pause)
-  if (repeats > 1 && durations.size() % 2 != 0) {
-    return rp; // Invalid
-  }
-  
-  rp.durations = durations;
-  rp.repeats = repeats;
-  rp.isValid = true;
-  
-  return rp;
 }
 
 void Ringer::process(State &state) {
@@ -162,7 +114,7 @@ void Ringer::process(State &state) {
       // Move to next duration
       _currentPatternIndex++;
       _lastCycleTime = millis();
-      
+
       if (_currentPatternIndex < _currentPattern.durations.size()) {
         // Odd indices (0, 2, 4...) are ring durations
         // Even indices (1, 3, 5...) are pause durations
@@ -172,7 +124,8 @@ void Ringer::process(State &state) {
 
     // Apply current ring state
     if (_ringState) {
-      if (millis() - _lastCycleTime < kRingCycleDuration || (millis() - _lastCycleTime) % (kRingCycleDuration * 2) < kRingCycleDuration) {
+      if (millis() - _lastCycleTime < kRingCycleDuration ||
+          (millis() - _lastCycleTime) % (kRingCycleDuration * 2) < kRingCycleDuration) {
         digitalWrite(kRingerIn1Pin, HIGH);
         digitalWrite(kRingerIn2Pin, LOW);
       } else {

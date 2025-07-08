@@ -51,7 +51,7 @@ extern void haPerformCall(const char *number);
 extern void haPerformHangup();
 extern void haPerformReset();
 extern void haPerformRing(int durationMs);
-extern void haPerformRingWithPattern(const char *pattern);
+extern void haPerformRingWithStructuredPattern(const RingPattern &pattern);
 extern void haPerformSetMaintenanceMode(bool enabled);
 extern void haPerformSwitchToCallWaiting();
 extern void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
@@ -388,18 +388,45 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       haPerformRing(pattern.toInt());
       sendResponse(request, "{\"success\":true}");
     } else if (action == "ring_pattern") {
-      String pattern = doc["pattern"] | "";
-      if (pattern.length() > 0) {
-        RingPattern rp = parseRingPattern(pattern);
-        if (rp.isValid) {
-          haPerformRingWithPattern(pattern.c_str());
-          sendResponse(request, "{\"success\":true}");
-        } else {
-          sendError(request, "Invalid ring pattern");
-        }
-      } else {
-        sendError(request, "Missing pattern");
+      // Handle new structured pattern data from HA integration
+      JsonArray durationsArray = doc["durations"];
+      int repeats = doc["repeats"] | 1;
+
+      if (durationsArray.size() == 0) {
+        sendError(request, "Invalid pattern data - no durations");
+        return;
       }
+
+      // Convert durations array to vector
+      std::vector<int> durations;
+      for (JsonVariant duration : durationsArray) {
+        int dur = duration.as<int>();
+        if (dur <= 0 || dur > 30000) {
+          sendError(request, "Invalid duration value");
+          return;
+        }
+        durations.push_back(dur);
+      }
+
+      if (repeats <= 0 || repeats > 100) {
+        sendError(request, "Invalid repeat count");
+        return;
+      }
+
+      // Validate pattern logic for repeats
+      if (repeats > 1 && durations.size() % 2 != 0) {
+        sendError(request, "Pattern with repeats must have even number of durations");
+        return;
+      }
+
+      // Create RingPattern directly instead of parsing string
+      RingPattern pattern;
+      pattern.durations = durations;
+      pattern.repeats = repeats;
+      pattern.isValid = true;
+
+      haPerformRingWithStructuredPattern(pattern);
+      sendResponse(request, "{\"success\":true}");
     } else if (action == "refresh_data") {
       broadcastStateUpdate();
       sendResponse(request, "{\"success\":true}");
