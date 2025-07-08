@@ -87,7 +87,7 @@ void HomeAssistantServer::init() {
 void HomeAssistantServer::setupRoutes() {
   // Root endpoint - minimal response
   _server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    String response = "{\"device\":\"" + haConfig.deviceName + "\",\"version\":\"1.0\"}";
+    String response = "{\"device\":\"" + String(kHaDeviceName) + "\",\"version\":\"1.0\"}";
     sendResponse(request, response.c_str());
   });
 

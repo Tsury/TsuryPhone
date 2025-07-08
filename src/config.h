@@ -3,6 +3,8 @@
 #include <Arduino.h>
 
 #ifdef HOME_ASSISTANT_INTEGRATION
+// This is used both as a default device name and as a integration-firmware sanity check, do not
+// change.
 const constexpr char *kHaDeviceName = "tsuryphone";
 #endif
 
