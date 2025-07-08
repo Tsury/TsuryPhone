@@ -45,11 +45,11 @@ void Wifi::init() {
   Logger::infoln(F("Initializing WiFi..."));
 
   WiFi.mode(WIFI_STA);
-  
+
   // Set hostname to TsuryPhone-[ID]
   String hostname = "TsuryPhone-" + generateDeviceId();
   WiFi.setHostname(hostname.c_str());
-
+  _wifiManager.setHostname(hostname.c_str());
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
