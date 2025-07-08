@@ -471,7 +471,7 @@ void haPerformRing(int durationMs) {
   }
 }
 
-void haPerformRingWithStructuredPattern(const RingPattern& pattern) {
+void haPerformRingWithStructuredPattern(const RingPattern &pattern) {
   if (g_phoneApp) {
     g_phoneApp->haPerformRingWithStructuredPattern(pattern);
   }

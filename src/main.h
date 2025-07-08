@@ -22,7 +22,7 @@ void haPerformCall(const char *number);
 void haPerformHangup();
 void haPerformReset();
 void haPerformRing(int durationMs);
-void haPerformRingWithStructuredPattern(const RingPattern& pattern);
+void haPerformRingWithStructuredPattern(const RingPattern &pattern);
 void haSetDndEnabled(bool enabled);
 void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
 void haPerformSetMaintenanceMode(bool enabled);
@@ -42,7 +42,7 @@ public:
   void haPerformHangup();
   void haPerformReset();
   void haPerformRing(int durationMs);
-  void haPerformRingWithStructuredPattern(const RingPattern& pattern);
+  void haPerformRingWithStructuredPattern(const RingPattern &pattern);
   void haPerformSetMaintenanceMode(bool enabled);
   void haPerformSwitchToCallWaiting();
   void haSetDndEnabled(bool enabled);

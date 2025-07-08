@@ -92,38 +92,39 @@ void Ringer::process(State &state) {
 
   if (_usingPattern) {
     // Pattern-based ringing logic
-    if (_currentPatternIndex >= _currentPattern.durations.size()) {
-      // Pattern completed, check if we need to repeat
-      _currentPatternRepeat++;
-      if (_currentPatternRepeat >= _currentPattern.repeats) {
-        // All repeats done
-        stopRinging();
-        state.callState.rangAtLeastOnce = true;
-        return;
-      } else {
-        // Start next repeat
-        _currentPatternIndex = 0;
-        _lastCycleTime = millis();
-        _ringState = true; // Start with ring
-      }
-    }
-
     // Check if current duration has elapsed
-    int currentDuration = _currentPattern.durations[_currentPatternIndex];
-    if (millis() - _lastCycleTime >= currentDuration) {
-      // Move to next duration
-      _currentPatternIndex++;
-      _lastCycleTime = millis();
+    if (_currentPatternIndex < _currentPattern.durations.size()) {
+      int currentDuration = _currentPattern.durations[_currentPatternIndex];
+      if (millis() - _lastCycleTime >= currentDuration) {
+        // Move to next duration
+        _currentPatternIndex++;
+        _lastCycleTime = millis();
 
-      if (_currentPatternIndex < _currentPattern.durations.size()) {
-        // Odd indices (0, 2, 4...) are ring durations
-        // Even indices (1, 3, 5...) are pause durations
+        if (_currentPatternIndex >= _currentPattern.durations.size()) {
+          // Pattern completed, check if we need to repeat
+          _currentPatternRepeat++;
+          if (_currentPatternRepeat >= _currentPattern.repeats) {
+            // All repeats done
+            stopRinging();
+            state.callState.rangAtLeastOnce = true;
+            return;
+          } else {
+            // Start next repeat
+            _currentPatternIndex = 0;
+            _lastCycleTime = millis();
+          }
+        }
+
+        // Update ring state based on current index
+        // Even indices (0, 2, 4...) are ring durations
+        // Odd indices (1, 3, 5...) are pause durations
         _ringState = (_currentPatternIndex % 2 == 0);
       }
     }
 
     // Apply current ring state
     if (_ringState) {
+      // Ring phase - alternate the ringer pins
       if (millis() - _lastCycleTime < kRingCycleDuration ||
           (millis() - _lastCycleTime) % (kRingCycleDuration * 2) < kRingCycleDuration) {
         digitalWrite(kRingerIn1Pin, HIGH);
@@ -133,8 +134,9 @@ void Ringer::process(State &state) {
         digitalWrite(kRingerIn2Pin, HIGH);
       }
     } else {
-      // Pause - turn off ringer
-      setRingerEnabled(false);
+      // Pause phase - turn off ringer pins but keep ringer enabled
+      digitalWrite(kRingerIn1Pin, LOW);
+      digitalWrite(kRingerIn2Pin, LOW);
     }
   } else {
     // Traditional duration-based ringing logic
