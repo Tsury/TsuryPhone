@@ -9,10 +9,10 @@
 #include <ArduinoJson.h>
 #include <AsyncWebSocket.h>
 #include <ESPmDNS.h>
+#include <HTTPClient.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
 #include <vector>
-#include <HTTPClient.h>
 
 namespace {
   const constexpr int kHttpServerPort = 80;
@@ -32,7 +32,8 @@ struct HaConfig {
   std::vector<std::pair<String, String>> phoneBook;
   std::vector<String> blockedNumbers;
   std::vector<WebhookEntry> webhooks;
-  String haServerUrl; // For webhook calls
+  String haServerUrl;                // For webhook calls
+  String deviceName = kHaDeviceName; // Device name for mDNS
   bool phoneBookInitialized = false;
 };
 
@@ -73,9 +74,9 @@ void HomeAssistantServer::init() {
   setupWebSocket();
   _server.begin();
 
-  if (MDNS.begin(kHaDeviceName)) {
+  if (MDNS.begin(haConfig.deviceName.c_str())) {
     MDNS.addService("http", "tcp", kHttpServerPort);
-    Logger::infoln(F("mDNS: %s.local"), kHaDeviceName);
+    Logger::infoln(F("mDNS: %s.local"), haConfig.deviceName.c_str());
   }
 
   _uptime = millis();
@@ -86,59 +87,84 @@ void HomeAssistantServer::init() {
 void HomeAssistantServer::setupRoutes() {
   // Root endpoint - minimal response
   _server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    sendResponse(request, "{\"device\":\"TsuryPhone\",\"version\":\"1.0\"}");
+    String response = "{\"device\":\"" + haConfig.deviceName + "\",\"version\":\"1.0\"}";
+    sendResponse(request, response.c_str());
   });
 
   // All GET endpoints use single handler
   _server.on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleRequest(request, "status");
   });
-  
+
   _server.on("/stats", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleRequest(request, "stats");
   });
-  
-  _server.on("/dnd", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    handleRequest(request, "dnd");
-  });
-  
+
+  _server.on(
+      "/dnd", HTTP_GET, [this](AsyncWebServerRequest *request) { handleRequest(request, "dnd"); });
+
   _server.on("/phonebook", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleRequest(request, "phonebook");
   });
-  
+
   _server.on("/blocked", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleRequest(request, "blocked");
   });
-  
+
   _server.on("/webhooks", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleRequest(request, "webhooks");
   });
 
   // All POST endpoints use single handler
-  _server.on("/action", HTTP_POST, [](AsyncWebServerRequest *request) {},
-    NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handlePostRequest(request, data, len, "action");
-    });
-    
-  _server.on("/dnd", HTTP_POST, [](AsyncWebServerRequest *request) {},
-    NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handlePostRequest(request, data, len, "dnd");
-    });
-    
-  _server.on("/phonebook", HTTP_POST, [](AsyncWebServerRequest *request) {},
-    NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handlePostRequest(request, data, len, "phonebook");
-    });
-    
-  _server.on("/blocked", HTTP_POST, [](AsyncWebServerRequest *request) {},
-    NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handlePostRequest(request, data, len, "blocked");
-    });
-    
-  _server.on("/webhooks", HTTP_POST, [](AsyncWebServerRequest *request) {},
-    NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      handlePostRequest(request, data, len, "webhooks");
-    });
+  _server.on(
+      "/action",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "action");
+      });
+
+  _server.on(
+      "/dnd",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "dnd");
+      });
+
+  _server.on(
+      "/phonebook",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "phonebook");
+      });
+
+  _server.on(
+      "/blocked",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "blocked");
+      });
+
+  _server.on(
+      "/webhooks",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request) {},
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "webhooks");
+      });
 
   // CORS
   _server.onNotFound([](AsyncWebServerRequest *request) {
@@ -150,28 +176,27 @@ void HomeAssistantServer::setupRoutes() {
   });
 }
 
-void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const char* endpoint) {
+void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const char *endpoint) {
   JsonDocument doc;
-  
+
   if (strcmp(endpoint, "status") == 0) {
     doc["state"] = appStateToString(_lastState.newAppState);
     doc["dnd"] = _lastState.isDnd;
     doc["maintenance"] = _lastState.isMaintenanceMode;
+    doc["device_name"] = haConfig.deviceName;
     if (_lastState.callState.callNumber[0] != '\0') {
       doc["call"]["number"] = _lastState.callState.callNumber;
       doc["call"]["active"] = (_lastState.newAppState == AppState::InCall);
     }
-  } 
-  else if (strcmp(endpoint, "stats") == 0) {
+  } else if (strcmp(endpoint, "stats") == 0) {
     doc["uptime"] = millis() - _uptime;
     doc["calls"] = _stats[0];
-    doc["incoming"] = _stats[1]; 
+    doc["incoming"] = _stats[1];
     doc["outgoing"] = _stats[2];
     doc["blocked"] = _stats[3];
     doc["resets"] = _stats[4];
     doc["free_heap"] = ESP.getFreeHeap();
-  }
-  else if (strcmp(endpoint, "dnd") == 0) {
+  } else if (strcmp(endpoint, "dnd") == 0) {
     doc["force_enabled"] = haConfig.dndForceEnabled;
     doc["schedule_enabled"] = haConfig.dndScheduleEnabled;
     doc["start_hour"] = haConfig.dndStartHour;
@@ -179,22 +204,19 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
     doc["end_hour"] = haConfig.dndEndHour;
     doc["end_minute"] = haConfig.dndEndMinute;
     doc["currently_active"] = _lastState.isDnd;
-  }
-  else if (strcmp(endpoint, "phonebook") == 0) {
+  } else if (strcmp(endpoint, "phonebook") == 0) {
     JsonArray entries = doc["entries"].to<JsonArray>();
     for (const auto &entry : haConfig.phoneBook) {
       JsonObject entryObj = entries.add<JsonObject>();
       entryObj["name"] = entry.first;
       entryObj["number"] = entry.second;
     }
-  }
-  else if (strcmp(endpoint, "blocked") == 0) {
+  } else if (strcmp(endpoint, "blocked") == 0) {
     JsonArray numbers = doc["blocked_numbers"].to<JsonArray>();
     for (const String &number : haConfig.blockedNumbers) {
       numbers.add(number);
     }
-  }
-  else if (strcmp(endpoint, "webhooks") == 0) {
+  } else if (strcmp(endpoint, "webhooks") == 0) {
     JsonArray hooks = doc["webhooks"].to<JsonArray>();
     for (const auto &hook : haConfig.webhooks) {
       JsonObject hookObj = hooks.add<JsonObject>();
@@ -209,7 +231,10 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
   sendResponse(request, response.c_str());
 }
 
-void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint8_t *data, size_t len, const char* endpoint) {
+void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
+                                            uint8_t *data,
+                                            size_t len,
+                                            const char *endpoint) {
   if (!data || len == 0) {
     sendError(request, "Missing data");
     return;
@@ -223,7 +248,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
 
   if (strcmp(endpoint, "action") == 0) {
     String action = doc["action"] | "";
-    
+
     // Reordered actions as requested:
     if (action == "call_custom") {
       String number = doc["number"] | "";
@@ -234,10 +259,9 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing number");
       }
-    }
-    else if (action == "quick_call") {
+    } else if (action == "quick_call") {
       String entry = doc["entry"] | "";
-      const char* number = getHaPhoneBookNumberForEntry(entry.c_str());
+      const char *number = getHaPhoneBookNumberForEntry(entry.c_str());
       if (number) {
         haPerformCall(number);
         _stats[2]++; // outgoing calls
@@ -245,8 +269,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Entry not found");
       }
-    }
-    else if (action == "add_quick_dial") {
+    } else if (action == "add_quick_dial") {
       String name = doc["name"] | "";
       String number = doc["number"] | "";
       if (name.length() > 0 && number.length() > 0) {
@@ -261,11 +284,11 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing name or number");
       }
-    }
-    else if (action == "remove_quick_dial") {
+    } else if (action == "remove_quick_dial") {
       String name = doc["name"] | "";
-      auto it = std::find_if(haConfig.phoneBook.begin(), haConfig.phoneBook.end(),
-        [&](const std::pair<String, String>& p) { return p.first == name; });
+      auto it = std::find_if(haConfig.phoneBook.begin(),
+                             haConfig.phoneBook.end(),
+                             [&](const std::pair<String, String> &p) { return p.first == name; });
       if (it != haConfig.phoneBook.end()) {
         haConfig.phoneBook.erase(it);
         saveConfiguration();
@@ -273,8 +296,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Entry not found");
       }
-    }
-    else if (action == "add_blocked") {
+    } else if (action == "add_blocked") {
       String number = doc["number"] | "";
       if (number.length() > 0) {
         haConfig.blockedNumbers.push_back(number);
@@ -283,8 +305,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing number");
       }
-    }
-    else if (action == "remove_blocked") {
+    } else if (action == "remove_blocked") {
       String number = doc["number"] | "";
       auto it = std::find(haConfig.blockedNumbers.begin(), haConfig.blockedNumbers.end(), number);
       if (it != haConfig.blockedNumbers.end()) {
@@ -294,8 +315,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Number not found");
       }
-    }
-    else if (action == "webhook_add") {
+    } else if (action == "webhook_add") {
       String number = doc["number"] | "";
       String webhookId = doc["webhook_id"] | "";
       if (number.length() > 0 && webhookId.length() > 0) {
@@ -309,8 +329,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing number or webhook_id");
       }
-    }
-    else if (action == "webhook_remove") {
+    } else if (action == "webhook_remove") {
       String number = doc["number"] | "";
       if (number.length() > 0) {
         removeWebhookEntry(number.c_str());
@@ -318,59 +337,57 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing number");
       }
-    }
-    else if (action == "hangup") {
+    } else if (action == "hangup") {
       haPerformHangup();
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "switch_call_waiting") {
+    } else if (action == "switch_call_waiting") {
       haPerformSwitchToCallWaiting();
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "dnd_schedule") {
+    } else if (action == "dnd_schedule") {
       bool enabled = doc["enabled"] | false;
       haConfig.dndScheduleEnabled = enabled;
       saveConfiguration();
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "dnd_start_time") {
+    } else if (action == "dnd_start_time") {
       int hour = doc["hour"] | -1;
       int minute = doc["minute"] | -1;
       if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
         haConfig.dndStartHour = hour;
         haConfig.dndStartMinute = minute;
-        haSetDndHours(haConfig.dndStartHour, haConfig.dndStartMinute, haConfig.dndEndHour, haConfig.dndEndMinute);
+        haSetDndHours(haConfig.dndStartHour,
+                      haConfig.dndStartMinute,
+                      haConfig.dndEndHour,
+                      haConfig.dndEndMinute);
         saveConfiguration();
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Invalid time");
       }
-    }
-    else if (action == "dnd_end_time") {
+    } else if (action == "dnd_end_time") {
       int hour = doc["hour"] | -1;
       int minute = doc["minute"] | -1;
       if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
         haConfig.dndEndHour = hour;
         haConfig.dndEndMinute = minute;
-        haSetDndHours(haConfig.dndStartHour, haConfig.dndStartMinute, haConfig.dndEndHour, haConfig.dndEndMinute);
+        haSetDndHours(haConfig.dndStartHour,
+                      haConfig.dndStartMinute,
+                      haConfig.dndEndHour,
+                      haConfig.dndEndMinute);
         saveConfiguration();
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Invalid time");
       }
-    }
-    else if (action == "dnd_force") {
+    } else if (action == "dnd_force") {
       bool enabled = doc["enabled"] | false;
       haConfig.dndForceEnabled = enabled;
       saveConfiguration();
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "ring") {
+    } else if (action == "ring") {
       String pattern = doc["pattern"] | "2000"; // Default 2 second ring
       haPerformRing(pattern.toInt());
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "ring_pattern") {
+    } else if (action == "ring_pattern") {
       String pattern = doc["pattern"] | "";
       if (pattern.length() > 0) {
         RingPattern rp = parseRingPattern(pattern);
@@ -383,25 +400,37 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
       } else {
         sendError(request, "Missing pattern");
       }
-    }
-    else if (action == "refresh_data") {
+    } else if (action == "refresh_data") {
       broadcastStateUpdate();
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "maintenance_mode") {
+    } else if (action == "maintenance_mode") {
       bool enabled = doc["enabled"] | false;
       haPerformSetMaintenanceMode(enabled);
       sendResponse(request, "{\"success\":true}");
-    }
-    else if (action == "reset") {
+    } else if (action == "set_device_name") {
+      String deviceName = doc["device_name"] | "";
+      if (deviceName.length() > 0) {
+        haConfig.deviceName = deviceName;
+        saveConfiguration();
+
+        // Restart mDNS with new name
+        MDNS.end();
+        if (MDNS.begin(haConfig.deviceName.c_str())) {
+          MDNS.addService("http", "tcp", kHttpServerPort);
+          Logger::infoln(F("mDNS updated: %s.local"), haConfig.deviceName.c_str());
+        }
+
+        sendResponse(request, "{\"success\":true}");
+      } else {
+        sendError(request, "Missing device_name");
+      }
+    } else if (action == "reset") {
       haPerformReset();
       sendResponse(request, "{\"success\":true}");
-    }
-    else {
+    } else {
       sendError(request, "Unknown action");
     }
-  }
-  else if (strcmp(endpoint, "webhooks") == 0) {
+  } else if (strcmp(endpoint, "webhooks") == 0) {
     String serverUrl = doc["server_url"] | "";
     if (serverUrl.length() > 0) {
       haConfig.haServerUrl = serverUrl;
@@ -415,60 +444,63 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request, uint
   broadcastStateUpdate();
 }
 
-RingPattern HomeAssistantServer::parseRingPattern(const String& pattern) {
+RingPattern HomeAssistantServer::parseRingPattern(const String &pattern) {
   RingPattern rp;
-  
+
   // Check for repeat syntax: pattern/num
   int slashPos = pattern.indexOf('/');
   String mainPattern = pattern;
   int repeats = 1;
-  
+
   if (slashPos > 0) {
     mainPattern = pattern.substring(0, slashPos);
     repeats = pattern.substring(slashPos + 1).toInt();
-    if (repeats <= 0) repeats = 1;
+    if (repeats <= 0) {
+      repeats = 1;
+    }
   }
-  
+
   // Parse comma-separated durations
   int startPos = 0;
   int commaPos;
   std::vector<int> durations;
-  
+
   do {
     commaPos = mainPattern.indexOf(',', startPos);
-    String durStr = (commaPos > 0) ? mainPattern.substring(startPos, commaPos) : mainPattern.substring(startPos);
+    String durStr = (commaPos > 0) ? mainPattern.substring(startPos, commaPos)
+                                   : mainPattern.substring(startPos);
     int duration = durStr.toInt();
-    
+
     if (duration <= 0 || duration > 30000) { // Max 30 seconds per duration
-      return rp; // Invalid
+      return rp;                             // Invalid
     }
-    
+
     durations.push_back(duration);
     startPos = commaPos + 1;
   } while (commaPos > 0);
-  
+
   // Validate pattern
   if (durations.empty()) {
     return rp; // Invalid
   }
-  
+
   // If there are repeats, pattern must end with even number (pause)
   if (repeats > 1 && durations.size() % 2 != 0) {
     return rp; // Invalid
   }
-  
+
   rp.durations = durations;
   rp.repeats = repeats;
   rp.isValid = true;
-  
+
   return rp;
 }
 
-void HomeAssistantServer::sendResponse(AsyncWebServerRequest *request, const char* data, int code) {
+void HomeAssistantServer::sendResponse(AsyncWebServerRequest *request, const char *data, int code) {
   request->send(code, kContentTypeJson, data);
 }
 
-void HomeAssistantServer::sendError(AsyncWebServerRequest *request, const char* error, int code) {
+void HomeAssistantServer::sendError(AsyncWebServerRequest *request, const char *error, int code) {
   String response = "{\"error\":\"";
   response += error;
   response += "\"}";
@@ -476,7 +508,12 @@ void HomeAssistantServer::sendError(AsyncWebServerRequest *request, const char* 
 }
 
 void HomeAssistantServer::setupWebSocket() {
-  _ws.onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  _ws.onEvent([this](AsyncWebSocket *server,
+                     AsyncWebSocketClient *client,
+                     AwsEventType type,
+                     void *arg,
+                     uint8_t *data,
+                     size_t len) {
     if (type == WS_EVT_CONNECT) {
       Logger::infoln(F("WS client connected: %u"), client->id());
     } else if (type == WS_EVT_DISCONNECT) {
@@ -487,8 +524,10 @@ void HomeAssistantServer::setupWebSocket() {
 }
 
 void HomeAssistantServer::process() {
-  if (!_isInitialized) return;
-  
+  if (!_isInitialized) {
+    return;
+  }
+
   static uint32_t lastCleanup = 0;
   if (millis() - lastCleanup > 30000) {
     _ws.cleanupClients();
@@ -498,14 +537,13 @@ void HomeAssistantServer::process() {
 
 void HomeAssistantServer::updateState(const State &state) {
   bool stateChanged = false;
-  
-  if (_lastState.newAppState != state.newAppState || 
-      _lastState.isDnd != state.isDnd ||
+
+  if (_lastState.newAppState != state.newAppState || _lastState.isDnd != state.isDnd ||
       _lastState.isMaintenanceMode != state.isMaintenanceMode ||
       strcmp(_lastState.callState.callNumber, state.callState.callNumber) != 0) {
     stateChanged = true;
   }
-  
+
   // Track statistics
   AppState prevState = _lastState.newAppState;
   if (prevState != AppState::InCall && state.newAppState == AppState::InCall) {
@@ -514,9 +552,9 @@ void HomeAssistantServer::updateState(const State &state) {
   if (prevState != AppState::IncomingCall && state.newAppState == AppState::IncomingCall) {
     _stats[1]++; // incoming calls
   }
-  
+
   _lastState = state;
-  
+
   if (stateChanged) {
     broadcastStateUpdate();
   }
@@ -537,7 +575,7 @@ void HomeAssistantServer::broadcastStateUpdate() {
     if (_lastState.callState.callNumber[0] != '\0') {
       doc["call"]["number"] = _lastState.callState.callNumber;
     }
-    
+
     String response;
     serializeJson(doc, response);
     _ws.textAll(response);
@@ -554,7 +592,9 @@ void loadConfiguration() {
   }
 
   File file = SPIFFS.open(kConfigFile, "r");
-  if (!file) return;
+  if (!file) {
+    return;
+  }
 
   JsonDocument doc;
   if (deserializeJson(doc, file) != DeserializationError::Ok) {
@@ -570,6 +610,7 @@ void loadConfiguration() {
   haConfig.dndEndMinute = doc["dnd_end_minute"] | kDndEndMinute;
   haConfig.phoneBookInitialized = doc["phonebook_initialized"] | false;
   haConfig.haServerUrl = doc["ha_server_url"] | "";
+  haConfig.deviceName = doc["device_name"] | kHaDeviceName;
 
   // Load phonebook
   if (doc["phonebook"].is<JsonArray>()) {
@@ -618,6 +659,7 @@ void saveConfiguration() {
   doc["dnd_end_minute"] = haConfig.dndEndMinute;
   doc["phonebook_initialized"] = haConfig.phoneBookInitialized;
   doc["ha_server_url"] = haConfig.haServerUrl;
+  doc["device_name"] = haConfig.deviceName;
 
   JsonArray phonebook = doc["phonebook"].to<JsonArray>();
   for (const auto &entry : haConfig.phoneBook) {
@@ -657,7 +699,8 @@ void seedHaPhoneBookFromLocal() {
 // Utility functions
 bool isNumberBlocked(const char *number) {
   String numStr(number);
-  return std::find(haConfig.blockedNumbers.begin(), haConfig.blockedNumbers.end(), numStr) != haConfig.blockedNumbers.end();
+  return std::find(haConfig.blockedNumbers.begin(), haConfig.blockedNumbers.end(), numStr) !=
+         haConfig.blockedNumbers.end();
 }
 
 bool isDndConfigEnabled() {
@@ -752,8 +795,9 @@ void addWebhookEntry(const char *number, const char *webhookId) {
 
 void removeWebhookEntry(const char *number) {
   String numStr(number);
-  auto it = std::find_if(haConfig.webhooks.begin(), haConfig.webhooks.end(),
-    [&](const WebhookEntry& hook) { return hook.number == numStr; });
+  auto it = std::find_if(haConfig.webhooks.begin(),
+                         haConfig.webhooks.end(),
+                         [&](const WebhookEntry &hook) { return hook.number == numStr; });
   if (it != haConfig.webhooks.end()) {
     haConfig.webhooks.erase(it);
     saveConfiguration();
@@ -765,21 +809,21 @@ void executeWebhook(const char *webhookId) {
     Logger::errorln(F("No HA server URL configured"));
     return;
   }
-  
+
   HTTPClient http;
   String url = haConfig.haServerUrl + "/api/webhook/" + String(webhookId);
-  
+
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  
+
   int httpResponseCode = http.POST("{}");
-  
+
   if (httpResponseCode > 0) {
     Logger::infoln(F("Webhook executed: %s (response: %d)"), webhookId, httpResponseCode);
   } else {
     Logger::errorln(F("Webhook failed: %s (error: %d)"), webhookId, httpResponseCode);
   }
-  
+
   http.end();
 }
 
