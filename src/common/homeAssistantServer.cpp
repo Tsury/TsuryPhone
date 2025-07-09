@@ -676,22 +676,6 @@ void HomeAssistantServer::process(const State &state) {
     stateChanged = true;
     shouldDebugLog = true;
   }
-
-  if (shouldDebugLog) {
-    Logger::debugln(F("HA Process[%lu]: State comparison - AppState: %s->%s, DND: %d->%d, "
-                      "Maintenance: %d->%d, CallNum: '%s'->'%s', Changed: %d"),
-                    debugCounter,
-                    appStateToString(_lastState.newAppState),
-                    appStateToString(state.newAppState),
-                    _lastState.isDnd,
-                    state.isDnd,
-                    _lastState.isMaintenanceMode,
-                    state.isMaintenanceMode,
-                    _lastState.callState.callNumber,
-                    state.callState.callNumber,
-                    stateChanged);
-  }
-
   // Track statistics
   AppState prevState = _lastState.newAppState;
   if (prevState != AppState::InCall && state.newAppState == AppState::InCall) {
@@ -706,6 +690,22 @@ void HomeAssistantServer::process(const State &state) {
   _lastState = state;
 
   if (stateChanged) {
+
+    if (shouldDebugLog) {
+      Logger::debugln(F("HA Process[%lu]: State comparison - AppState: %s->%s, DND: %d->%d, "
+                        "Maintenance: %d->%d, CallNum: '%s'->'%s', Changed: %d"),
+                      debugCounter,
+                      appStateToString(_lastState.newAppState),
+                      appStateToString(state.newAppState),
+                      _lastState.isDnd,
+                      state.isDnd,
+                      _lastState.isMaintenanceMode,
+                      state.isMaintenanceMode,
+                      _lastState.callState.callNumber,
+                      state.callState.callNumber,
+                      stateChanged);
+    }
+
     Logger::infoln(F("HA State Change Detected! Broadcasting update..."));
     broadcastStateUpdate();
   }
