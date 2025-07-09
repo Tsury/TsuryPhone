@@ -577,19 +577,12 @@ void HomeAssistantServer::setupWebSocket() {
   _server.addHandler(&_ws);
 }
 
-void HomeAssistantServer::process() {
+void HomeAssistantServer::process(const State &state) {
   if (!_isInitialized) {
     return;
   }
 
-  static uint32_t lastCleanup = 0;
-  if (millis() - lastCleanup > 30000) {
-    _ws.cleanupClients();
-    lastCleanup = millis();
-  }
-}
-
-void HomeAssistantServer::updateState(const State &state) {
+  // Check for state changes immediately and broadcast if needed
   bool stateChanged = false;
 
   if (_lastState.newAppState != state.newAppState || _lastState.isDnd != state.isDnd ||
@@ -611,6 +604,12 @@ void HomeAssistantServer::updateState(const State &state) {
 
   if (stateChanged) {
     broadcastStateUpdate();
+  }
+
+  static uint32_t lastCleanup = 0;
+  if (millis() - lastCleanup > 30000) {
+    _ws.cleanupClients();
+    lastCleanup = millis();
   }
 }
 

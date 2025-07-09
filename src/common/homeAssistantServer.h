@@ -18,8 +18,7 @@ class HomeAssistantServer {
 public:
   HomeAssistantServer();
   void init();
-  void process();
-  void updateState(const State &state);
+  void process(const State &state);
   void notifyBlockedCall(const char *number);
   void broadcastStateUpdate();
 

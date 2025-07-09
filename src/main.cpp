@@ -89,8 +89,7 @@ void PhoneApp::loop() {
   _timeManager.process(_state);
 
 #ifdef HOME_ASSISTANT_INTEGRATION
-  haServer.process();
-  haServer.updateState(_state);
+  haServer.process(_state);
 #endif
 
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
