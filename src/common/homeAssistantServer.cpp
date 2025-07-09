@@ -710,12 +710,32 @@ void HomeAssistantServer::process(const State &state) {
     broadcastStateUpdate();
   }
 
+  // Periodic WebSocket client cleanup to remove dead connections
   static uint32_t lastCleanup = 0;
+  static uint32_t lastClientCount = 0;
+  uint32_t currentClientCount = _ws.count();
+  
   if (millis() - lastCleanup > 30000) {
-    Logger::debugln(F("HA WebSocket: Cleaning up clients (current count: %d)"), _ws.count());
+    Logger::debugln(F("HA WebSocket: Cleaning up clients (current count: %d)"), currentClientCount);
     _ws.cleanupClients();
     lastCleanup = millis();
-    Logger::debugln(F("HA WebSocket: Cleanup complete (current count: %d)"), _ws.count());
+    uint32_t afterCleanupCount = _ws.count();
+    
+    if (afterCleanupCount != currentClientCount) {
+      Logger::infoln(F("HA WebSocket: Cleanup removed %d dead clients (%d -> %d)"), 
+                     currentClientCount - afterCleanupCount, currentClientCount, afterCleanupCount);
+    } else {
+      Logger::debugln(F("HA WebSocket: Cleanup complete (count unchanged: %d)"), afterCleanupCount);
+    }
+    
+    lastClientCount = afterCleanupCount;
+  }
+  
+  // Log when client count changes outside of cleanup
+  if (currentClientCount != lastClientCount && millis() - lastCleanup > 1000) {
+    Logger::infoln(F("HA WebSocket: Client count changed outside cleanup: %d -> %d"), 
+                   lastClientCount, currentClientCount);
+    lastClientCount = currentClientCount;
   }
 }
 
