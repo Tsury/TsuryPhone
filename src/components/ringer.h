@@ -15,9 +15,7 @@ public:
   void process(State &state);
 
   void startRinging();
-  void startRinging(int durationMs); // Ring for specific duration
-  void
-  startRingingWithStructuredPattern(const RingPattern &pattern); // Ring with pre-parsed pattern
+  void startRingingWithStructuredPattern(const RingPattern &pattern); // Ring with pre-parsed pattern
   void stopRinging();
 
 private:

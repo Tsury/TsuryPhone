@@ -399,11 +399,6 @@ void PhoneApp::haPerformReset() {
   ESP.restart();
 }
 
-void PhoneApp::haPerformRing(int durationMs) {
-  Logger::infoln(F("HA initiated ring for %d ms"), durationMs);
-  _ringer.startRinging(durationMs);
-}
-
 void PhoneApp::haPerformRingWithStructuredPattern(const RingPattern &pattern) {
   Logger::infoln(F("HA initiated ring with structured pattern: %d durations, %d repeats"),
                  pattern.durations.size(),
@@ -462,12 +457,6 @@ void haPerformReset() {
     g_phoneApp->haPerformReset();
   } else {
     ESP.restart();
-  }
-}
-
-void haPerformRing(int durationMs) {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformRing(durationMs);
   }
 }
 

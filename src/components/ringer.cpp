@@ -34,20 +34,6 @@ void Ringer::startRinging() {
   _usingPattern = false;
 }
 
-void Ringer::startRinging(int durationMs) {
-  if (_ringing) {
-    return;
-  }
-
-  setRingerEnabled(true);
-  _ringing = true;
-  _ringStartTime = millis();
-  _lastCycleTime = millis() + kRingCycleDuration;
-  _ringState = false;
-  _customRingingDuration = durationMs;
-  _usingPattern = false;
-}
-
 void Ringer::startRingingWithStructuredPattern(const RingPattern &pattern) {
   if (_ringing) {
     return;

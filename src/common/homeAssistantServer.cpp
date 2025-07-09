@@ -50,7 +50,6 @@ HomeAssistantServer haServer;
 extern void haPerformCall(const char *number);
 extern void haPerformHangup();
 extern void haPerformReset();
-extern void haPerformRing(int durationMs);
 extern void haPerformRingWithStructuredPattern(const RingPattern &pattern);
 extern void haPerformSetMaintenanceMode(bool enabled);
 extern void haPerformSwitchToCallWaiting();
@@ -382,10 +381,6 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       bool enabled = doc["enabled"] | false;
       haConfig.dndForceEnabled = enabled;
       saveConfiguration();
-      sendResponse(request, "{\"success\":true}");
-    } else if (action == "ring") {
-      String pattern = doc["pattern"] | "2000"; // Default 2 second ring
-      haPerformRing(pattern.toInt());
       sendResponse(request, "{\"success\":true}");
     } else if (action == "ring_pattern") {
       // Handle new structured pattern data from HA integration
