@@ -15,7 +15,8 @@ public:
   void process(State &state);
 
   void startRinging();
-  void startRingingWithStructuredPattern(const RingPattern &pattern); // Ring with pre-parsed pattern
+  void
+  startRingingWithStructuredPattern(const RingPattern &pattern); // Ring with pre-parsed pattern
   void stopRinging();
 
 private:

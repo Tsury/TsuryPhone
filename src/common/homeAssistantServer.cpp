@@ -183,9 +183,32 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
     doc["dnd"] = _lastState.isDnd;
     doc["maintenance"] = _lastState.isMaintenanceMode;
     doc["device_name"] = haConfig.deviceName;
+    doc["uptime"] = millis() - _uptime;
+    doc["free_heap"] = ESP.getFreeHeap();
+
+    // WiFi information
+    JsonObject wifi = doc["wifi"].to<JsonObject>();
+    wifi["connected"] = WiFi.status() == WL_CONNECTED;
+    if (WiFi.status() == WL_CONNECTED) {
+      wifi["ssid"] = WiFi.SSID();
+      wifi["rssi"] = WiFi.RSSI();
+      wifi["ip"] = WiFi.localIP().toString();
+      wifi["mac"] = WiFi.macAddress();
+    }
+
+    // Call information - enhanced to show call state better
     if (_lastState.callState.callNumber[0] != '\0') {
-      doc["call"]["number"] = _lastState.callState.callNumber;
-      doc["call"]["active"] = (_lastState.newAppState == AppState::InCall);
+      JsonObject call = doc["call"].to<JsonObject>();
+      call["number"] = _lastState.callState.callNumber;
+      call["active"] = (_lastState.newAppState == AppState::InCall);
+      call["id"] = _lastState.callState.callId;
+      // Add call waiting info if available
+      if (_lastState.callState.callWaitingId > 0) {
+        call["has_waiting"] = true;
+        call["waiting_id"] = _lastState.callState.callWaitingId;
+      } else {
+        call["has_waiting"] = false;
+      }
     }
   } else if (strcmp(endpoint, "stats") == 0) {
     doc["uptime"] = millis() - _uptime;
@@ -195,6 +218,15 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
     doc["blocked"] = _stats[3];
     doc["resets"] = _stats[4];
     doc["free_heap"] = ESP.getFreeHeap();
+
+    // Additional ESP32 system information
+    doc["cpu_freq"] = ESP.getCpuFreqMHz();
+    doc["flash_size"] = ESP.getFlashChipSize();
+    doc["sketch_size"] = ESP.getSketchSize();
+    doc["sketch_free"] = ESP.getFreeSketchSpace();
+    doc["chip_model"] = ESP.getChipModel();
+    doc["chip_revision"] = ESP.getChipRevision();
+    doc["sdk_version"] = ESP.getSdkVersion();
   } else if (strcmp(endpoint, "dnd") == 0) {
     doc["force_enabled"] = haConfig.dndForceEnabled;
     doc["schedule_enabled"] = haConfig.dndScheduleEnabled;
@@ -590,12 +622,26 @@ void HomeAssistantServer::notifyBlockedCall(const char *number) {
 
 void HomeAssistantServer::broadcastStateUpdate() {
   if (_ws.count() > 0) {
-    // Send minimal state update via WebSocket
+    // Send comprehensive state update via WebSocket
     JsonDocument doc;
     doc["state"] = appStateToString(_lastState.newAppState);
     doc["dnd"] = _lastState.isDnd;
+    doc["maintenance"] = _lastState.isMaintenanceMode;
+    doc["uptime"] = millis() - _uptime;
+    doc["free_heap"] = ESP.getFreeHeap();
+
+    // Call information
     if (_lastState.callState.callNumber[0] != '\0') {
-      doc["call"]["number"] = _lastState.callState.callNumber;
+      JsonObject call = doc["call"].to<JsonObject>();
+      call["number"] = _lastState.callState.callNumber;
+      call["active"] = (_lastState.newAppState == AppState::InCall);
+      call["id"] = _lastState.callState.callId;
+      if (_lastState.callState.callWaitingId > 0) {
+        call["has_waiting"] = true;
+        call["waiting_id"] = _lastState.callState.callWaitingId;
+      } else {
+        call["has_waiting"] = false;
+      }
     }
 
     String response;
