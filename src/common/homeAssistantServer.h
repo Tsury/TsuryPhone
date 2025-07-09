@@ -1,10 +1,10 @@
 #pragma once
 
+#include "../components/ringer.h"
 #include "config.h"
 #include "state.h"
-#include "../components/ringer.h"
-#include <ESPAsyncWebServer.h>
 #include <AsyncWebSocket.h>
+#include <ESPAsyncWebServer.h>
 
 #ifdef HOME_ASSISTANT_INTEGRATION
 
@@ -25,18 +25,26 @@ public:
 private:
   void setupRoutes();
   void setupWebSocket();
-  void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-  
+  void onWebSocketEvent(AsyncWebSocket *server,
+                        AsyncWebSocketClient *client,
+                        AwsEventType type,
+                        void *arg,
+                        uint8_t *data,
+                        size_t len);
+
   // Simplified handlers - combine similar functionality
-  void handleRequest(AsyncWebServerRequest *request, const char* endpoint);
-  void handlePostRequest(AsyncWebServerRequest *request, uint8_t *data, size_t len, const char* endpoint);
-  
+  void handleRequest(AsyncWebServerRequest *request, const char *endpoint);
+  void handlePostRequest(AsyncWebServerRequest *request,
+                         uint8_t *data,
+                         size_t len,
+                         const char *endpoint);
+
   // JSON response helpers - use static strings when possible
-  void sendResponse(AsyncWebServerRequest *request, const char* data, int code = 200);
-  void sendError(AsyncWebServerRequest *request, const char* error, int code = 400);
-  
+  void sendResponse(AsyncWebServerRequest *request, const char *data, int code = 200);
+  void sendError(AsyncWebServerRequest *request, const char *error, int code = 400);
+
   // Ring pattern parsing
-  RingPattern parseRingPattern(const String& pattern);
+  RingPattern parseRingPattern(const String &pattern);
 
   AsyncWebServer _server;
   AsyncWebSocket _ws;
