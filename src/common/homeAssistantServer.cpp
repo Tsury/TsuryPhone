@@ -61,48 +61,35 @@ HomeAssistantServer::HomeAssistantServer()
 }
 
 void HomeAssistantServer::init() {
-  Logger::infoln(F("Initializing HA Server..."));
+  Logger::infoln(F("Initializing Home Assistant Server..."));
 
   if (!SPIFFS.begin(true)) {
-    Logger::errorln(F("SPIFFS failed"));
+    Logger::errorln(F("SPIFFS initialization failed"));
     return;
   }
-  Logger::debugln(F("HA Init: SPIFFS initialized successfully"));
 
   loadConfiguration();
-  Logger::debugln(F("HA Init: Configuration loaded"));
-
   setupRoutes();
-  Logger::debugln(F("HA Init: HTTP routes configured"));
-
   setupWebSocket();
-  Logger::debugln(F("HA Init: WebSocket configured"));
-
   _server.begin();
-  Logger::infoln(F("HA Init: HTTP server started on port %d"), kHttpServerPort);
 
   if (MDNS.begin(haConfig.deviceName.c_str())) {
     MDNS.addService("http", "tcp", kHttpServerPort);
-    Logger::infoln(F("HA Init: mDNS started - %s.local"), haConfig.deviceName.c_str());
+    Logger::infoln(F("mDNS service started: %s.local"), haConfig.deviceName.c_str());
   } else {
-    Logger::errorln(F("HA Init: mDNS failed to start"));
+    Logger::errorln(F("mDNS initialization failed"));
   }
 
-  // Log network information
   if (WiFi.status() == WL_CONNECTED) {
-    Logger::infoln(F("HA Init: WiFi connected - IP: %s, SSID: %s, RSSI: %d dBm"),
+    Logger::infoln(F("Home Assistant Server ready at http://%s/ (http://%s.local/)"),
                    WiFi.localIP().toString().c_str(),
-                   WiFi.SSID().c_str(),
-                   WiFi.RSSI());
+                   haConfig.deviceName.c_str());
   } else {
-    Logger::warnln(F("HA Init: WiFi not connected! Status: %d"), WiFi.status());
+    Logger::errorln(F("WiFi not connected during HA server initialization"));
   }
 
   _uptime = millis();
   _isInitialized = true;
-  Logger::infoln(F("HA Server ready - Access via http://%s/ or http://%s.local/"),
-                 WiFi.localIP().toString().c_str(),
-                 haConfig.deviceName.c_str());
 }
 
 void HomeAssistantServer::setupRoutes() {
@@ -200,10 +187,6 @@ void HomeAssistantServer::setupRoutes() {
 void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const char *endpoint) {
   JsonDocument doc;
 
-  Logger::debugln(F("HA HTTP: %s endpoint accessed from %s"),
-                  endpoint,
-                  request->client()->remoteIP().toString().c_str());
-
   if (strcmp(endpoint, "status") == 0) {
     doc["state"] = appStateToString(_lastState.newAppState);
     doc["dnd"] = _lastState.isDnd;
@@ -274,20 +257,13 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
       numbers.add(number);
     }
   } else if (strcmp(endpoint, "webhooks") == 0) {
-    Logger::debugln(F("GET webhooks endpoint called"));
     JsonArray hooks = doc["webhooks"].to<JsonArray>();
     for (const auto &hook : haConfig.webhooks) {
       JsonObject hookObj = hooks.add<JsonObject>();
       hookObj["number"] = hook.number;
       hookObj["webhook_id"] = hook.webhookId;
-      Logger::debugln(F("Returning webhook: number='%s', webhook_id='%s'"),
-                      hook.number.c_str(),
-                      hook.webhookId.c_str());
     }
     doc["server_url"] = haConfig.haServerUrl;
-    Logger::infoln(F("Returning %d webhooks, server_url='%s'"),
-                   haConfig.webhooks.size(),
-                   haConfig.haServerUrl.c_str());
   }
 
   String response;
@@ -317,10 +293,9 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
     if (action == "call_custom") {
       String number = doc["number"] | "";
       if (number.length() > 0) {
-        Logger::infoln(F("HA Action: call_custom - number: %s"), number.c_str());
+        Logger::infoln(F("Custom call initiated: %s"), number.c_str());
         haPerformCall(number.c_str());
         _stats[2]++; // outgoing calls
-        Logger::debugln(F("HA Action: call_custom completed, outgoing calls: %lu"), _stats[2]);
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Missing number");
@@ -329,10 +304,9 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       String entry = doc["entry"] | "";
       const char *number = getHaPhoneBookNumberForEntry(entry.c_str());
       if (number) {
-        Logger::infoln(F("HA Action: quick_call - entry: %s, number: %s"), entry.c_str(), number);
+        Logger::infoln(F("Quick call initiated: %s -> %s"), entry.c_str(), number);
         haPerformCall(number);
         _stats[2]++; // outgoing calls
-        Logger::debugln(F("HA Action: quick_call completed, outgoing calls: %lu"), _stats[2]);
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Entry not found");
@@ -386,54 +360,34 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
     } else if (action == "webhook_add") {
       String number = doc["number"] | "";
       String webhookId = doc["webhook_id"] | "";
-      Logger::debugln(F("Webhook add request - number: '%s', webhook_id: '%s'"),
-                      number.c_str(),
-                      webhookId.c_str());
 
       if (number.length() > 0 && webhookId.length() > 0) {
-        // Check for conflicts
-        Logger::debugln(F("Checking for conflicts - isHaPhoneBookEntry: %d, isWebhookEntry: %d"),
-                        isHaPhoneBookEntry(number.c_str()),
-                        isWebhookEntry(number.c_str()));
         if (isHaPhoneBookEntry(number.c_str()) || isWebhookEntry(number.c_str())) {
-          Logger::errorln(F("Webhook add failed - number '%s' already exists"), number.c_str());
           sendError(request, "Number already exists");
           return;
         }
-        Logger::infoln(F("Adding webhook entry - number: '%s', webhook_id: '%s'"),
-                       number.c_str(),
-                       webhookId.c_str());
+        Logger::infoln(F("Adding webhook: %s -> %s"), number.c_str(), webhookId.c_str());
         addWebhookEntry(number.c_str(), webhookId.c_str());
-        Logger::infoln(F("Webhook entry added successfully, total webhooks: %d"),
-                       haConfig.webhooks.size());
         sendResponse(request, "{\"success\":true}");
       } else {
-        Logger::errorln(F("Webhook add failed - missing data: number='%s', webhook_id='%s'"),
-                        number.c_str(),
-                        webhookId.c_str());
         sendError(request, "Missing number or webhook_id");
       }
     } else if (action == "webhook_remove") {
       String number = doc["number"] | "";
-      Logger::debugln(F("Webhook remove request - number: '%s'"), number.c_str());
       if (number.length() > 0) {
-        Logger::infoln(F("Removing webhook entry for number: '%s'"), number.c_str());
+        Logger::infoln(F("Removing webhook for number: %s"), number.c_str());
         removeWebhookEntry(number.c_str());
-        Logger::infoln(F("Webhook entry removed, total webhooks: %d"), haConfig.webhooks.size());
         sendResponse(request, "{\"success\":true}");
       } else {
-        Logger::errorln(F("Webhook remove failed - missing number"));
         sendError(request, "Missing number");
       }
     } else if (action == "hangup") {
-      Logger::infoln(F("HA Action: hangup"));
+      Logger::infoln(F("Hangup action initiated"));
       haPerformHangup();
-      Logger::debugln(F("HA Action: hangup completed"));
       sendResponse(request, "{\"success\":true}");
     } else if (action == "switch_call_waiting") {
-      Logger::infoln(F("HA Action: switch_call_waiting"));
+      Logger::infoln(F("Call waiting switch initiated"));
       haPerformSwitchToCallWaiting();
-      Logger::debugln(F("HA Action: switch_call_waiting completed"));
       sendResponse(request, "{\"success\":true}");
     } else if (action == "dnd_schedule") {
       bool enabled = doc["enabled"] | false;
@@ -532,7 +486,7 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
         MDNS.end();
         if (MDNS.begin(haConfig.deviceName.c_str())) {
           MDNS.addService("http", "tcp", kHttpServerPort);
-          Logger::infoln(F("mDNS updated: %s.local"), haConfig.deviceName.c_str());
+          Logger::infoln(F("Device name updated: %s.local"), haConfig.deviceName.c_str());
         }
 
         sendResponse(request, "{\"success\":true}");
@@ -547,14 +501,12 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
     }
   } else if (strcmp(endpoint, "webhooks") == 0) {
     String serverUrl = doc["server_url"] | "";
-    Logger::debugln(F("Webhook server URL update request - server_url: '%s'"), serverUrl.c_str());
     if (serverUrl.length() > 0) {
-      Logger::infoln(F("Updating webhook server URL: '%s'"), serverUrl.c_str());
+      Logger::infoln(F("Webhook server URL updated: %s"), serverUrl.c_str());
       haConfig.haServerUrl = serverUrl;
       saveConfiguration();
       sendResponse(request, "{\"success\":true}");
     } else {
-      Logger::errorln(F("Webhook server URL update failed - missing server_url"));
       sendError(request, "Missing server_url");
     }
   }
@@ -633,26 +585,16 @@ void HomeAssistantServer::setupWebSocket() {
                      uint8_t *data,
                      size_t len) {
     if (type == WS_EVT_CONNECT) {
-      Logger::infoln(F("HA WebSocket: Client connected - ID: %u, IP: %s, Total clients: %d"),
-                     client->id(),
-                     client->remoteIP().toString().c_str(),
-                     _ws.count());
+      Logger::infoln(F("WebSocket client connected: %s"), client->remoteIP().toString().c_str());
       // Send initial state to newly connected client
       broadcastStateUpdate();
     } else if (type == WS_EVT_DISCONNECT) {
-      Logger::infoln(F("HA WebSocket: Client disconnected - ID: %u, Remaining clients: %d"),
-                     client->id(),
-                     _ws.count() - 1);
+      Logger::infoln(F("WebSocket client disconnected"));
     } else if (type == WS_EVT_ERROR) {
-      Logger::errorln(F("HA WebSocket: Error on client %u"), client->id());
-    } else if (type == WS_EVT_PONG) {
-      Logger::debugln(F("HA WebSocket: Pong received from client %u"), client->id());
-    } else if (type == WS_EVT_DATA) {
-      Logger::debugln(F("HA WebSocket: Data received from client %u (len: %d)"), client->id(), len);
+      Logger::errorln(F("WebSocket error on client %u"), client->id());
     }
   });
   _server.addHandler(&_ws);
-  Logger::debugln(F("HA WebSocket: Handler configured and added to server"));
 }
 
 void HomeAssistantServer::process(const State &state) {
@@ -660,95 +602,53 @@ void HomeAssistantServer::process(const State &state) {
     return;
   }
 
-  // Check for state changes immediately and broadcast if needed
+  // Check for state changes
   bool stateChanged = false;
-
-  // Debug: Log current state comparison
-  static uint32_t debugCounter = 0;
-  debugCounter++;
-
-  // Log detailed state comparison every 100 iterations or when state changes
-  bool shouldDebugLog = (debugCounter % 100 == 0);
 
   if (_lastState.newAppState != state.newAppState || _lastState.isDnd != state.isDnd ||
       _lastState.isMaintenanceMode != state.isMaintenanceMode ||
       strcmp(_lastState.callState.callNumber, state.callState.callNumber) != 0) {
     stateChanged = true;
-    shouldDebugLog = true;
   }
+
   // Track statistics
   AppState prevState = _lastState.newAppState;
   if (prevState != AppState::InCall && state.newAppState == AppState::InCall) {
     _stats[0]++; // total calls
-    Logger::debugln(F("HA Stats: Total calls incremented to %lu"), _stats[0]);
   }
   if (prevState != AppState::IncomingCall && state.newAppState == AppState::IncomingCall) {
     _stats[1]++; // incoming calls
-    Logger::debugln(F("HA Stats: Incoming calls incremented to %lu"), _stats[1]);
   }
 
   _lastState = state;
 
   if (stateChanged) {
-
-    if (shouldDebugLog) {
-      Logger::debugln(F("HA Process[%lu]: State comparison - AppState: %s->%s, DND: %d->%d, "
-                        "Maintenance: %d->%d, CallNum: '%s'->'%s', Changed: %d"),
-                      debugCounter,
-                      appStateToString(_lastState.newAppState),
-                      appStateToString(state.newAppState),
-                      _lastState.isDnd,
-                      state.isDnd,
-                      _lastState.isMaintenanceMode,
-                      state.isMaintenanceMode,
-                      _lastState.callState.callNumber,
-                      state.callState.callNumber,
-                      stateChanged);
-    }
-
-    Logger::infoln(F("HA State Change Detected! Broadcasting update..."));
+    Logger::infoln(F("State change detected - broadcasting update"));
     broadcastStateUpdate();
   }
 
   // Periodic WebSocket client cleanup to remove dead connections
   static uint32_t lastCleanup = 0;
-  static uint32_t lastClientCount = 0;
-  uint32_t currentClientCount = _ws.count();
-  
+
   if (millis() - lastCleanup > 30000) {
-    Logger::debugln(F("HA WebSocket: Cleaning up clients (current count: %d)"), currentClientCount);
+    uint32_t beforeCount = _ws.count();
     _ws.cleanupClients();
+    uint32_t afterCount = _ws.count();
     lastCleanup = millis();
-    uint32_t afterCleanupCount = _ws.count();
-    
-    if (afterCleanupCount != currentClientCount) {
-      Logger::infoln(F("HA WebSocket: Cleanup removed %d dead clients (%d -> %d)"), 
-                     currentClientCount - afterCleanupCount, currentClientCount, afterCleanupCount);
-    } else {
-      Logger::debugln(F("HA WebSocket: Cleanup complete (count unchanged: %d)"), afterCleanupCount);
+
+    if (beforeCount != afterCount) {
+      Logger::infoln(F("WebSocket cleanup: removed %d dead clients"), beforeCount - afterCount);
     }
-    
-    lastClientCount = afterCleanupCount;
-  }
-  
-  // Log when client count changes outside of cleanup
-  if (currentClientCount != lastClientCount && millis() - lastCleanup > 1000) {
-    Logger::infoln(F("HA WebSocket: Client count changed outside cleanup: %d -> %d"), 
-                   lastClientCount, currentClientCount);
-    lastClientCount = currentClientCount;
   }
 }
 
 void HomeAssistantServer::notifyBlockedCall(const char *number) {
-  Logger::infoln(F("Blocked call: %s"), number);
+  Logger::infoln(F("Blocked call from: %s"), number);
   _stats[3]++; // blocked calls
   broadcastStateUpdate();
 }
 
 void HomeAssistantServer::broadcastStateUpdate() {
-  Logger::debugln(F("HA Broadcast: Starting state update broadcast"));
-  Logger::debugln(F("HA Broadcast: WebSocket client count: %d"), _ws.count());
-
   if (_ws.count() > 0) {
     // Send comprehensive state update via WebSocket
     JsonDocument doc;
@@ -758,44 +658,25 @@ void HomeAssistantServer::broadcastStateUpdate() {
     doc["uptime"] = millis() - _uptime;
     doc["free_heap"] = ESP.getFreeHeap();
 
-    Logger::debugln(F("HA Broadcast: State data - state: %s, dnd: %d, maintenance: %d"),
-                    appStateToString(_lastState.newAppState),
-                    _lastState.isDnd,
-                    _lastState.isMaintenanceMode);
-
     // Call information
     if (_lastState.callState.callNumber[0] != '\0') {
       JsonObject call = doc["call"].to<JsonObject>();
       call["number"] = _lastState.callState.callNumber;
       call["active"] = (_lastState.newAppState == AppState::InCall);
       call["id"] = _lastState.callState.callId;
-      Logger::debugln(F("HA Broadcast: Call info - number: %s, active: %d, id: %lu"),
-                      _lastState.callState.callNumber,
-                      (_lastState.newAppState == AppState::InCall),
-                      _lastState.callState.callId);
 
       if (_lastState.callState.callWaitingId > 0) {
         call["has_waiting"] = true;
         call["waiting_id"] = _lastState.callState.callWaitingId;
-        Logger::debugln(F("HA Broadcast: Call waiting info - id: %lu"),
-                        _lastState.callState.callWaitingId);
       } else {
         call["has_waiting"] = false;
       }
-    } else {
-      Logger::debugln(F("HA Broadcast: No active call"));
     }
 
     String response;
     serializeJson(doc, response);
-    Logger::debugln(
-        F("HA Broadcast: JSON payload (%d bytes): %s"), response.length(), response.c_str());
 
-    // Send to all clients and log the result
-    size_t clientsSent = _ws.textAll(response);
-    Logger::infoln(F("HA Broadcast: State update sent to %d WebSocket clients"), clientsSent);
-  } else {
-    Logger::warnln(F("HA Broadcast: No WebSocket clients connected - state update skipped"));
+    _ws.textAll(response);
   }
 }
 
@@ -848,19 +729,12 @@ void loadConfiguration() {
   // Load webhooks
   if (doc["webhooks"].is<JsonArray>()) {
     haConfig.webhooks.clear();
-    Logger::debugln(F("Loading webhooks from configuration"));
     for (JsonObject hook : doc["webhooks"].as<JsonArray>()) {
       WebhookEntry entry;
       entry.number = hook["number"].as<String>();
       entry.webhookId = hook["webhook_id"].as<String>();
       haConfig.webhooks.push_back(entry);
-      Logger::debugln(F("Loaded webhook: number='%s', webhook_id='%s'"),
-                      entry.number.c_str(),
-                      entry.webhookId.c_str());
     }
-    Logger::infoln(F("Loaded %d webhook entries from configuration"), haConfig.webhooks.size());
-  } else {
-    Logger::debugln(F("No webhooks section found in configuration"));
   }
 
   if (haConfig.phoneBook.empty() && !haConfig.phoneBookInitialized) {
@@ -902,11 +776,7 @@ void saveConfiguration() {
     JsonObject hookObj = webhooks.add<JsonObject>();
     hookObj["number"] = hook.number;
     hookObj["webhook_id"] = hook.webhookId;
-    Logger::debugln(F("Saving webhook: number='%s', webhook_id='%s'"),
-                    hook.number.c_str(),
-                    hook.webhookId.c_str());
   }
-  Logger::debugln(F("Saved %d webhook entries to configuration"), haConfig.webhooks.size());
 
   File file = SPIFFS.open(kConfigFile, "w");
   if (file) {
@@ -983,17 +853,11 @@ const char *getHaPhoneBookNumberForEntry(const char *entry) {
 // Webhook functions
 bool isWebhookEntry(const char *number) {
   String numStr(number);
-  Logger::debugln(F("isWebhookEntry check - number: '%s'"), number);
   for (const auto &hook : haConfig.webhooks) {
-    Logger::debugln(F("Comparing with webhook: number='%s', webhook_id='%s'"),
-                    hook.number.c_str(),
-                    hook.webhookId.c_str());
     if (hook.number == numStr) {
-      Logger::debugln(F("Match found - webhook entry exists"));
       return true;
     }
   }
-  Logger::debugln(F("No match found - webhook entry does not exist"));
   return false;
 }
 
@@ -1010,79 +874,57 @@ bool isPartialOfWebhookEntry(const char *number) {
 const char *getWebhookIdForNumber(const char *number) {
   static String cachedResult;
   String numStr(number);
-  Logger::debugln(F("getWebhookIdForNumber called - number: '%s'"), number);
   for (const auto &hook : haConfig.webhooks) {
     if (hook.number == numStr) {
       cachedResult = hook.webhookId;
-      Logger::infoln(F("Found webhook ID for number '%s': '%s'"), number, cachedResult.c_str());
       return cachedResult.c_str();
     }
   }
-  Logger::debugln(F("No webhook ID found for number: '%s'"), number);
   return nullptr;
 }
 
 void addWebhookEntry(const char *number, const char *webhookId) {
-  Logger::debugln(F("addWebhookEntry called - number: '%s', webhook_id: '%s'"), number, webhookId);
   WebhookEntry entry;
   entry.number = String(number);
   entry.webhookId = String(webhookId);
   haConfig.webhooks.push_back(entry);
-  Logger::debugln(F("Webhook entry created and added to vector, size now: %d"),
-                  haConfig.webhooks.size());
   saveConfiguration();
-  Logger::debugln(F("Configuration saved after webhook addition"));
 }
 
 void removeWebhookEntry(const char *number) {
-  Logger::debugln(F("removeWebhookEntry called - number: '%s'"), number);
   String numStr(number);
   auto it = std::find_if(haConfig.webhooks.begin(),
                          haConfig.webhooks.end(),
                          [&](const WebhookEntry &hook) { return hook.number == numStr; });
   if (it != haConfig.webhooks.end()) {
-    Logger::infoln(F("Found webhook entry to remove: number='%s', webhook_id='%s'"),
-                   it->number.c_str(),
-                   it->webhookId.c_str());
     haConfig.webhooks.erase(it);
     saveConfiguration();
-    Logger::debugln(F("Webhook entry removed and configuration saved, size now: %d"),
-                    haConfig.webhooks.size());
-  } else {
-    Logger::warnln(F("Webhook entry not found for removal: '%s'"), number);
   }
 }
 
 void executeWebhook(const char *webhookId) {
-  Logger::infoln(F("executeWebhook called - webhook_id: '%s'"), webhookId);
+  Logger::infoln(F("Executing webhook: %s"), webhookId);
+  
   if (haConfig.haServerUrl.length() == 0) {
-    Logger::errorln(F("No HA server URL configured"));
+    Logger::errorln(F("No Home Assistant server URL configured"));
     return;
   }
 
   HTTPClient http;
   String url = haConfig.haServerUrl + "/api/webhook/" + String(webhookId);
-  Logger::infoln(F("Executing webhook - URL: '%s'"), url.c_str());
 
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  Logger::debugln(F("HTTP headers set, sending POST request"));
 
   int httpResponseCode = http.POST("{}");
-  Logger::debugln(F("HTTP POST completed - response code: %d"), httpResponseCode);
 
   if (httpResponseCode > 0) {
-    String response = http.getString();
-    Logger::infoln(
-        F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
-    Logger::debugln(F("Response body: %s"), response.c_str());
+    Logger::infoln(F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
   } else {
-    Logger::errorln(F("Webhook failed: %s (error: %d)"), webhookId, httpResponseCode);
-    Logger::errorln(F("HTTP error string: %s"), http.errorToString(httpResponseCode).c_str());
+    Logger::errorln(F("Webhook execution failed: %s (error: %d)"), webhookId, httpResponseCode);
   }
 
   http.end();
-  Logger::debugln(F("HTTP connection closed"));
 }
 
 #endif // HOME_ASSISTANT_INTEGRATION
