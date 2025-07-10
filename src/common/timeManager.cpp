@@ -30,6 +30,15 @@ bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
 }
 
 void TimeManager::process(State &state) {
+#ifdef HOME_ASSISTANT_INTEGRATION
+  // Check if HA has force DnD enabled (takes priority over everything)
+  // This bypasses the interval check for immediate effect
+  if (isDndForceEnabled()) {
+    state.isDnd = true;
+    return;
+  }
+#endif
+
   uint32_t currentMillis = millis();
 
   // _lastDndCheckTime != 0 is a workaround for the first time the time manager is called.
@@ -50,13 +59,6 @@ void TimeManager::process(State &state) {
 
 #ifdef HOME_ASSISTANT_INTEGRATION
   // When HA integration is enabled, ONLY use HA DnD settings
-
-  // Check if HA has force DnD enabled (takes priority over everything)
-  if (isDndForceEnabled()) {
-    state.isDnd = true;
-    Logger::debugln(F("DND force enabled by HA"));
-    return;
-  }
 
   // Check if schedule-based DnD is enabled
   if (!isDndScheduleEnabled()) {
