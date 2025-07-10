@@ -904,7 +904,7 @@ void removeWebhookEntry(const char *number) {
 
 void executeWebhook(const char *webhookId) {
   Logger::infoln(F("Executing webhook: %s"), webhookId);
-  
+
   if (haConfig.haServerUrl.length() == 0) {
     Logger::errorln(F("No Home Assistant server URL configured"));
     return;
@@ -919,7 +919,8 @@ void executeWebhook(const char *webhookId) {
   int httpResponseCode = http.POST("{}");
 
   if (httpResponseCode > 0) {
-    Logger::infoln(F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
+    Logger::infoln(
+        F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
   } else {
     Logger::errorln(F("Webhook execution failed: %s (error: %d)"), webhookId, httpResponseCode);
   }
