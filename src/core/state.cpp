@@ -1,4 +1,4 @@
-#include "state.h"
+#include "../core/state.h"
 
 const __FlashStringHelper *appStateToString(const AppState state) {
   switch (state) {

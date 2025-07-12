@@ -1,5 +1,5 @@
 #include "hookSwitch.h"
-#include "common/logger.h"
+#include "../utils/logger.h"
 #include "config.h"
 
 namespace {

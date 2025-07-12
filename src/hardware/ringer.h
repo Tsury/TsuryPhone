@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/state.h"
+#include "../core/state.h"
 #include <vector>
 
 struct RingPattern {

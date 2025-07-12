@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/consts.h"
+#include "../utils/consts.h"
 #include <Arduino.h>
 
 const constexpr int kInvalidDialedDigit = 99;

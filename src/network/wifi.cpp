@@ -1,6 +1,6 @@
 #include "wifi.h"
+#include "../utils/logger.h"
 #include "config.h"
-#include "logger.h"
 
 #ifdef WEB_SERIAL
 #include <ESPAsyncWebServer.h>
@@ -131,8 +131,20 @@ void Wifi::processWebSerial() {
 
 void Wifi::openConfigPortal() {
   _configPortalActive = true;
+  _manuallyClosing = false;
   _wifiManager.setHttpPort(kWifiManagerHttpPort);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
+
+  // Set timeout callback to handle portal closure
+  _wifiManager.setConfigPortalTimeoutCallback([this]() {
+    Logger::infoln(F("WiFi config portal timed out"));
+    // Only disable maintenance mode if this was a real timeout, not manual closure
+    if (!_manuallyClosing && _maintenanceModeController) {
+      Logger::infoln(F("Disabling maintenance mode due to timeout"));
+      _maintenanceModeController(false);
+    }
+  });
+
   String wifiSsid = generateWifiSsid();
   _wifiManager.startConfigPortal(wifiSsid.c_str());
   _configPortalActive = false;
@@ -144,6 +156,22 @@ void Wifi::openConfigPortalAsync() {
   }
 }
 
+void Wifi::closeConfigPortal() {
+  if (_configPortalActive) {
+    Logger::infoln(F("Closing WiFi config portal"));
+    _manuallyClosing = true; // Mark as manual closure to prevent timeout callback
+    _wifiManager.stopConfigPortal();
+    _configPortalActive = false;
+    Logger::infoln(F("WiFi config portal closed successfully"));
+  } else {
+    Logger::infoln(F("WiFi config portal not active, nothing to close"));
+  }
+}
+
 bool Wifi::isConfigPortalActive() const {
   return _configPortalActive;
+}
+
+void Wifi::setMaintenanceModeController(std::function<void(bool)> controller) {
+  _maintenanceModeController = controller;
 }

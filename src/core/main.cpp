@@ -1,13 +1,10 @@
 #include "main.h"
-#include "common/logger.h"
-#include "common/phoneBook.h"
-#include "common/string.h"
+#include "config/corePhoneConfig.h"
 #include "generated/phoneBook.h"
-
-#ifdef HOME_ASSISTANT_INTEGRATION
-// Global instance pointer for HA integration
-PhoneApp *g_phoneApp = nullptr;
-#endif
+#include "phoneValidation.h"
+#include "servers/serverFactory.h"
+#include "utils/logger.h"
+#include "utils/string.h"
 
 namespace {
   const constexpr int kSerialBaudRate = kModemBaudRate;
@@ -31,13 +28,24 @@ PhoneApp::PhoneApp() : _modem(), _ringer(), _hookSwitch(), _rotaryDial(), _wifi(
   _state.messageHandled = false;
   _state.isDnd = false;
   _state.isMaintenanceMode = false;
-#ifdef HOME_ASSISTANT_INTEGRATION
-  _state.haDndOverride = false;
-  _state.haDndStartHour = -1;
-  _state.haDndStartMinute = -1;
-  _state.haDndEndHour = -1;
-  _state.haDndEndMinute = -1;
-#endif
+}
+
+PhoneApp::~PhoneApp() {
+  // Clean up global pointer
+  if (g_corePhoneConfig == _corePhoneConfig.get()) {
+    g_corePhoneConfig = nullptr;
+  }
+  // Cleanup is automatic with smart pointers
+}
+
+void PhoneApp::setupServers() {
+  Logger::infoln(F("Setting up servers..."));
+
+  // Let the factory handle all server registration automatically
+  ServerFactory::registerAllServers(_serverManager);
+
+  Logger::infoln(F("Server setup complete - %d servers configured"),
+                 _serverManager.getServerCount());
 }
 
 void PhoneApp::setup() {
@@ -45,17 +53,26 @@ void PhoneApp::setup() {
 
   Logger::infoln(F("TsuryPhone starting..."));
 
+  // Initialize core phone config first - this provides shared data across all servers
+  _corePhoneConfig = std::make_shared<CorePhoneConfig>();
+  g_corePhoneConfig = _corePhoneConfig.get();
+  _corePhoneConfig->init();
+
   _wifi.init();
+
+  // Set up WiFi to control maintenance mode automatically
+  _wifi.setMaintenanceModeController([this](bool enabled) { performSetMaintenanceMode(enabled); });
+
   _modem.init();
   _ringer.init();
   _rotaryDial.init();
   _hookSwitch.init();
   _timeManager.init();
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-  g_phoneApp = this;
-  haServer.init();
-#endif
+  // Initialize servers
+  setupServers();
+  _serverManager.setPhoneController(this);
+  _serverManager.init();
 
   Logger::infoln(F("TsuryPhone started!"));
 
@@ -88,9 +105,8 @@ void PhoneApp::loop() {
   _ringer.process(_state);
   _timeManager.process(_state);
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-  haServer.process(_state);
-#endif
+  // Process all servers
+  _serverManager.process(_state);
 
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
 
@@ -175,38 +191,25 @@ void PhoneApp::onStateIncomingCall() {
   CallState &callState = _state.callState;
   char *callNumber = callState.callNumber;
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-  // Check if number is blocked
-  if (callNumber[0] != '\0' && isNumberBlocked(callNumber)) {
-    Logger::infoln(F("Blocking incoming call from: %s"), callNumber);
-    _modem.hangUp();
+  // Check if number is blocked using core phone config
+  if (callNumber[0] != '\0' && _corePhoneConfig->isNumberBlocked(callNumber)) {
+    Logger::infoln(F("Blocking call from: %s"), callNumber);
+    performHangup();
     setState(AppState::Idle);
-
-    // Notify Home Assistant about the blocked call
-    haServer.notifyBlockedCall(callNumber);
+    _serverManager.notifyBlockedCall(callNumber);
     return;
   }
-#endif
 
   if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
     callState.introducedCaller = true;
 
     if (hasMp3ForCall(callNumber)) {
-      Logger::infoln(F("Playing MP3 for caller: %s"), callNumber);
       const char *mp3Ptr = getMp3ForCall(callNumber);
-
-      if (mp3Ptr != nullptr) {
+      if (mp3Ptr) {
         _modem.enqueueMp3(mp3Ptr);
-      } else {
-        Logger::errorln(F("No MP3 for caller: %s"), callNumber);
       }
-    } else {
-      Logger::infoln(F("No MP3 for caller: %s"), callNumber);
-      // TODO: TTS?
     }
   } else {
-    // We ring on both incoming call and incoming call ring states.
-    Logger::infoln(F("Ringing..."));
     _ringer.startRinging();
   }
 }
@@ -272,12 +275,6 @@ void PhoneApp::processStateCheckLine() {
 }
 
 void PhoneApp::processStateIdle() {
-  // Check if maintenance mode should be disabled (WiFi portal closed)
-  if (_state.isMaintenanceMode && !_wifi.isConfigPortalActive()) {
-    Logger::infoln(F("WiFi config portal closed, disabling maintenance mode"));
-    _state.isMaintenanceMode = false;
-  }
-
   if (_hookSwitch.justChangedOnHook()) {
     stopEverything();
   } else if (_hookSwitch.justChangedOffHook()) {
@@ -287,18 +284,13 @@ void PhoneApp::processStateIdle() {
   if (_hookSwitch.isOffHook()) {
     DialedNumberResult dialedNumberResult = _rotaryDial.getCurrentNumber();
 
-    // Only process dialing logic when a new digit has been dialed
     if (dialedNumberResult.dialedDigit != kInvalidDialedDigit) {
       char *dialedNumber = dialedNumberResult.callNumber;
-
       _modem.stopTone();
-      Logger::infoln(F("Dialed digit: %d"), dialedNumberResult.dialedDigit);
-      Logger::infoln(F("Dialed number: %s"), dialedNumber);
-
       _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
 
       const DialedNumberValidationResult dialedNumberValidation =
-          validateDialedNumber(dialedNumber);
+          validateDialedNumber(dialedNumber, _corePhoneConfig.get(), &_serverManager);
 
       if (dialedNumberValidation == DialedNumberValidationResult::Valid) {
         if (strEqual(dialedNumber, kResetNumber)) {
@@ -306,32 +298,23 @@ void PhoneApp::processStateIdle() {
           ESP.restart();
         } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
           _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
-          _state.isMaintenanceMode = true;
-          _wifi.openConfigPortalAsync();
+          performSetMaintenanceMode(true);
         } else {
-#ifdef HOME_ASSISTANT_INTEGRATION
-          // Check if this is a webhook entry first
-          if (isWebhookEntry(dialedNumber)) {
-            Logger::infoln(F("Executing webhook for number: %s"), dialedNumber);
-            const char *webhookId = getWebhookIdForNumber(dialedNumber);
-            if (webhookId) {
-              executeWebhook(webhookId);
+          if (_serverManager.isWebhookEntry(dialedNumber)) {
+            if (_serverManager.executeWebhook(dialedNumber)) {
               _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
             } else {
-              Logger::errorln(F("Failed to get webhook ID for number: %s"), dialedNumber);
               _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
             }
             _rotaryDial.resetCurrentNumber();
           } else {
-#endif
-            const char *numberToDial = isPhoneBookEntry_Runtime(dialedNumber)
-                                           ? getPhoneBookNumberForEntry_Runtime(dialedNumber)
-                                           : dialedNumber;
-            _modem.enqueueCall(numberToDial);
+            const char *numberToDial =
+                _corePhoneConfig->isPhoneBookEntry(dialedNumber)
+                    ? _corePhoneConfig->getPhoneBookNumberForEntry(dialedNumber)
+                    : dialedNumber;
+            performCall(numberToDial);
             _rotaryDial.resetCurrentNumber();
-#ifdef HOME_ASSISTANT_INTEGRATION
           }
-#endif
         }
       } else if (dialedNumberValidation == DialedNumberValidationResult::Invalid) {
         _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
@@ -349,13 +332,13 @@ void PhoneApp::processStateIncomingCall() {
 
 void PhoneApp::processStateDialing() {
   if (_hookSwitch.justChangedOnHook()) {
-    _modem.hangUp();
+    performHangup();
   }
 }
 
 void PhoneApp::processStateInCall() {
   if (_hookSwitch.justChangedOnHook()) {
-    _modem.hangUp();
+    performHangup();
   }
 
   const int dialedDigit = _rotaryDial.getDialedDigit();
@@ -376,116 +359,89 @@ void PhoneApp::processStateInCall() {
   _rotaryDial.resetCurrentNumber();
 }
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-// HA Integration callback implementations - we need to access the global PhoneApp instance
+// IPhoneController interface implementation
 
-void PhoneApp::haPerformCall(const char *number) {
+void PhoneApp::performCall(const char *number) {
   if (_state.newAppState == AppState::Idle && _hookSwitch.isOnHook()) {
-    Logger::infoln(F("HA initiated call to: %s"), number);
+    Logger::infoln(F("External initiated call to: %s"), number);
     _modem.enqueueCall(number);
   }
 }
 
-void PhoneApp::haPerformHangup() {
+void PhoneApp::performHangup() {
   if (_state.newAppState == AppState::InCall || _state.newAppState == AppState::Dialing) {
-    Logger::infoln(F("HA initiated hangup"));
+    Logger::infoln(F("External initiated hangup"));
     _modem.hangUp();
   }
 }
 
-void PhoneApp::haPerformReset() {
-  Logger::infoln(F("HA initiated reset"));
+void PhoneApp::performReset() {
+  Logger::infoln(F("External initiated reset"));
   ESP.restart();
 }
 
-void PhoneApp::haPerformRingWithStructuredPattern(const RingPattern &pattern) {
-  Logger::infoln(F("HA initiated ring with structured pattern: %d durations, %d repeats"),
+void PhoneApp::performRingWithStructuredPattern(const RingPattern &pattern) {
+  Logger::infoln(F("External initiated ring with structured pattern: %d durations, %d repeats"),
                  pattern.durations.size(),
                  pattern.repeats);
   _ringer.startRingingWithStructuredPattern(pattern);
 }
 
-void PhoneApp::haSetDndEnabled(bool enabled) {
-  Logger::infoln(F("HA set DnD enabled: %s"), enabled ? F("true") : F("false"));
-  _state.haDndOverride = enabled;
+void PhoneApp::setDndForceEnabled(bool enabled) {
+  _corePhoneConfig->setDndForceEnabled(enabled);
 }
 
-void PhoneApp::haSetDndHours(int startHour, int startMinute, int endHour, int endMinute) {
-  Logger::infoln(
-      F("HA set DnD hours: %02d:%02d - %02d:%02d"), startHour, startMinute, endHour, endMinute);
-  _state.haDndStartHour = startHour;
-  _state.haDndStartMinute = startMinute;
-  _state.haDndEndHour = endHour;
-  _state.haDndEndMinute = endMinute;
+void PhoneApp::setDndScheduleEnabled(bool enabled) {
+  _corePhoneConfig->setDndScheduleEnabled(enabled);
 }
 
-void PhoneApp::haPerformSetMaintenanceMode(bool enabled) {
-  Logger::infoln(F("HA set maintenance mode: %s"), enabled ? F("enabled") : F("disabled"));
+void PhoneApp::setDndHours(int startHour, int startMinute, int endHour, int endMinute) {
+  _corePhoneConfig->setDndHours(startHour, startMinute, endHour, endMinute);
+}
+
+void PhoneApp::performSetMaintenanceMode(bool enabled) {
+  Logger::infoln(F("External set maintenance mode: %s"), enabled ? F("enabled") : F("disabled"));
+
+  // Update both state and shared config
   _state.isMaintenanceMode = enabled;
+  _corePhoneConfig->setMaintenanceModeEnabled(enabled);
 
   if (enabled) {
     // Open WiFi config portal when maintenance mode is enabled
     _wifi.openConfigPortalAsync();
+  } else {
+    // Close WiFi config portal when maintenance mode is disabled
+    _wifi.closeConfigPortal();
   }
 }
 
-void PhoneApp::haPerformSwitchToCallWaiting() {
+void PhoneApp::performSwitchToCallWaiting() {
   if (_state.callState.hasCallWaiting()) {
-    Logger::infoln(F("HA initiated switch to call waiting"));
+    Logger::infoln(F("External initiated switch to call waiting"));
     _modem.switchToCallWaiting();
   } else {
-    Logger::errorln(F("HA attempted to switch to call waiting but no call waiting available"));
+    Logger::errorln(
+        F("External attempted to switch to call waiting but no call waiting available"));
   }
 }
 
-// Global callback functions for HomeAssistantServer
-void haPerformCall(const char *number) {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformCall(number);
-  }
-}
-
-void haPerformHangup() {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformHangup();
-  }
-}
-
-void haPerformReset() {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformReset();
+void PhoneApp::addQuickDialEntry(const char *name, const char *number) {
+  if (_corePhoneConfig) {
+    Logger::infoln(F("Adding quick dial entry: %s -> %s"), name, number);
+    QuickDialEntry entry;
+    entry.name = String(name);
+    entry.number = String(number);
+    _corePhoneConfig->addQuickDialEntry(entry);
   } else {
-    ESP.restart();
+    Logger::errorln(F("Cannot add quick dial entry - core config not available"));
   }
 }
 
-void haPerformRingWithStructuredPattern(const RingPattern &pattern) {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformRingWithStructuredPattern(pattern);
+void PhoneApp::removeQuickDialEntry(const char *name) {
+  if (_corePhoneConfig) {
+    Logger::infoln(F("Removing quick dial entry: %s"), name);
+    _corePhoneConfig->removeQuickDialEntry(String(name));
+  } else {
+    Logger::errorln(F("Cannot remove quick dial entry - core config not available"));
   }
 }
-
-void haSetDndEnabled(bool enabled) {
-  if (g_phoneApp) {
-    g_phoneApp->haSetDndEnabled(enabled);
-  }
-}
-
-void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute) {
-  if (g_phoneApp) {
-    g_phoneApp->haSetDndHours(startHour, startMinute, endHour, endMinute);
-  }
-}
-
-void haPerformSetMaintenanceMode(bool enabled) {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformSetMaintenanceMode(enabled);
-  }
-}
-
-void haPerformSwitchToCallWaiting() {
-  if (g_phoneApp) {
-    g_phoneApp->haPerformSwitchToCallWaiting();
-  }
-}
-#endif

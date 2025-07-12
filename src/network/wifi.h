@@ -9,7 +9,9 @@ public:
 
   void openConfigPortal();
   void openConfigPortalAsync();
+  void closeConfigPortal();
   bool isConfigPortalActive() const;
+  void setMaintenanceModeController(std::function<void(bool)> controller);
 
 private:
   void onWifiConnected();
@@ -24,6 +26,8 @@ private:
   WiFiManager _wifiManager;
   bool _configPortalActive = false;
   bool _configPortalRequested = false;
+  bool _manuallyClosing = false;
+  std::function<void(bool)> _maintenanceModeController;
   String _deviceId;
   String _wifiSsid;
 

@@ -1,5 +1,5 @@
 
-#include "string.h"
+#include "../utils/string.h"
 
 void strTrim(char *str) {
   int start = 0;

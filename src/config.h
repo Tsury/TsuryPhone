@@ -2,11 +2,8 @@
 
 #include <Arduino.h>
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-// This is used both as a default device name and as a integration-firmware sanity check, do not
-// change.
+// Device name for HA integration (always available for consistency)
 const constexpr char *kHaDeviceName = "tsuryphone";
-#endif
 
 // General configuration:
 const constexpr char kMp3Dir[] = "C:/mp3";

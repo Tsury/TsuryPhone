@@ -1,4 +1,4 @@
-#include "main.h"
+#include "core/main.h"
 
 PhoneApp &getApp() {
   static PhoneApp app;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "state.h"
+#include "../core/state.h"
 #include <Arduino.h>
 
 class TimeManager {

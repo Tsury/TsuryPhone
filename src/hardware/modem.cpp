@@ -1,7 +1,7 @@
 #include "modem.h"
-#include "common/logger.h"
-#include "common/stream.h"
-#include "common/string.h"
+#include "../utils/logger.h"
+#include "../utils/stream.h"
+#include "../utils/string.h"
 
 namespace {
   constexpr std::array<const char *, 9> knownMessages = {"ATE0",

@@ -1,11 +1,12 @@
 #ifdef HOME_ASSISTANT_INTEGRATION
 
 #include "homeAssistantServer.h"
+#include "../config/corePhoneConfig.h"
+#include "../core/phoneValidation.h"
+#include "../core/state.h"
 #include "../generated/phoneBook.h"
-#include "logger.h"
-#include "phoneBook.h"
-#include "state.h"
-#include "string.h"
+#include "../utils/logger.h"
+#include "../utils/string.h"
 #include <ArduinoJson.h>
 #include <AsyncWebSocket.h>
 #include <ESPmDNS.h>
@@ -21,16 +22,9 @@ namespace {
   const constexpr int kJsonBufferSize = 1024; // Reduced from 2048
 }
 
-// Compact storage structure
+// Compact storage structure - only HA-specific config
+// Note: phoneBook, blockedNumbers, and DnD settings are now handled by CorePhoneConfig
 struct HaConfig {
-  bool dndForceEnabled = false;
-  bool dndScheduleEnabled = false;
-  uint8_t dndStartHour = kDndStartHour;
-  uint8_t dndStartMinute = kDndStartMinute;
-  uint8_t dndEndHour = kDndEndHour;
-  uint8_t dndEndMinute = kDndEndMinute;
-  std::vector<std::pair<String, String>> phoneBook;
-  std::vector<String> blockedNumbers;
   std::vector<WebhookEntry> webhooks;
   String haServerUrl;                // For webhook calls
   String deviceName = kHaDeviceName; // Device name for mDNS
@@ -42,22 +36,157 @@ static HaConfig haConfig;
 // Forward declarations
 void loadConfiguration();
 void saveConfiguration();
-void seedHaPhoneBookFromLocal();
+void seedCorePhoneConfigFromLocal();
 
-HomeAssistantServer haServer;
+// Global HaConfigProvider instance
+HaConfigProvider haConfigProvider;
 
-// External functions - declared but implemented elsewhere
-extern void haPerformCall(const char *number);
-extern void haPerformHangup();
-extern void haPerformReset();
-extern void haPerformRingWithStructuredPattern(const RingPattern &pattern);
-extern void haPerformSetMaintenanceMode(bool enabled);
-extern void haPerformSwitchToCallWaiting();
-extern void haSetDndHours(int startHour, int startMinute, int endHour, int endMinute);
+// HaConfigProvider implementation
+bool HaConfigProvider::isDndConfigEnabled() const {
+  return g_corePhoneConfig->isDndForceEnabled() || g_corePhoneConfig->isDndScheduleEnabled();
+}
+
+bool HaConfigProvider::isDndForceEnabled() const {
+  return g_corePhoneConfig->isDndForceEnabled();
+}
+
+bool HaConfigProvider::isDndScheduleEnabled() const {
+  return g_corePhoneConfig->isDndScheduleEnabled();
+}
+
+void HaConfigProvider::getDndHours(int &startHour,
+                                   int &startMinute,
+                                   int &endHour,
+                                   int &endMinute) const {
+  // If we have runtime overrides, use those
+  if (hasDndHoursOverride()) {
+    startHour = _overrideStartHour;
+    startMinute = _overrideStartMinute;
+    endHour = _overrideEndHour;
+    endMinute = _overrideEndMinute;
+  } else {
+    // Use CorePhoneConfig values
+    g_corePhoneConfig->getDndHours(startHour, startMinute, endHour, endMinute);
+  }
+}
+
+void HaConfigProvider::setDndHoursOverride(int startHour,
+                                           int startMinute,
+                                           int endHour,
+                                           int endMinute) {
+  _overrideStartHour = startHour;
+  _overrideStartMinute = startMinute;
+  _overrideEndHour = endHour;
+  _overrideEndMinute = endMinute;
+}
+
+bool HaConfigProvider::hasDndHoursOverride() const {
+  return _overrideStartHour != -1;
+}
+
+void HaConfigProvider::clearDndHoursOverride() {
+  _overrideStartHour = -1;
+  _overrideStartMinute = -1;
+  _overrideEndHour = -1;
+  _overrideEndMinute = -1;
+}
+
+bool HaConfigProvider::isNumberBlocked(const char *number) const {
+  return g_corePhoneConfig->isNumberBlocked(String(number));
+}
+
+// Private helper methods - now use core config for shared quick dial entries
+bool HaConfigProvider::isHaPhoneBookEntry(const char *number) const {
+  return g_corePhoneConfig->hasQuickDialEntry(String(number));
+}
+
+bool HaConfigProvider::isPartialOfHaPhoneBookEntry(const char *number) const {
+  return g_corePhoneConfig->hasPartialQuickDialMatch(String(number));
+}
+
+const char *HaConfigProvider::getHaPhoneBookNumberForEntry(const char *entry) const {
+  auto quickDialEntry = g_corePhoneConfig->getQuickDialEntry(String(entry));
+  if (!quickDialEntry.name.isEmpty()) {
+    static String cachedResult = quickDialEntry.number;
+    return cachedResult.c_str();
+  }
+  return nullptr;
+}
+
+bool HaConfigProvider::isWebhookEntry(const char *number) const {
+  String numStr(number);
+  for (const auto &hook : haConfig.webhooks) {
+    if (hook.number == numStr) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool HaConfigProvider::isPartialOfWebhookEntry(const char *number) const {
+  String numStr(number);
+  for (const auto &hook : haConfig.webhooks) {
+    if (hook.number.startsWith(numStr)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const char *HaConfigProvider::getWebhookIdForNumber(const char *number) const {
+  static String cachedResult;
+  String numStr(number);
+  for (const auto &hook : haConfig.webhooks) {
+    if (hook.number == numStr) {
+      cachedResult = hook.webhookId;
+      return cachedResult.c_str();
+    }
+  }
+  return nullptr;
+}
+
+void HaConfigProvider::executeWebhook(const char *webhookId) const {
+  Logger::infoln(F("Executing webhook: %s"), webhookId);
+
+  if (haConfig.haServerUrl.length() == 0) {
+    Logger::errorln(F("No Home Assistant server URL configured"));
+    return;
+  }
+
+  HTTPClient http;
+  String url = haConfig.haServerUrl + "/api/webhook/" + String(webhookId);
+
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpResponseCode = http.POST("{}");
+
+  if (httpResponseCode > 0) {
+    Logger::infoln(
+        F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
+  } else {
+    Logger::errorln(F("Webhook execution failed: %s (error: %d)"), webhookId, httpResponseCode);
+  }
+
+  http.end();
+}
 
 HomeAssistantServer::HomeAssistantServer()
-    : _server(80), _ws("/ws"), _uptime(0), _isInitialized(false), _stateChanged(false) {
+    : _server(80),
+      _ws("/ws"),
+      _uptime(0),
+      _isInitialized(false),
+      _stateChanged(false),
+      _phoneController(nullptr) {
   memset(_stats, 0, sizeof(_stats));
+}
+
+bool HomeAssistantServer::isEnabled() const {
+  return true; // Always enabled when HOME_ASSISTANT_INTEGRATION is compiled in
+}
+
+void HomeAssistantServer::setPhoneController(IPhoneController *controller) {
+  _phoneController = controller;
 }
 
 void HomeAssistantServer::init() {
@@ -135,40 +264,14 @@ void HomeAssistantServer::setupRoutes() {
       });
 
   _server.on(
-      "/dnd",
-      HTTP_POST,
-      [](AsyncWebServerRequest *request) {},
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        handlePostRequest(request, data, len, "dnd");
-      });
-
-  _server.on(
-      "/phonebook",
-      HTTP_POST,
-      [](AsyncWebServerRequest *request) {},
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        handlePostRequest(request, data, len, "phonebook");
-      });
-
-  _server.on(
-      "/blocked",
-      HTTP_POST,
-      [](AsyncWebServerRequest *request) {},
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        handlePostRequest(request, data, len, "blocked");
-      });
-
-  _server.on(
       "/webhooks",
       HTTP_POST,
       [](AsyncWebServerRequest *request) {},
       NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        handlePostRequest(request, data, len, "webhooks");
+      });
       [this](
           AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
         handlePostRequest(request, data, len, "webhooks");
@@ -237,24 +340,43 @@ void HomeAssistantServer::handleRequest(AsyncWebServerRequest *request, const ch
     doc["chip_revision"] = ESP.getChipRevision();
     doc["sdk_version"] = ESP.getSdkVersion();
   } else if (strcmp(endpoint, "dnd") == 0) {
-    doc["force_enabled"] = haConfig.dndForceEnabled;
-    doc["schedule_enabled"] = haConfig.dndScheduleEnabled;
-    doc["start_hour"] = haConfig.dndStartHour;
-    doc["start_minute"] = haConfig.dndStartMinute;
-    doc["end_hour"] = haConfig.dndEndHour;
-    doc["end_minute"] = haConfig.dndEndMinute;
+    if (g_corePhoneConfig) {
+      const DndSettings &dndSettings = g_corePhoneConfig->getDndSettings();
+      doc["force_enabled"] = dndSettings.force_enabled;
+      doc["schedule_enabled"] = dndSettings.schedule_enabled;
+      doc["start_hour"] = dndSettings.startHour;
+      doc["start_minute"] = dndSettings.startMinute;
+      doc["end_hour"] = dndSettings.endHour;
+      doc["end_minute"] = dndSettings.endMinute;
+    } else {
+      // Fallback to default DnD hours from CorePhoneConfig
+      doc["force_enabled"] = false;
+      doc["schedule_enabled"] = false;
+      int startHour, startMinute, endHour, endMinute;
+      g_corePhoneConfig->getDndHours(startHour, startMinute, endHour, endMinute);
+      doc["start_hour"] = startHour;
+      doc["start_minute"] = startMinute;
+      doc["end_hour"] = endHour;
+      doc["end_minute"] = endMinute;
+    }
     doc["currently_active"] = _lastState.isDnd;
   } else if (strcmp(endpoint, "phonebook") == 0) {
     JsonArray entries = doc["entries"].to<JsonArray>();
-    for (const auto &entry : haConfig.phoneBook) {
+    // Use core phone config for shared quick dial entries
+    auto quickDialEntries = g_corePhoneConfig->getAllQuickDialEntries();
+    for (const auto &entry : quickDialEntries) {
       JsonObject entryObj = entries.add<JsonObject>();
-      entryObj["name"] = entry.first;
-      entryObj["number"] = entry.second;
+      entryObj["name"] = entry.name;
+      entryObj["number"] = entry.number;
     }
   } else if (strcmp(endpoint, "blocked") == 0) {
     JsonArray numbers = doc["blocked_numbers"].to<JsonArray>();
-    for (const String &number : haConfig.blockedNumbers) {
-      numbers.add(number);
+    // Use core phone config for shared blocked numbers
+    if (g_corePhoneConfig) {
+      auto blockedNumbers = g_corePhoneConfig->getBlockedNumbers();
+      for (const String &number : blockedNumbers) {
+        numbers.add(number);
+      }
     }
   } else if (strcmp(endpoint, "webhooks") == 0) {
     JsonArray hooks = doc["webhooks"].to<JsonArray>();
@@ -294,7 +416,9 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       String number = doc["number"] | "";
       if (number.length() > 0) {
         Logger::infoln(F("Custom call initiated: %s"), number.c_str());
-        haPerformCall(number.c_str());
+        if (_phoneController) {
+          _phoneController->performCall(number.c_str());
+        }
         _stats[2]++; // outgoing calls
         sendResponse(request, "{\"success\":true}");
       } else {
@@ -302,10 +426,12 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       }
     } else if (action == "quick_call") {
       String entry = doc["entry"] | "";
-      const char *number = getHaPhoneBookNumberForEntry(entry.c_str());
+      const char *number = haConfigProvider.getHaPhoneBookNumberForEntry(entry.c_str());
       if (number) {
         Logger::infoln(F("Quick call initiated: %s -> %s"), entry.c_str(), number);
-        haPerformCall(number);
+        if (_phoneController) {
+          _phoneController->performCall(number);
+        }
         _stats[2]++; // outgoing calls
         sendResponse(request, "{\"success\":true}");
       } else {
@@ -315,12 +441,21 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       String name = doc["name"] | "";
       String number = doc["number"] | "";
       if (name.length() > 0 && number.length() > 0) {
-        // Check for conflicts
-        if (isHaPhoneBookEntry(number.c_str()) || isWebhookEntry(number.c_str())) {
+        // Check for conflicts - use core config for shared quick dial entries
+        if (haConfigProvider.isHaPhoneBookEntry(number.c_str()) ||
+            haConfigProvider.isWebhookEntry(number.c_str())) {
           sendError(request, "Number already exists");
           return;
         }
-        haConfig.phoneBook.push_back({name, number});
+        // Add to core phone config for shared access across all servers
+        if (_phoneController) {
+          Logger::infoln(F("Adding quick dial entry: %s -> %s"), name.c_str(), number.c_str());
+          _phoneController->addQuickDialEntry(name.c_str(), number.c_str());
+          broadcastStateUpdate(); // Immediate update for UI responsiveness
+        } else {
+          sendError(request, "Phone controller not available");
+          return;
+        }
         saveConfiguration();
         sendResponse(request, "{\"success\":true}");
       } else {
@@ -328,31 +463,29 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       }
     } else if (action == "remove_quick_dial") {
       String name = doc["name"] | "";
-      auto it = std::find_if(haConfig.phoneBook.begin(),
-                             haConfig.phoneBook.end(),
-                             [&](const std::pair<String, String> &p) { return p.first == name; });
-      if (it != haConfig.phoneBook.end()) {
-        haConfig.phoneBook.erase(it);
-        saveConfiguration();
+      if (_phoneController) {
+        Logger::infoln(F("Removing quick dial entry: %s"), name.c_str());
+        _phoneController->removeQuickDialEntry(name.c_str());
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
-        sendError(request, "Entry not found");
+        sendError(request, "Phone controller not available");
       }
     } else if (action == "add_blocked") {
       String number = doc["number"] | "";
       if (number.length() > 0) {
-        haConfig.blockedNumbers.push_back(number);
-        saveConfiguration();
+        Logger::infoln(F("Adding blocked number: %s"), number.c_str());
+        g_corePhoneConfig->addBlockedNumber(number);
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Missing number");
       }
     } else if (action == "remove_blocked") {
       String number = doc["number"] | "";
-      auto it = std::find(haConfig.blockedNumbers.begin(), haConfig.blockedNumbers.end(), number);
-      if (it != haConfig.blockedNumbers.end()) {
-        haConfig.blockedNumbers.erase(it);
-        saveConfiguration();
+      if (g_corePhoneConfig->removeBlockedNumber(number)) {
+        Logger::infoln(F("Removed blocked number: %s"), number.c_str());
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Number not found");
@@ -362,12 +495,14 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       String webhookId = doc["webhook_id"] | "";
 
       if (number.length() > 0 && webhookId.length() > 0) {
-        if (isHaPhoneBookEntry(number.c_str()) || isWebhookEntry(number.c_str())) {
+        if (haConfigProvider.isHaPhoneBookEntry(number.c_str()) ||
+            haConfigProvider.isWebhookEntry(number.c_str())) {
           sendError(request, "Number already exists");
           return;
         }
         Logger::infoln(F("Adding webhook: %s -> %s"), number.c_str(), webhookId.c_str());
         addWebhookEntry(number.c_str(), webhookId.c_str());
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Missing number or webhook_id");
@@ -377,34 +512,44 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       if (number.length() > 0) {
         Logger::infoln(F("Removing webhook for number: %s"), number.c_str());
         removeWebhookEntry(number.c_str());
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Missing number");
       }
     } else if (action == "hangup") {
       Logger::infoln(F("Hangup action initiated"));
-      haPerformHangup();
+      if (_phoneController) {
+        _phoneController->performHangup();
+      }
       sendResponse(request, "{\"success\":true}");
     } else if (action == "switch_call_waiting") {
       Logger::infoln(F("Call waiting switch initiated"));
-      haPerformSwitchToCallWaiting();
+      if (_phoneController) {
+        _phoneController->performSwitchToCallWaiting();
+      }
+      sendResponse(request, "{\"success\":true}");
+    } else if (action == "dnd_force") {
+      bool enabled = doc["enabled"] | false;
+      Logger::infoln(F("DnD Force mode set to: %s"), enabled ? F("enabled") : F("disabled"));
+      g_corePhoneConfig->setDndForceEnabled(enabled);
+      broadcastStateUpdate(); // Immediate update for UI responsiveness
       sendResponse(request, "{\"success\":true}");
     } else if (action == "dnd_schedule") {
       bool enabled = doc["enabled"] | false;
-      haConfig.dndScheduleEnabled = enabled;
-      saveConfiguration();
+      Logger::infoln(F("DnD Schedule mode set to: %s"), enabled ? F("enabled") : F("disabled"));
+      g_corePhoneConfig->setDndScheduleEnabled(enabled);
+      broadcastStateUpdate(); // Immediate update for UI responsiveness
       sendResponse(request, "{\"success\":true}");
     } else if (action == "dnd_start_time") {
       int hour = doc["hour"] | -1;
       int minute = doc["minute"] | -1;
       if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
-        haConfig.dndStartHour = hour;
-        haConfig.dndStartMinute = minute;
-        haSetDndHours(haConfig.dndStartHour,
-                      haConfig.dndStartMinute,
-                      haConfig.dndEndHour,
-                      haConfig.dndEndMinute);
-        saveConfiguration();
+        Logger::infoln(F("DnD Start time set to: %02d:%02d"), hour, minute);
+        int startHour, startMinute, endHour, endMinute;
+        g_corePhoneConfig->getDndHours(startHour, startMinute, endHour, endMinute);
+        g_corePhoneConfig->setDndHours(hour, minute, endHour, endMinute);
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Invalid time");
@@ -413,22 +558,33 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       int hour = doc["hour"] | -1;
       int minute = doc["minute"] | -1;
       if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
-        haConfig.dndEndHour = hour;
-        haConfig.dndEndMinute = minute;
-        haSetDndHours(haConfig.dndStartHour,
-                      haConfig.dndStartMinute,
-                      haConfig.dndEndHour,
-                      haConfig.dndEndMinute);
-        saveConfiguration();
+        Logger::infoln(F("DnD End time set to: %02d:%02d"), hour, minute);
+        int startHour, startMinute, endHour, endMinute;
+        g_corePhoneConfig->getDndHours(startHour, startMinute, endHour, endMinute);
+        g_corePhoneConfig->setDndHours(startHour, startMinute, hour, minute);
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Invalid time");
       }
-    } else if (action == "dnd_force") {
-      bool enabled = doc["enabled"] | false;
-      haConfig.dndForceEnabled = enabled;
-      saveConfiguration();
-      sendResponse(request, "{\"success\":true}");
+    } else if (action == "dnd_hours") {
+      int startHour = doc["start_hour"] | -1;
+      int startMinute = doc["start_minute"] | -1;
+      int endHour = doc["end_hour"] | -1;
+      int endMinute = doc["end_minute"] | -1;
+      if (startHour >= 0 && startHour < 24 && startMinute >= 0 && startMinute < 60 &&
+          endHour >= 0 && endHour < 24 && endMinute >= 0 && endMinute < 60) {
+        if (g_corePhoneConfig) {
+          Logger::infoln(F("DnD Hours set to: %02d:%02d - %02d:%02d"), startHour, startMinute, endHour, endMinute);
+          g_corePhoneConfig->setDndHours(startHour, startMinute, endHour, endMinute);
+          broadcastStateUpdate(); // Immediate update for UI responsiveness
+          sendResponse(request, "{\"success\":true}");
+        } else {
+          sendError(request, "Core config not available");
+        }
+      } else {
+        sendError(request, "Invalid time");
+      }
     } else if (action == "ring_pattern") {
       // Handle new structured pattern data from HA integration
       JsonArray durationsArray = doc["durations"];
@@ -467,18 +623,27 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
       pattern.repeats = repeats;
       pattern.isValid = true;
 
-      haPerformRingWithStructuredPattern(pattern);
+      Logger::infoln(F("Ring pattern triggered: %d durations, %d repeats"), durations.size(), repeats);
+      if (_phoneController) {
+        _phoneController->performRingWithStructuredPattern(pattern);
+      }
       sendResponse(request, "{\"success\":true}");
     } else if (action == "refresh_data") {
+      Logger::infoln(F("Data refresh requested"));
       broadcastStateUpdate();
       sendResponse(request, "{\"success\":true}");
     } else if (action == "maintenance_mode") {
       bool enabled = doc["enabled"] | false;
-      haPerformSetMaintenanceMode(enabled);
+      Logger::infoln(F("Maintenance mode set to: %s"), enabled ? F("enabled") : F("disabled"));
+      if (_phoneController) {
+        _phoneController->performSetMaintenanceMode(enabled);
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
+      }
       sendResponse(request, "{\"success\":true}");
     } else if (action == "set_device_name") {
       String deviceName = doc["device_name"] | "";
       if (deviceName.length() > 0) {
+        Logger::infoln(F("Device name set to: %s"), deviceName.c_str());
         haConfig.deviceName = deviceName;
         saveConfiguration();
 
@@ -489,12 +654,16 @@ void HomeAssistantServer::handlePostRequest(AsyncWebServerRequest *request,
           Logger::infoln(F("Device name updated: %s.local"), haConfig.deviceName.c_str());
         }
 
+        broadcastStateUpdate(); // Immediate update for UI responsiveness
         sendResponse(request, "{\"success\":true}");
       } else {
         sendError(request, "Missing device_name");
       }
     } else if (action == "reset") {
-      haPerformReset();
+      Logger::infoln(F("Device reset initiated"));
+      if (_phoneController) {
+        _phoneController->performReset();
+      }
       sendResponse(request, "{\"success\":true}");
     } else {
       sendError(request, "Unknown action");
@@ -648,6 +817,26 @@ void HomeAssistantServer::notifyBlockedCall(const char *number) {
   broadcastStateUpdate();
 }
 
+// Webhook methods implementation
+bool HomeAssistantServer::hasWebhookEntry(const char *number) const {
+  return haConfigProvider.isWebhookEntry(number);
+}
+
+bool HomeAssistantServer::hasPartialWebhookEntry(const char *number) const {
+  return haConfigProvider.isPartialOfWebhookEntry(number);
+}
+
+bool HomeAssistantServer::executeWebhook(const char *number) const {
+  if (haConfigProvider.isWebhookEntry(number)) {
+    const char *webhookId = haConfigProvider.getWebhookIdForNumber(number);
+    if (webhookId) {
+      haConfigProvider.executeWebhook(webhookId);
+      return true;
+    }
+  }
+  return false;
+}
+
 void HomeAssistantServer::broadcastStateUpdate() {
   if (_ws.count() > 0) {
     // Send comprehensive state update via WebSocket
@@ -680,11 +869,14 @@ void HomeAssistantServer::broadcastStateUpdate() {
   }
 }
 
-// Configuration management
+// Configuration management - only HA-specific settings
 void loadConfiguration() {
   if (!SPIFFS.exists(kConfigFile)) {
-    seedHaPhoneBookFromLocal();
-    haConfig.phoneBookInitialized = true;
+    // Seed core phone config from local phonebook if not already initialized
+    if (g_corePhoneConfig && !haConfig.phoneBookInitialized) {
+      seedCorePhoneConfigFromLocal();
+      haConfig.phoneBookInitialized = true;
+    }
     saveConfiguration();
     return;
   }
@@ -700,33 +892,15 @@ void loadConfiguration() {
     return;
   }
 
-  haConfig.dndForceEnabled = doc["dnd_force_enabled"] | false;
-  haConfig.dndScheduleEnabled = doc["dnd_schedule_enabled"] | false;
-  haConfig.dndStartHour = doc["dnd_start_hour"] | kDndStartHour;
-  haConfig.dndStartMinute = doc["dnd_start_minute"] | kDndStartMinute;
-  haConfig.dndEndHour = doc["dnd_end_hour"] | kDndEndHour;
-  haConfig.dndEndMinute = doc["dnd_end_minute"] | kDndEndMinute;
+  // Load only HA-specific configuration (DnD settings now in CorePhoneConfig)
   haConfig.phoneBookInitialized = doc["phonebook_initialized"] | false;
   haConfig.haServerUrl = doc["ha_server_url"] | "";
   haConfig.deviceName = doc["device_name"] | kHaDeviceName;
 
-  // Load phonebook
-  if (doc["phonebook"].is<JsonArray>()) {
-    haConfig.phoneBook.clear();
-    for (JsonObject entry : doc["phonebook"].as<JsonArray>()) {
-      haConfig.phoneBook.push_back({entry["name"], entry["number"]});
-    }
-  }
+  // Note: phonebook and blocked numbers are now handled by CorePhoneConfig
+  // Only load HA-specific data (DnD, webhooks, device settings)
 
-  // Load blocked numbers
-  if (doc["blocked_numbers"].is<JsonArray>()) {
-    haConfig.blockedNumbers.clear();
-    for (const String &number : doc["blocked_numbers"].as<JsonArray>()) {
-      haConfig.blockedNumbers.push_back(number);
-    }
-  }
-
-  // Load webhooks
+  // Load webhooks (HA-specific functionality)
   if (doc["webhooks"].is<JsonArray>()) {
     haConfig.webhooks.clear();
     for (JsonObject hook : doc["webhooks"].as<JsonArray>()) {
@@ -737,8 +911,9 @@ void loadConfiguration() {
     }
   }
 
-  if (haConfig.phoneBook.empty() && !haConfig.phoneBookInitialized) {
-    seedHaPhoneBookFromLocal();
+  // Seed core phone config if needed (only once)
+  if (g_corePhoneConfig && !haConfig.phoneBookInitialized) {
+    seedCorePhoneConfigFromLocal();
     haConfig.phoneBookInitialized = true;
     saveConfiguration();
   }
@@ -749,28 +924,13 @@ void loadConfiguration() {
 void saveConfiguration() {
   JsonDocument doc;
 
-  doc["dnd_force_enabled"] = haConfig.dndForceEnabled;
-  doc["dnd_schedule_enabled"] = haConfig.dndScheduleEnabled;
-  doc["dnd_start_hour"] = haConfig.dndStartHour;
-  doc["dnd_start_minute"] = haConfig.dndStartMinute;
-  doc["dnd_end_hour"] = haConfig.dndEndHour;
-  doc["dnd_end_minute"] = haConfig.dndEndMinute;
+  // Save only HA-specific configuration (DnD settings now in CorePhoneConfig)
   doc["phonebook_initialized"] = haConfig.phoneBookInitialized;
   doc["ha_server_url"] = haConfig.haServerUrl;
   doc["device_name"] = haConfig.deviceName;
 
-  JsonArray phonebook = doc["phonebook"].to<JsonArray>();
-  for (const auto &entry : haConfig.phoneBook) {
-    JsonObject entryObj = phonebook.add<JsonObject>();
-    entryObj["name"] = entry.first;
-    entryObj["number"] = entry.second;
-  }
-
-  JsonArray blocked = doc["blocked_numbers"].to<JsonArray>();
-  for (const String &number : haConfig.blockedNumbers) {
-    blocked.add(number);
-  }
-
+  // Note: phonebook and blocked numbers are now saved by CorePhoneConfig
+  // Only save HA-specific data (webhooks)
   JsonArray webhooks = doc["webhooks"].to<JsonArray>();
   for (const auto &hook : haConfig.webhooks) {
     JsonObject hookObj = webhooks.add<JsonObject>();
@@ -785,104 +945,22 @@ void saveConfiguration() {
   }
 }
 
-void seedHaPhoneBookFromLocal() {
-  haConfig.phoneBook.clear();
+void seedCorePhoneConfigFromLocal() {
+  // Seed core phone config with generated phonebook entries
+  if (!g_corePhoneConfig) {
+    return;
+  }
+
   size_t numEntries = sizeof(phoneBookEntries) / sizeof(phoneBookEntries[0]);
   for (size_t i = 0; i < numEntries; i++) {
-    haConfig.phoneBook.push_back({phoneBookEntries[i].entry, phoneBookEntries[i].number});
+    QuickDialEntry entry;
+    entry.name = String(phoneBookEntries[i].entry);
+    entry.number = String(phoneBookEntries[i].number);
+    g_corePhoneConfig->addQuickDialEntry(entry);
   }
-  saveConfiguration();
 }
 
-// Utility functions
-bool isNumberBlocked(const char *number) {
-  String numStr(number);
-  return std::find(haConfig.blockedNumbers.begin(), haConfig.blockedNumbers.end(), numStr) !=
-         haConfig.blockedNumbers.end();
-}
-
-bool isDndConfigEnabled() {
-  return haConfig.dndForceEnabled || haConfig.dndScheduleEnabled;
-}
-
-bool isDndForceEnabled() {
-  return haConfig.dndForceEnabled;
-}
-
-bool isDndScheduleEnabled() {
-  return haConfig.dndScheduleEnabled;
-}
-
-void getHaDndHours(int &startHour, int &startMinute, int &endHour, int &endMinute) {
-  startHour = haConfig.dndStartHour;
-  startMinute = haConfig.dndStartMinute;
-  endHour = haConfig.dndEndHour;
-  endMinute = haConfig.dndEndMinute;
-}
-
-bool isHaPhoneBookEntry(const char *number) {
-  for (const auto &entry : haConfig.phoneBook) {
-    if (entry.first == String(number)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool isPartialOfHaPhoneBookEntry(const char *number) {
-  String numStr(number);
-  for (const auto &entry : haConfig.phoneBook) {
-    if (entry.first.startsWith(numStr)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-const char *getHaPhoneBookNumberForEntry(const char *entry) {
-  static String cachedResult;
-  for (const auto &phoneEntry : haConfig.phoneBook) {
-    if (phoneEntry.first == String(entry)) {
-      cachedResult = phoneEntry.second;
-      return cachedResult.c_str();
-    }
-  }
-  return nullptr;
-}
-
-// Webhook functions
-bool isWebhookEntry(const char *number) {
-  String numStr(number);
-  for (const auto &hook : haConfig.webhooks) {
-    if (hook.number == numStr) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool isPartialOfWebhookEntry(const char *number) {
-  String numStr(number);
-  for (const auto &hook : haConfig.webhooks) {
-    if (hook.number.startsWith(numStr)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-const char *getWebhookIdForNumber(const char *number) {
-  static String cachedResult;
-  String numStr(number);
-  for (const auto &hook : haConfig.webhooks) {
-    if (hook.number == numStr) {
-      cachedResult = hook.webhookId;
-      return cachedResult.c_str();
-    }
-  }
-  return nullptr;
-}
-
+// Internal webhook management functions - these are kept for internal HA server use
 void addWebhookEntry(const char *number, const char *webhookId) {
   WebhookEntry entry;
   entry.number = String(number);
@@ -900,32 +978,6 @@ void removeWebhookEntry(const char *number) {
     haConfig.webhooks.erase(it);
     saveConfiguration();
   }
-}
-
-void executeWebhook(const char *webhookId) {
-  Logger::infoln(F("Executing webhook: %s"), webhookId);
-
-  if (haConfig.haServerUrl.length() == 0) {
-    Logger::errorln(F("No Home Assistant server URL configured"));
-    return;
-  }
-
-  HTTPClient http;
-  String url = haConfig.haServerUrl + "/api/webhook/" + String(webhookId);
-
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-
-  int httpResponseCode = http.POST("{}");
-
-  if (httpResponseCode > 0) {
-    Logger::infoln(
-        F("Webhook executed successfully: %s (response: %d)"), webhookId, httpResponseCode);
-  } else {
-    Logger::errorln(F("Webhook execution failed: %s (error: %d)"), webhookId, httpResponseCode);
-  }
-
-  http.end();
 }
 
 #endif // HOME_ASSISTANT_INTEGRATION

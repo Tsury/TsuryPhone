@@ -1,9 +1,7 @@
 #include "timeManager.h"
+#include "../config/corePhoneConfig.h"
+#include "../utils/logger.h"
 #include "config.h"
-#include "logger.h"
-#ifdef HOME_ASSISTANT_INTEGRATION
-#include "homeAssistantServer.h"
-#endif
 #include <cstdio>
 #include <ctime>
 
@@ -30,15 +28,6 @@ bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
 }
 
 void TimeManager::process(State &state) {
-#ifdef HOME_ASSISTANT_INTEGRATION
-  // Check if HA has force DnD enabled (takes priority over everything)
-  // This bypasses the interval check for immediate effect
-  if (isDndForceEnabled()) {
-    state.isDnd = true;
-    return;
-  }
-#endif
-
   uint32_t currentMillis = millis();
 
   // _lastDndCheckTime != 0 is a workaround for the first time the time manager is called.
@@ -48,58 +37,44 @@ void TimeManager::process(State &state) {
 
   _lastDndCheckTime = currentMillis;
 
-  struct tm timeinfo;
+  // Use CorePhoneConfig for unified DnD settings across all servers
+  if (!g_corePhoneConfig) {
+    Logger::errorln(F("Core phone config not available"));
+    state.isDnd = false;
+    return;
+  }
 
+  // Check if DnD is enabled in core config (either force or schedule mode)
+  if (!g_corePhoneConfig->isDndForceEnabled() && !g_corePhoneConfig->isDndScheduleEnabled()) {
+    state.isDnd = false;
+    Logger::debugln(F("DND disabled in core config"));
+    return;
+  }
+
+  // If force mode is enabled, DnD is always active
+  if (g_corePhoneConfig->isDndForceEnabled()) {
+    state.isDnd = true;
+    Logger::debugln(F("DND active (force mode)"));
+    return;
+  }
+
+  struct tm timeinfo;
   if (!fetchLocalTime(timeinfo)) {
     state.isDnd = false;
+    Logger::debugln(F("DND off - outside active hours"));
     return;
   }
 
+  // Get DnD hours from core config
   int startHour, startMinute, endHour, endMinute;
+  g_corePhoneConfig->getDndHours(startHour, startMinute, endHour, endMinute);
 
-#ifdef HOME_ASSISTANT_INTEGRATION
-  // When HA integration is enabled, ONLY use HA DnD settings
-
-  // Check if schedule-based DnD is enabled
-  if (!isDndScheduleEnabled()) {
-    state.isDnd = false;
-    Logger::debugln(F("HA DND schedule disabled"));
-    return;
-  }
-
-  // Get HA DnD hours for schedule
-  getHaDndHours(startHour, startMinute, endHour, endMinute);
-
-  // If HA has custom hours set in state, use those instead
-  // Note: -1 means "not set", 0 is valid (midnight)
-  if (state.haDndStartHour != -1) {
-    startHour = state.haDndStartHour;
-    startMinute = state.haDndStartMinute;
-    endHour = state.haDndEndHour;
-    endMinute = state.haDndEndMinute;
-  }
-#else
-
-  if (!kDndEnabled) {
-    state.isDnd = false;
-    return;
-  }
-
-  // When HA integration is disabled, use local config settings
-  startHour = kDndStartHour;
-  startMinute = kDndStartMinute;
-  endHour = kDndEndHour;
-  endMinute = kDndEndMinute;
-#endif
-
-  // Now we calculate the schedule-based DnD
+  // Calculate schedule-based DnD
   const int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-
   const int startMinutes = startHour * 60 + startMinute;
   const int endMinutes = endHour * 60 + endMinute;
 
   bool isDnd;
-
   if (startMinutes < endMinutes) {
     isDnd = (currentMinutes >= startMinutes && currentMinutes < endMinutes);
   } else {
@@ -107,4 +82,10 @@ void TimeManager::process(State &state) {
   }
 
   state.isDnd = isDnd;
+
+  if (isDnd) {
+    Logger::debugln(F("DND active - within scheduled hours"));
+  } else {
+    Logger::debugln(F("DND off - outside active hours"));
+  }
 }

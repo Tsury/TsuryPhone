@@ -1,6 +1,6 @@
-#include "../src/common/logger.cpp"
-#include "../src/common/logger.h"
 #include "../src/config.h"
+#include "../src/utils/logger.cpp"
+#include "../src/utils/logger.h"
 #include "Arduino.h"
 #include "generated/writeMp3.h"
 #include <TinyGsmClient.h>

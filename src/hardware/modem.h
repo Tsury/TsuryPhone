@@ -1,7 +1,7 @@
 #pragma once
 
-#include "common/ringBuffer.h"
-#include "common/state.h"
+#include "../utils/ringBuffer.h"
+#include "../core/state.h"
 #include "config.h"
 #include "generated/mp3.h"
 #include <Arduino.h>

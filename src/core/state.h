@@ -1,6 +1,6 @@
 #pragma once
 
-#include "consts.h"
+#include "../utils/consts.h"
 #include <Arduino.h>
 
 enum class AppState {
@@ -54,13 +54,6 @@ struct State {
   bool messageHandled;
   bool isDnd;
   bool isMaintenanceMode;
-#ifdef HOME_ASSISTANT_INTEGRATION
-  bool haDndOverride = false; // HA can override DnD
-  int haDndStartHour = -1;    // -1 means use default from config.h
-  int haDndStartMinute = -1;
-  int haDndEndHour = -1;
-  int haDndEndMinute = -1;
-#endif
 };
 
 const __FlashStringHelper *appStateToString(const AppState state);
