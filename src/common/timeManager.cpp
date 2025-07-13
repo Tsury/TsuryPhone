@@ -1,4 +1,5 @@
 #include "timeManager.h"
+#include "../core/DeviceConfig.h"
 #include "config.h"
 #include "logger.h"
 #include <cstdio>
@@ -8,6 +9,8 @@ namespace {
   const constexpr char *kNtpServer = "pool.ntp.org";
   const constexpr int kDndCheckIntervalMillis = 60000;
 }
+
+TimeManager::TimeManager(DeviceConfig &config) : _config(config) {}
 
 void TimeManager::init() const {
   Logger::infoln(F("Initializing time manager..."));
@@ -36,6 +39,20 @@ void TimeManager::process(State &state) {
 
   _lastDndCheckTime = currentMillis;
 
+  const DndConfig &dndConfig = _config.getDndConfig();
+
+  // Check force DND first
+  if (dndConfig.force) {
+    state.isDnd = true;
+    return;
+  }
+
+  // If scheduled DND is disabled, no DND
+  if (!dndConfig.scheduled) {
+    state.isDnd = false;
+    return;
+  }
+
   struct tm timeinfo;
 
   if (!fetchLocalTime(timeinfo)) {
@@ -44,8 +61,8 @@ void TimeManager::process(State &state) {
   }
 
   const int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  const int startMinutes = kDndStartHour * 60 + kDndStartMinute;
-  const int endMinutes = kDndEndHour * 60 + kDndEndMinute;
+  const int startMinutes = dndConfig.startHour * 60 + dndConfig.startMinute;
+  const int endMinutes = dndConfig.endHour * 60 + dndConfig.endMinute;
 
   bool isDnd;
 

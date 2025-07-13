@@ -8,6 +8,9 @@
 #include <TinyGsmClient.h>
 #include <queue>
 
+// Forward declaration
+class DeviceConfig;
+
 // As per SIMCom's A76XX Series AT Command Manual
 enum class Tone {
   DialTone = 1,
@@ -47,7 +50,7 @@ struct PendingMp3 {
 
 class Modem {
 public:
-  Modem();
+  Modem(DeviceConfig &config);
 
   void init();
   void process(const State &state);
@@ -71,6 +74,11 @@ public:
   void toggleVolume();
   void setEarpieceVolume();
   void setSpeakerVolume();
+  void setVolume(const int volume);
+  void setMicGain(const int gain);
+
+
+  VolumeMode getCurrentVolumeMode() const { return _volumeMode; }
 
 private:
   void initModem();
@@ -95,8 +103,8 @@ private:
   void disableUnneededFeatures();
   void disableUnneededFeaturesAfterInit();
 
-  void setVolume(const int volume);
-  void setMicGain(const int gain);
+
+
 
   bool messageAvailable() const;
   bool isKnownMessage(const char *msg) const;
@@ -119,4 +127,6 @@ private:
   uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
   uint32_t _watchdogResetCounter = 0;
+
+  DeviceConfig &_config;
 };

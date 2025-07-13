@@ -2,6 +2,7 @@
 #include "common/logger.h"
 #include "common/stream.h"
 #include "common/string.h"
+#include "core/DeviceConfig.h"
 
 namespace {
   constexpr std::array<const char *, 9> knownMessages = {"ATE0",
@@ -62,7 +63,7 @@ bool Modem::probeOK(uint32_t timeoutMs) {
   return found;
 }
 
-Modem::Modem() : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL) {}
+Modem::Modem(DeviceConfig &config) : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL), _config(config) {}
 
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
@@ -179,14 +180,16 @@ void Modem::setMicGain(const int gain) {
 
 void Modem::setEarpieceVolume() {
   _volumeMode = VolumeMode::Earpiece;
-  setVolume(kEarpieceVolume);
-  setMicGain(kEarpieceMicGain);
+  const AudioConfig &audioConfig = _config.getAudioConfig();
+  setVolume(audioConfig.earpieceVolume);
+  setMicGain(audioConfig.earpieceGain);
 }
 
 void Modem::setSpeakerVolume() {
   _volumeMode = VolumeMode::Speaker;
-  setVolume(kSpeakerVolume);
-  setMicGain(kSpeakerMicGain);
+  const AudioConfig &audioConfig = _config.getAudioConfig();
+  setVolume(audioConfig.speakerVolume);
+  setMicGain(audioConfig.speakerGain);
 }
 
 void Modem::toggleVolume() {

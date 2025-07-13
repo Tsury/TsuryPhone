@@ -5,16 +5,25 @@
 // General configuration:
 const constexpr char kMp3Dir[] = "C:/mp3";
 const constexpr char *kWifiWebPortalNumber = "3123";
-const constexpr char *kWifiSsid = "TsuryPhone";
 const constexpr char *kResetNumber = "5555";
 const constexpr char *timeZone = "IST-2IDT,M3.4.4/26,M10.5.0";
+
+inline String getDeviceName() {
+  uint64_t chipid = ESP.getEfuseMac();
+  String deviceId = String((uint32_t)(chipid >> 32), HEX) + String((uint32_t)chipid, HEX);
+  deviceId.toUpperCase();
+  return "TsuryPhone-" + deviceId.substring(deviceId.length() - 6);
+}
+
+inline String getWifiSsid() {
+  return getDeviceName();
+}
+
+// Default audio settings (used for fallback)
 const constexpr int kEarpieceVolume = 2;
 const constexpr int kEarpieceMicGain = 7;
 const constexpr int kSpeakerVolume = 7;
-const constexpr int kSpeakerMicGain =
-    7; // Seems like connecting the mic in "production" (e.g. not on the breadboard) requires a
-       // higher mic gain, kinda ruins "speaker mode" unless I find a way to amplify/clean the
-       // signal.
+const constexpr int kSpeakerMicGain = 7;
 const constexpr int kDndStartHour = 18;
 const constexpr int kDndStartMinute = 30;
 const constexpr int kDndEndHour = 8;

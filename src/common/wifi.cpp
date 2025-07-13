@@ -29,7 +29,7 @@ void Wifi::init() {
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
-  if (_wifiManager.autoConnect(kWifiSsid)) {
+  if (_wifiManager.autoConnect(getWifiSsid().c_str())) {
     onWifiConnected();
   } else {
     Logger::infoln(F("Config portal running"));
@@ -100,5 +100,26 @@ void Wifi::processWebSerial() {
 
 void Wifi::openConfigPortal() {
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
-  _wifiManager.startConfigPortal(kWifiSsid);
+  _wifiManager.startConfigPortal(getWifiSsid().c_str());
+}
+
+void Wifi::closeConfigPortal() {
+  _wifiManager.stopConfigPortal();
+}
+
+bool Wifi::isConfigPortalActive() {
+  return _wifiManager.getConfigPortalActive();
+}
+
+void Wifi::setConfigPortalTimeoutCallback(std::function<void()> callback) {
+  _configPortalTimeoutCallback = callback;
+  _wifiManager.setConfigPortalTimeoutCallback([this]() {
+    onConfigPortalTimeout();
+  });
+}
+
+void Wifi::onConfigPortalTimeout() {
+  if (_configPortalTimeoutCallback) {
+    _configPortalTimeoutCallback();
+  }
 }
