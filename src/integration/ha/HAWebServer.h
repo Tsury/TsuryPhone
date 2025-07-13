@@ -2,10 +2,10 @@
 
 #ifdef HOME_ASSISTANT_INTEGRATION
 
+#include "../../common/state.h"
 #include <ArduinoJson.h>
 #include <AsyncWebSocket.h>
 #include <ESPAsyncWebServer.h>
-#include "../../common/state.h"
 
 class DeviceConfig;
 class DeviceStats;

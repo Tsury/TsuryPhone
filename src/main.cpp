@@ -72,18 +72,18 @@ void PhoneApp::setup() {
     // Set up config change callback to notify integrations and handle specific changes
     _deviceConfig.setConfigChangeCallback([this](ConfigChangeType changeType) {
       _integrationManager.onConfigurationChanged();
-      
+
       // Handle specific config changes
       switch (changeType) {
-        case ConfigChangeType::Audio:
-          onAudioConfigChanged();
-          break;
-        case ConfigChangeType::MaintenanceMode:
-          onMaintenanceModeChanged();
-          break;
-        default:
-          // Other config changes don't need specific handling
-          break;
+      case ConfigChangeType::Audio:
+        onAudioConfigChanged();
+        break;
+      case ConfigChangeType::MaintenanceMode:
+        onMaintenanceModeChanged();
+        break;
+      default:
+        // Other config changes don't need specific handling
+        break;
       }
     });
   } else {
@@ -536,7 +536,7 @@ bool PhoneApp::handleIntegrationCallWaitingRequest() {
 
 void PhoneApp::onAudioConfigChanged() {
   Logger::infoln(F("Audio configuration changed, updating modem settings"));
-  
+
   // Reapply the current volume mode with new settings from config
   if (_modem.getCurrentVolumeMode() == VolumeMode::Earpiece) {
     _modem.setEarpieceVolume();
@@ -548,7 +548,7 @@ void PhoneApp::onAudioConfigChanged() {
 void PhoneApp::onMaintenanceModeChanged() {
   bool maintenanceMode = _deviceConfig.isMaintenanceMode();
   Logger::infoln(F("Maintenance mode changed to: %s"), maintenanceMode ? "enabled" : "disabled");
-  
+
   if (maintenanceMode) {
     // Entering maintenance mode - open config portal
     Logger::infoln(F("Opening WiFi config portal"));

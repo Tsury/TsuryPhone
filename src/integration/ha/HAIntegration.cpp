@@ -404,16 +404,16 @@ void HAIntegration::triggerWebhookHttp(const String &webhookId) {
 
   // Construct webhook URL
   String webhookUrl = _homeAssistantUrl + "/api/webhook/" + webhookId;
-  
+
   Logger::infoln(F("HA: Triggering webhook HTTP call: %s"), webhookUrl.c_str());
 
   HTTPClient http;
   http.begin(webhookUrl);
   http.setTimeout(5000); // 5 second timeout
-  
+
   // Make POST request (webhooks typically expect POST)
   int httpResponseCode = http.POST("");
-  
+
   if (httpResponseCode > 0) {
     Logger::infoln(F("HA: Webhook HTTP response: %d"), httpResponseCode);
     if (httpResponseCode == 200) {
@@ -422,7 +422,7 @@ void HAIntegration::triggerWebhookHttp(const String &webhookId) {
   } else {
     Logger::errorln(F("HA: Webhook HTTP error: %s"), http.errorToString(httpResponseCode).c_str());
   }
-  
+
   http.end();
 }
 

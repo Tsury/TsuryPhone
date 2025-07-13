@@ -113,9 +113,7 @@ bool Wifi::isConfigPortalActive() {
 
 void Wifi::setConfigPortalTimeoutCallback(std::function<void()> callback) {
   _configPortalTimeoutCallback = callback;
-  _wifiManager.setConfigPortalTimeoutCallback([this]() {
-    onConfigPortalTimeout();
-  });
+  _wifiManager.setConfigPortalTimeoutCallback([this]() { onConfigPortalTimeout(); });
 }
 
 void Wifi::onConfigPortalTimeout() {

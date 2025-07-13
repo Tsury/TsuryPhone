@@ -63,7 +63,8 @@ bool Modem::probeOK(uint32_t timeoutMs) {
   return found;
 }
 
-Modem::Modem(DeviceConfig &config) : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL), _config(config) {}
+Modem::Modem(DeviceConfig &config)
+    : _modemImpl(SerialAT), _waitingForKeepAlive(false), _lastKeepAliveSent(0UL), _config(config) {}
 
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));

@@ -1,7 +1,7 @@
 #include "DeviceConfig.h"
 #include "../common/logger.h"
-#include "../generated/phoneBook.h"
 #include "../config.h"
+#include "../generated/phoneBook.h"
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <WiFi.h>

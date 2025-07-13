@@ -76,9 +76,9 @@ public:
   void setSpeakerVolume();
   void setVolume(const int volume);
   void setMicGain(const int gain);
-
-
-  VolumeMode getCurrentVolumeMode() const { return _volumeMode; }
+  VolumeMode getCurrentVolumeMode() const {
+    return _volumeMode;
+  }
 
 private:
   void initModem();
@@ -102,9 +102,6 @@ private:
   void enableHangUp();
   void disableUnneededFeatures();
   void disableUnneededFeaturesAfterInit();
-
-
-
 
   bool messageAvailable() const;
   bool isKnownMessage(const char *msg) const;

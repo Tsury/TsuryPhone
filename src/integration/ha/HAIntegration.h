@@ -111,7 +111,7 @@ private:
 
   // Home Assistant configuration
   String _homeAssistantUrl = "http://homeassistant.local:8123";
-  
+
   // Webhook HTTP functionality
   void triggerWebhookHttp(const String &webhookId);
 };

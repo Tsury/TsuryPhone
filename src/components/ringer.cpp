@@ -33,7 +33,7 @@ void Ringer::startRinging() {
   _usingCustomPattern = false;
 }
 
-void Ringer::startRinging(const String& pattern) {
+void Ringer::startRinging(const String &pattern) {
   if (_ringing) {
     return;
   }
@@ -42,43 +42,45 @@ void Ringer::startRinging(const String& pattern) {
   _currentPatternIndex = 0;
   _currentRepeat = 0;
   _usingCustomPattern = true;
-  
+
   setRingerEnabled(true);
   _ringing = true;
   _ringStartTime = millis();
   _lastCycleTime = millis();
   _ringState = true; // Start with ring on
-  
+
   Logger::infoln(F("Starting pattern ringing: %s"), pattern.c_str());
 }
 
-RingPattern Ringer::parseRingPattern(const String& pattern) {
+RingPattern Ringer::parseRingPattern(const String &pattern) {
   RingPattern result;
-  
+
   // Default pattern if parsing fails
   if (pattern.isEmpty()) {
     result.timings = {500, 500, 500, 500};
     result.repeatCount = 3;
     return result;
   }
-  
+
   String workPattern = pattern;
-  
+
   // Extract repeat count (e.g., "x3")
   int xPos = workPattern.indexOf('x');
   if (xPos >= 0) {
     String repeatStr = workPattern.substring(xPos + 1);
     result.repeatCount = repeatStr.toInt();
-    if (result.repeatCount <= 0) result.repeatCount = 1;
+    if (result.repeatCount <= 0) {
+      result.repeatCount = 1;
+    }
     workPattern = workPattern.substring(0, xPos);
   } else {
     result.repeatCount = 1;
   }
-  
+
   // Parse comma-separated timings
   int startPos = 0;
   int commaPos = workPattern.indexOf(',');
-  
+
   while (commaPos >= 0 || startPos < workPattern.length()) {
     String timingStr;
     if (commaPos >= 0) {
@@ -89,18 +91,18 @@ RingPattern Ringer::parseRingPattern(const String& pattern) {
       timingStr = workPattern.substring(startPos);
       startPos = workPattern.length();
     }
-    
+
     int timing = timingStr.toInt();
     if (timing > 0) {
       result.timings.push_back(timing);
     }
   }
-  
+
   // Ensure we have at least one timing
   if (result.timings.empty()) {
     result.timings = {500, 500};
   }
-  
+
   return result;
 }
 
@@ -149,14 +151,14 @@ void Ringer::process(State &state) {
       _currentPatternIndex = 0;
       _lastCycleTime = millis();
     }
-    
+
     // Check if current timing segment is complete
     if (millis() - _lastCycleTime >= _currentPattern.timings[_currentPatternIndex]) {
       _currentPatternIndex++;
       _lastCycleTime = millis();
       _ringState = !_ringState; // Toggle ring state for next segment
     }
-    
+
     // Apply current ring state to hardware
     if (_ringState) {
       digitalWrite(kRingerIn1Pin, HIGH);

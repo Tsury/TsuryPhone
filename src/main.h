@@ -45,16 +45,16 @@ private:
 
   // Audio configuration change handler
   void onAudioConfigChanged();
-  
+
   // Maintenance mode change handler
   void onMaintenanceModeChanged();
 
   // Integration operation callbacks
-  bool handleIntegrationDialRequest(const String& number);
+  bool handleIntegrationDialRequest(const String &number);
   bool handleIntegrationAnswerRequest();
   bool handleIntegrationHangupRequest();
-  bool handleIntegrationRingRequest(const String& pattern);
-  bool handleIntegrationWebhookTrigger(const String& webhookId);
+  bool handleIntegrationRingRequest(const String &pattern);
+  bool handleIntegrationWebhookTrigger(const String &webhookId);
   bool handleIntegrationCallWaitingRequest();
 
   DeviceConfig _deviceConfig;
