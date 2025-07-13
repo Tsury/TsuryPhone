@@ -79,7 +79,7 @@ void HAIntegration::stop() {
   Logger::infoln(F("Home Assistant integration stopped"));
 }
 
-void HAIntegration::updatePhoneState(PhoneState newState, PhoneState previousState) {
+void HAIntegration::updatePhoneState(AppState newState, AppState previousState) {
   if (_currentState != newState) {
     _currentState = newState;
 
@@ -346,8 +346,8 @@ void HAIntegration::addBasicDeviceInfo(JsonObject &obj) {
 void HAIntegration::addPhoneStateInfo(JsonObject &obj) {
   obj["state"] = static_cast<int>(_currentState);
   obj["stateName"] = getStateName(_currentState);
-  obj["dialing"] = (_currentState == PhoneState::Dialing);
-  obj["callActive"] = (_currentState == PhoneState::InCall);
+  obj["dialing"] = (_currentState == AppState::Dialing);
+  obj["callActive"] = (_currentState == AppState::InCall);
   obj["ringing"] = _isRinging;
 
   if (!_currentDialingNumber.isEmpty()) {

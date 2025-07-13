@@ -9,9 +9,6 @@
 #include "HAWebServer.h"
 #include <functional>
 
-// Use AppState from the actual state.h file
-using PhoneState = AppState;
-
 /**
  * Home Assistant integration implementation
  * Manages all HA-related functionality including web server, state synchronization,
@@ -27,7 +24,7 @@ public:
   void stop() override;
 
   // State synchronization
-  void updatePhoneState(PhoneState newState, PhoneState previousState) override;
+  void updatePhoneState(AppState newState, AppState previousState) override;
   void updateCallInfo(const String &number, bool isIncoming, unsigned long startTime = 0) override;
   void updateDialingProgress(const String &currentNumber) override;
   void updateRingState(bool isRinging) override;
@@ -76,7 +73,7 @@ private:
   HAWebServer _webServer;
 
   // Current state tracking
-  PhoneState _currentState = PhoneState::Idle;
+  AppState _currentState = AppState::Idle;
   String _currentCallNumber;
   bool _currentCallIsIncoming = false;
   unsigned long _currentCallStartTime = 0;
