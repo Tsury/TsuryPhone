@@ -341,48 +341,49 @@ void PhoneApp::processStateIdle() {
 
       // Report dialing progress to HA
       _integrationManager.updateDialingProgress(String(dialedNumber));
-    }
 
-    const NumberValidationResult numberValidation = _numberHandler.validateNumber(dialedNumber);
+      const NumberValidationResult numberValidation = _numberHandler.validateNumber(dialedNumber);
 
-    if (numberValidation.isComplete) {
-      switch (numberValidation.action) {
-      case NumberAction::SystemAction:
-        if (strEqual(dialedNumber, kResetNumber)) {
-          _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
-          ESP.restart();
-        } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
-          // Toggle maintenance mode - the callback will handle portal control
-          bool newMaintenanceMode = !_deviceConfig.isMaintenanceMode();
-          _deviceConfig.setMaintenanceMode(newMaintenanceMode);
+      if (numberValidation.isComplete) {
+        switch (numberValidation.action) {
+        case NumberAction::SystemAction:
+          if (strEqual(dialedNumber, kResetNumber)) {
+            _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+            ESP.restart();
+          } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
+            // Toggle maintenance mode - the callback will handle portal control
+            bool newMaintenanceMode = !_deviceConfig.isMaintenanceMode();
+            _deviceConfig.setMaintenanceMode(newMaintenanceMode);
+          }
+          break;
+
+        case NumberAction::QuickDial:
+        case NumberAction::DirectDial:
+          _deviceStats.recordOutgoingCall(numberValidation.targetNumber);
+          _integrationManager.reportCallStart(numberValidation.targetNumber, false);
+          _integrationManager.updateCallInfo(numberValidation.targetNumber, false);
+          _modem.enqueueCall(numberValidation.targetNumber.c_str());
+
+          break;
+        case NumberAction::WebhookTrigger:
+          // Trigger webhook in HA integration for automation processing
+          Logger::infoln(F("Webhook trigger: %s"), numberValidation.webhookId.c_str());
+          _integrationManager.reportWebhookTrigger(numberValidation.webhookId);
+          break;
+
+        case NumberAction::Invalid:
+          _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+          setState(AppState::InvalidNumber);
+          break;
+
+        default:
+          break;
         }
-        break;
 
-      case NumberAction::QuickDial:
-      case NumberAction::DirectDial:
-        _deviceStats.recordOutgoingCall(numberValidation.targetNumber);
-        _integrationManager.reportCallStart(numberValidation.targetNumber, false);
-        _integrationManager.updateCallInfo(numberValidation.targetNumber, false);
-        _modem.enqueueCall(numberValidation.targetNumber.c_str());
         _rotaryDial.resetCurrentNumber();
-        break;
-      case NumberAction::WebhookTrigger:
-        // Trigger webhook in HA integration for automation processing
-        Logger::infoln(F("Webhook trigger: %s"), numberValidation.webhookId.c_str());
-        _integrationManager.reportWebhookTrigger(numberValidation.webhookId);
-        _rotaryDial.resetCurrentNumber();
-        break;
-
-      case NumberAction::Invalid:
-        _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
-        setState(AppState::InvalidNumber);
-        break;
-
-      default:
-        break;
+      } else if (numberValidation.action == NumberAction::Pending) {
+        // Continue waiting for more digits
       }
-    } else if (numberValidation.action == NumberAction::Pending) {
-      // Continue waiting for more digits
     }
   }
 }

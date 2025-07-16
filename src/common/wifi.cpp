@@ -99,6 +99,7 @@ void Wifi::processWebSerial() {
 #endif
 
 void Wifi::openConfigPortal() {
+  _wifiManager.setConfigPortalBlocking(false);
   _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
   _wifiManager.startConfigPortal(getWifiSsid().c_str());
 }

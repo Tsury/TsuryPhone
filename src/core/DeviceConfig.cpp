@@ -39,7 +39,7 @@ bool DeviceConfig::save() {
   device["name"] = _deviceName;
   device["id"] = _deviceId;
   device["resetCount"] = _resetCount;
-  device["maintenanceMode"] = _maintenanceMode;
+  // Note: maintenanceMode is not saved - it's runtime-only state
 
   // Audio config
   JsonObject audio = doc["audio"].to<JsonObject>();
@@ -122,9 +122,7 @@ bool DeviceConfig::load() {
   if (doc["device"]["resetCount"]) {
     _resetCount = doc["device"]["resetCount"];
   }
-  if (doc["device"]["maintenanceMode"]) {
-    _maintenanceMode = doc["device"]["maintenanceMode"];
-  }
+  // Note: maintenanceMode is not loaded - always starts as false
 
   // Audio config
   if (doc["audio"]) {
@@ -348,7 +346,8 @@ void DeviceConfig::incrementResetCount() {
 void DeviceConfig::setMaintenanceMode(bool enabled) {
   if (_maintenanceMode != enabled) {
     _maintenanceMode = enabled;
-    saveAndNotify(ConfigChangeType::MaintenanceMode);
+    // Note: Don't save to persistent storage - maintenance mode is runtime-only
+    notifyConfigChanged(ConfigChangeType::MaintenanceMode);
   }
 }
 

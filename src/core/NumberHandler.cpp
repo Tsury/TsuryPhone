@@ -1,6 +1,7 @@
 #include "NumberHandler.h"
 #include "../common/string.h"
 #include "DeviceConfig.h"
+#include "config.h"
 #include <cstring>
 
 NumberHandler::NumberHandler(DeviceConfig &config) : _config(config) {}
@@ -17,6 +18,14 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
     return result;
   }
 
+  // Check for system numbers (reset, wifi portal)
+  if (isSystemNumber(dialedNumber)) {
+    result.action = NumberAction::SystemAction;
+    result.targetNumber = String(dialedNumber);
+    result.isComplete = true;
+    return result;
+  }
+
   // Check for exact quick dial match
   if (_config.hasQuickDialEntry(String(dialedNumber))) {
     result.action = NumberAction::QuickDial;
@@ -29,14 +38,6 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
   if (_config.hasWebhookAction(String(dialedNumber))) {
     result.action = NumberAction::WebhookTrigger;
     result.webhookId = _config.getWebhookId(String(dialedNumber));
-    result.isComplete = true;
-    return result;
-  }
-
-  // Check for system numbers (reset, wifi portal)
-  if (isSystemNumber(dialedNumber)) {
-    result.action = NumberAction::SystemAction;
-    result.targetNumber = String(dialedNumber);
     result.isComplete = true;
     return result;
   }
@@ -88,12 +89,24 @@ bool NumberHandler::isPartialMatch(const char *dialedNumber) {
     }
   }
 
+  // Check system numbers for partial matches
+  for (size_t i = 0; i < kSystemNumbersCount; i++) {
+    if (strStartsWith(kSystemNumbers[i], dialedStr.c_str())) {
+      return true;
+    }
+  }
+
   return false;
 }
 
 bool NumberHandler::isSystemNumber(const char *number) {
-  // These are hardcoded system numbers that shouldn't be configurable
-  return strEqual(number, "5555") || strEqual(number, "3123");
+  // Check against all system numbers
+  for (size_t i = 0; i < kSystemNumbersCount; i++) {
+    if (strEqual(number, kSystemNumbers[i])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 DialedNumberValidationResult NumberHandler::validatePhonePattern(const char *number) {

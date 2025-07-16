@@ -6,6 +6,11 @@
 const constexpr char kMp3Dir[] = "C:/mp3";
 const constexpr char *kWifiWebPortalNumber = "3123";
 const constexpr char *kResetNumber = "5555";
+
+// System numbers collection for easier maintenance
+const constexpr char *kSystemNumbers[] = {kResetNumber, kWifiWebPortalNumber};
+const constexpr size_t kSystemNumbersCount = sizeof(kSystemNumbers) / sizeof(kSystemNumbers[0]);
+
 const constexpr char *timeZone = "IST-2IDT,M3.4.4/26,M10.5.0";
 
 inline String getDeviceName() {
