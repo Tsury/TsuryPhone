@@ -54,6 +54,12 @@ void IntegrationManager::updatePhoneState(AppState newState, AppState previousSt
   for (auto &integration : _integrations) {
     integration->updatePhoneState(newState, previousState);
   }
+
+  if (newState == AppState::IncomingCallRing) {
+    updateRingState(true);
+  } else if (previousState == AppState::IncomingCallRing) {
+    updateRingState(false);
+  }
 }
 
 void IntegrationManager::updateCallInfo(const String &number,

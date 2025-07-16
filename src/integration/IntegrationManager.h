@@ -27,7 +27,6 @@ public:
   void updatePhoneState(AppState newState, AppState previousState);
   void updateCallInfo(const String &number, bool isIncoming, unsigned long startTime = 0);
   void updateDialingProgress(const String &currentNumber);
-  void updateRingState(bool isRinging);
   void updateSystemStatus();
 
   // Device operation callbacks - sets callbacks for all integrations
@@ -53,6 +52,8 @@ public:
   void listIntegrations() const;
 
 private:
+  void updateRingState(bool isRinging);
+
   DeviceConfig &_config;
   DeviceStats &_stats;
 

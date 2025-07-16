@@ -255,7 +255,6 @@ void PhoneApp::onStateIncomingCall() {
     Logger::infoln(F("Ringing..."));
     String ringPattern = _deviceConfig.getRingPattern();
     _ringer.startRinging(ringPattern);
-    _integrationManager.updateRingState(true);
   }
 }
 
@@ -270,7 +269,6 @@ void PhoneApp::stopEverything() {
   Logger::infoln(F("Stopping everything..."));
   _modem.stopAllAudio();
   _ringer.stopRinging();
-  _integrationManager.updateRingState(false);
   _rotaryDial.resetCurrentNumber();
 }
 
