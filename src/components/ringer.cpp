@@ -103,6 +103,19 @@ RingPattern Ringer::parseRingPattern(const String &pattern) {
     result.timings = {500, 500};
   }
 
+  // Enforce timing count rules based on repeat behavior
+  if (result.repeatCount > 1) {
+    // For repeating patterns, ensure even number of timings (end with silence)
+    if (result.timings.size() % 2 == 1) {
+      result.timings.push_back(1000); // Add 1s silence before repeat
+    }
+  } else {
+    // For non-repeating patterns, ensure odd number of timings (end with ring)
+    if (result.timings.size() % 2 == 0) {
+      result.timings.pop_back(); // Remove trailing silence
+    }
+  }
+
   return result;
 }
 
@@ -153,7 +166,8 @@ void Ringer::process(State &state) {
     }
 
     // Check if current timing segment is complete
-    if (millis() - _lastCycleTime >= _currentPattern.timings[_currentPatternIndex]) {
+    unsigned long currentTiming = _currentPattern.timings[_currentPatternIndex];
+    if (currentTiming == 0 || millis() - _lastCycleTime >= currentTiming) {
       _currentPatternIndex++;
       _lastCycleTime = millis();
       _ringState = !_ringState; // Toggle ring state for next segment
