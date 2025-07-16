@@ -62,7 +62,7 @@ void HAIntegration::process() {
   if (now - _lastStatsUpdate >= kStatsUpdateInterval) {
     _lastStatsUpdate = now;
     JsonDocument doc;
-    JsonObject obj = doc.to<JsonObject>();
+    JsonObject obj = createEventObject(doc, "system", "stats");
     addSystemInfo(obj);
     _webServer.broadcastStateUpdate(doc);
   }
@@ -88,12 +88,10 @@ void HAIntegration::updatePhoneState(AppState newState, AppState previousState) 
                    static_cast<int>(newState));
 
     JsonDocument doc;
-    JsonObject obj = doc.to<JsonObject>();
-    obj["event"] = "state_change";
+    JsonObject obj = createEventObject(doc, "phone_state", "state");
     obj["state"] = static_cast<int>(newState);
     obj["previousState"] = static_cast<int>(previousState);
     obj["stateName"] = getStateName(newState);
-    obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
 
     addPhoneStateInfo(obj);
     _webServer.broadcastStateUpdate(doc);
@@ -110,8 +108,7 @@ void HAIntegration::updateCallInfo(const String &number, bool isIncoming, unsign
                  number.c_str());
 
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "call_info_update";
+  JsonObject obj = createEventObject(doc, "phone_state", "call_info");
   addCallInfo(obj);
   _webServer.broadcastStateUpdate(doc);
 }
@@ -123,10 +120,8 @@ void HAIntegration::updateDialingProgress(const String &currentNumber) {
     Logger::infoln(F("HA: Dialing progress - current number: %s"), currentNumber.c_str());
 
     JsonDocument doc;
-    JsonObject obj = doc.to<JsonObject>();
-    obj["event"] = "dialing_progress";
+    JsonObject obj = createEventObject(doc, "phone_state", "dialing");
     obj["currentNumber"] = currentNumber;
-    obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
     _webServer.broadcastStateUpdate(doc);
   }
 }
@@ -138,18 +133,15 @@ void HAIntegration::updateRingState(bool isRinging) {
     Logger::infoln(F("HA: Ring state changed - %s"), isRinging ? F("ringing") : F("not ringing"));
 
     JsonDocument doc;
-    JsonObject obj = doc.to<JsonObject>();
-    obj["event"] = "ring_state_change";
+    JsonObject obj = createEventObject(doc, "phone_state", "ring");
     obj["isRinging"] = isRinging;
-    obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
     _webServer.broadcastStateUpdate(doc);
   }
 }
 
 void HAIntegration::updateSystemStatus() {
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "system_status_update";
+  JsonObject obj = createEventObject(doc, "system", "status");
   addSystemInfo(obj);
   _webServer.broadcastStateUpdate(doc);
 }
@@ -189,11 +181,9 @@ void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
   updateCallInfo(number, isIncoming);
 
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "call_start";
+  JsonObject obj = createEventObject(doc, "call", "start");
   obj["number"] = number;
   obj["isIncoming"] = isIncoming;
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -201,10 +191,8 @@ void HAIntegration::reportCallEnd(unsigned long duration) {
   _stats.recordCallEnd();
 
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "call_end";
+  JsonObject obj = createEventObject(doc, "call", "end");
   obj["duration"] = duration;
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
   _webServer.broadcastStateUpdate(doc);
 
   // Clear call info
@@ -219,10 +207,8 @@ void HAIntegration::reportBlockedCall(const String &number) {
   Logger::infoln(F("HA: Blocked call from %s"), number.c_str());
 
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "call_blocked";
+  JsonObject obj = createEventObject(doc, "call", "blocked");
   obj["number"] = number;
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -230,10 +216,8 @@ void HAIntegration::reportError(const String &error) {
   Logger::errorln(F("HA: Error reported - %s"), error.c_str());
 
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "error";
+  JsonObject obj = createEventObject(doc, "system", "error");
   obj["error"] = error;
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -245,10 +229,8 @@ void HAIntegration::reportWebhookTrigger(const String &webhookId) {
 
   // Also broadcast via WebSocket for real-time updates
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "webhook_trigger";
+  JsonObject obj = createEventObject(doc, "system", "webhook");
   obj["webhook_id"] = webhookId;
-  obj["timestamp"] = millis();
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -267,9 +249,7 @@ void HAIntegration::setupWebServerCallbacks() {
 
 void HAIntegration::broadcastFullState() {
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-
-  obj["event"] = "full_state_update";
+  JsonObject obj = createEventObject(doc, "full_state", "");
   addBasicDeviceInfo(obj);
   addPhoneStateInfo(obj);
   addCallInfo(obj);
@@ -280,10 +260,8 @@ void HAIntegration::broadcastFullState() {
 
 void HAIntegration::broadcastStateChange(const String &key, const JsonVariant &value) {
   JsonDocument doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = "state_change";
+  JsonObject obj = createEventObject(doc, "system", "config");
   obj[key] = value;
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -393,6 +371,16 @@ void HAIntegration::getFullStatus(JsonObject &obj) {
 
   // Add system info
   addSystemInfo(obj);
+}
+
+// Helper function to create WebSocket event objects
+JsonObject
+HAIntegration::createEventObject(JsonDocument &doc, const String &event, const String &type) {
+  JsonObject obj = doc.to<JsonObject>();
+  obj["event"] = event;
+  obj["type"] = type;
+  obj["timestamp"] = millis();
+  return obj;
 }
 
 void HAIntegration::triggerWebhookHttp(const String &webhookId) {

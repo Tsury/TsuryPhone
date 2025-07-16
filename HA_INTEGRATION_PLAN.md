@@ -3,7 +3,7 @@
 ## 🎯 **PROJECT STATUS: IMPLEMENTATION COMPLETE** 
 
 ### **Core Integration Features** ✅
-- **✅ 25 Operations**: Complete REST API with real device control
+- **✅ 19 Operations**: Complete REST API with real device control
 - **✅ 30 Sensors**: Real-time monitoring and configuration data
 - **✅ Webhook System**: HTTP POST integration with Home Assistant automations
 - **✅ Pattern Ringing**: Custom timing patterns with repeat control
@@ -64,46 +64,344 @@ This implementation adds comprehensive Home Assistant integration to TsuryPhone 
 
 ## API Reference
 
-### Device Operations (25 Total)
+### Device Operations (19 Total)
 
 #### **Call Control (5 operations)**
-| Operation | Endpoint | Description |
-|-----------|----------|-------------|
-| `dial` | `POST /api/operations/dial` | Dial number with validation |
-| `answer` | `POST /api/operations/answer` | Answer incoming call |
-| `hangup` | `POST /api/operations/hangup` | End active call |
-| `switch_waiting` | `POST /api/operations/switch_waiting` | Switch to call waiting |
-| `dial_quick_dial` | `POST /api/operations/dial_quick_dial` | Dial from quick dial entry |
+| Operation | Endpoint | Method | Description |
+|-----------|----------|---------|-------------|
+| `dial` | `/api/call/dial` | POST | Dial number with validation |
+| `answer` | `/api/call/answer` | POST | Answer incoming call |
+| `hangup` | `/api/call/hangup` | POST | End active call |
+| `switch_call_waiting` | `/api/call/switch_call_waiting` | POST | Switch to call waiting |
+| `dial_quick_dial` | `/api/call/dial_quick_dial` | POST | Dial from quick dial entry |
 
-#### **Configuration (12 operations)**
-| Operation | Endpoint | Description |
-|-----------|----------|-------------|
-| `force_dnd` | `POST /api/operations/force_dnd` | Toggle force DND mode |
-| `scheduled_dnd` | `POST /api/operations/scheduled_dnd` | Toggle scheduled DND |
-| `maintenance_mode` | `POST /api/operations/maintenance_mode` | Toggle maintenance mode |
-| `set_earpiece_volume` | `POST /api/operations/set_earpiece_volume` | Set earpiece volume (1-7) |
-| `set_earpiece_gain` | `POST /api/operations/set_earpiece_gain` | Set earpiece gain (1-7) |
-| `set_speaker_volume` | `POST /api/operations/set_speaker_volume` | Set speaker volume (1-7) |
-| `set_speaker_gain` | `POST /api/operations/set_speaker_gain` | Set speaker gain (1-7) |
-| `set_ring_pattern` | `POST /api/operations/set_ring_pattern` | Set custom ring pattern |
-| `set_dnd_start_time` | `POST /api/operations/set_dnd_start_time` | Set DND start time |
-| `set_dnd_end_time` | `POST /api/operations/set_dnd_end_time` | Set DND end time |
+#### **Configuration (10 operations)**
+| Operation | Endpoint | Method | Description |
+|-----------|----------|---------|-------------|
+| `dnd` | `/api/config/dnd` | POST | Configure DND settings (force/scheduled/times) |
+| `maintenance` | `/api/config/maintenance` | POST | Toggle maintenance mode |
+| `audio` | `/api/config/audio` | POST | Set audio configuration (volume/gain) |
+| `ring_pattern` | `/api/config/ring_pattern` | POST | Set custom ring pattern |
+| `webhook_add` | `/api/config/webhook_add` | POST | Add webhook trigger |
+| `webhook_remove` | `/api/config/webhook_remove` | POST | Remove webhook trigger |
+| `quick_dial_add` | `/api/config/quick_dial_add` | POST | Add quick dial entry |
+| `quick_dial_remove` | `/api/config/quick_dial_remove` | POST | Remove quick dial entry |
+| `blocked_number_add` | `/api/config/blocked_number_add` | POST | Block incoming number |
+| `blocked_number_remove` | `/api/config/blocked_number_remove` | POST | Unblock number |
 
-#### **Number Management (6 operations)**
-| Operation | Endpoint | Description |
-|-----------|----------|-------------|
-| `add_blocked_number` | `POST /api/operations/add_blocked_number` | Block incoming number |
-| `remove_blocked_number` | `POST /api/operations/remove_blocked_number` | Unblock number |
-| `add_quick_dial` | `POST /api/operations/add_quick_dial` | Add quick dial entry |
-| `remove_quick_dial` | `POST /api/operations/remove_quick_dial` | Remove quick dial entry |
-| `add_webhook` | `POST /api/operations/add_webhook` | Add webhook trigger |
-| `remove_webhook` | `POST /api/operations/remove_webhook` | Remove webhook trigger |
+#### **System Control (1 operations)**
+| Operation | Endpoint | Method | Description |
+|-----------|----------|---------|-------------|
+| `ring` | `/api/system/ring` | POST | Trigger ring with pattern |
+| `reset` | `/api/system/reset` | POST | Reset device |
 
-#### **System Control (2 operations)**
-| Operation | Endpoint | Description |
-|-----------|----------|-------------|
-| `ring` | `POST /api/operations/ring` | Trigger ring with pattern |
-| `reset` | `POST /api/operations/reset` | Reset device |
+#### **Data Endpoints (4 operations)**
+| Operation | Endpoint | Method | Description |
+|-----------|----------|---------|-------------|
+| `status` | `/api/status` | GET | Get device status and state |
+| `stats` | `/api/stats` | GET | Get device statistics |
+| `config` | `/api/config` | GET | Get device configuration |
+| `refetch_all` | `/api/refetch_all` | GET | Get complete device data (status+stats+config) |
+
+### API Request/Response Formats
+
+#### **Call Control Endpoints**
+
+**POST /api/call/dial**
+```json
+Request: { "number": "0501234567" }
+Response: { "status": "success", "message": "Dial request queued", "number": "0501234567" }
+```
+
+**POST /api/call/answer**
+```json
+Request: {}
+Response: { "status": "success", "message": "Call answered" }
+```
+
+**POST /api/call/hangup**
+```json
+Request: {}
+Response: { "status": "success", "message": "Call hung up" }
+```
+
+**POST /api/call/switch_call_waiting**
+```json
+Request: {}
+Response: { "status": "success", "message": "Call waiting toggled" }
+```
+
+**POST /api/call/dial_quick_dial**
+```json
+Request: { "code": "211" }
+Response: { "status": "success", "message": "Dialing quick dial entry 211 -> 0546662771" }
+```
+
+#### **Configuration Endpoints**
+
+**POST /api/config/dnd**
+```json
+Request: { 
+  "force": true, 
+  "scheduled": true, 
+  "startHour": 22, 
+  "startMinute": 0, 
+  "endHour": 7, 
+  "endMinute": 30 
+}
+Response: { "status": "success", "message": "DND configuration updated" }
+```
+
+**POST /api/config/maintenance**
+```json
+Request: { "enabled": true }
+Response: { "status": "success", "message": "Maintenance mode enabled", "maintenanceMode": true }
+```
+
+**POST /api/config/audio**
+```json
+Request: { 
+  "earpieceVolume": 3, 
+  "earpieceGain": 5, 
+  "speakerVolume": 6, 
+  "speakerGain": 4 
+}
+Response: { "status": "success", "message": "Audio configuration updated" }
+```
+
+**POST /api/config/ring_pattern**
+```json
+Request: { "pattern": "500,500,500,500x3" }
+Response: { "status": "success", "message": "Ring pattern updated successfully", "pattern": "500,500,500,500x3" }
+```
+
+**POST /api/config/quick_dial_add**
+```json
+Request: { "code": "213", "number": "0501234567" }
+Response: { "success": true, "message": "Quick dial entry added successfully" }
+```
+
+**POST /api/config/quick_dial_remove**
+```json
+Request: { "code": "213" }
+Response: { "success": true, "message": "Quick dial entry removed successfully" }
+```
+
+**POST /api/config/webhook_add**
+```json
+Request: { "code": "123", "url": "webhook_id_string" }
+Response: { "success": true, "message": "Webhook action added successfully" }
+```
+
+**POST /api/config/webhook_remove**
+```json
+Request: { "code": "123" }
+Response: { "success": true, "message": "Webhook action removed successfully" }
+```
+
+**POST /api/config/blocked_number_add**
+```json
+Request: { "number": "0501234567" }
+Response: { "success": true, "message": "Blocked number added successfully" }
+```
+
+**POST /api/config/blocked_number_remove**
+```json
+Request: { "number": "0501234567" }
+Response: { "success": true, "message": "Blocked number removed successfully" }
+```
+
+#### **System Control Endpoints**
+
+**POST /api/system/ring**
+```json
+Request: { "pattern": "500,500,500,500x3" }
+Response: { "status": "success", "message": "Ring operation queued", "pattern": "500,500,500,500x3" }
+```
+
+**POST /api/system/reset**
+```json
+Request: {}
+Response: { "status": "success", "message": "Device reset initiated" }
+```
+
+#### **Data Endpoints**
+
+**GET /api/status**
+```json
+Response: {
+  "deviceName": "TsuryPhone-A1B2C3",
+  "deviceId": "A1B2C3",
+  "uptime": 123456,
+  "freeHeap": 45672,
+  "rssi": -45,
+  "maintenanceMode": false,
+  "state": 3,
+  "stateName": "Idle",
+  "dialing": false,
+  "callActive": false,
+  "ringing": false,
+  "currentCallNumber": "",
+  "currentCallIsIncoming": false,
+  "currentCallStartTime": 0
+}
+```
+
+**GET /api/stats**
+```json
+Response: {
+  "totalCalls": 15,
+  "incomingCalls": 8,
+  "outgoingCalls": 7,
+  "blockedCalls": 2,
+  "totalTalkTimeSeconds": 3600,
+  "lastCall": "0501234567",
+  "resetCount": 5,
+  "uptime": 123456,
+  "freeHeap": 45672,
+  "rssi": -45
+}
+```
+
+**GET /api/config**
+```json
+Response: {
+  "device": {
+    "name": "TsuryPhone-A1B2C3",
+    "id": "A1B2C3"
+  },
+  "audio": {
+    "earpieceVolume": 2,
+    "earpieceGain": 7,
+    "speakerVolume": 7,
+    "speakerGain": 7
+  },
+  "dnd": {
+    "force": false,
+    "scheduled": true,
+    "startHour": 18,
+    "startMinute": 30,
+    "endHour": 8,
+    "endMinute": 30
+  },
+  "quickDial": {
+    "211": "0546662771",
+    "212": "0524618858"
+  },
+  "blockedNumbers": ["0501234567"],
+  "webhookActions": {
+    "3452": "gfno=0tdop4gkotrpo"
+  },
+  "ringPattern": "500,500,500,500x3"
+}
+```
+
+**GET /api/refetch_all**
+```json
+Response: {
+  "status": { /* same as /api/status */ },
+  "stats": { /* same as /api/stats */ },
+  "config": { /* same as /api/config */ }
+}
+```
+
+### WebSocket Events
+
+The WebSocket connection at `/ws` provides real-time updates for:
+
+#### **Phone State Events**
+```json
+{
+  "event": "phone_state",
+  "type": "state",
+  "timestamp": 123456789,
+  "state": 3,
+  "previousState": 2,
+  "stateName": "Idle",
+  "dialing": false,
+  "callActive": false,
+  "ringing": false
+}
+```
+
+#### **Call Events**
+```json
+{
+  "event": "call",
+  "type": "start",
+  "timestamp": 123456789,
+  "number": "0501234567",
+  "isIncoming": true
+}
+```
+
+```json
+{
+  "event": "call",
+  "type": "end",
+  "timestamp": 123456789,
+  "duration": 120
+}
+```
+
+```json
+{
+  "event": "call",
+  "type": "blocked",
+  "timestamp": 123456789,
+  "number": "0501234567"
+}
+```
+
+#### **System Events**
+```json
+{
+  "event": "system",
+  "type": "stats",
+  "timestamp": 123456789,
+  "freeHeap": 45672,
+  "rssi": -45,
+  "stats": { /* call statistics */ }
+}
+```
+
+```json
+{
+  "event": "system",
+  "type": "webhook",
+  "timestamp": 123456789,
+  "webhook_id": "3452"
+}
+```
+
+```json
+{
+  "event": "system",
+  "type": "error",
+  "timestamp": 123456789,
+  "error": "Error description"
+}
+```
+
+#### **Dialing Events**
+```json
+{
+  "event": "phone_state",
+  "type": "dialing",
+  "timestamp": 123456789,
+  "currentNumber": "05012"
+}
+```
+
+#### **Ring Events**
+```json
+{
+  "event": "phone_state",
+  "type": "ring",
+  "timestamp": 123456789,
+  "isRinging": true
+}
+```
 
 ### Device Sensors (30 Total)
 
@@ -164,7 +462,7 @@ This implementation adds comprehensive Home Assistant integration to TsuryPhone 
 - [x] **Memory Management**: Safe lifecycle management
 
 ### **Phase 3: Network Services** ✅ [COMPLETE]
-- [x] **REST API**: 25 operation endpoints with validation
+- [x] **REST API**: 19 operation endpoints with validation
 - [x] **WebSocket**: Real-time bidirectional updates
 - [x] **mDNS**: Automatic device discovery
 - [x] **HTTP Client**: Webhook POST integration
@@ -181,7 +479,7 @@ This implementation adds comprehensive Home Assistant integration to TsuryPhone 
 - [x] **Auto-Discovery**: mDNS/Zeroconf device discovery
 - [x] **Config Flow**: User-friendly device setup
 - [x] **Entity Implementation**: 30 sensors with real-time updates
-- [x] **Service Implementation**: 25 services with validation
+- [x] **Service Implementation**: 19 services with validation
 - [x] **Translations**: Comprehensive English translations
 
 ### **Phase 6: Testing & Validation** ✅ [COMPLETE]
@@ -199,7 +497,7 @@ This implementation adds comprehensive Home Assistant integration to TsuryPhone 
 | Environment | Status | Flash Usage | RAM Usage |
 |-------------|---------|-------------|-----------|
 | `debug` | ✅ SUCCESS | 1,091,981 bytes (55.5%) | 47,620 bytes (14.5%) |
-| `debugHA` | ✅ SUCCESS | 1,444,413 bytes (73.5%) | 51,492 bytes (15.7%) |
+| `debugHA` | ✅ SUCCESS | 1,440,657 bytes (73.3%) | 51,532 bytes (15.7%) |
 
 ### File Structure
 ```
@@ -267,6 +565,17 @@ src/
 }
 ```
 
+### Config Change Callback Types
+The DeviceConfig system supports specific change notifications via ConfigChangeType enum:
+- `Audio`: Audio configuration changes (volume/gain)
+- `MaintenanceMode`: Maintenance mode toggle
+- `DND`: Do Not Disturb configuration changes
+- `QuickDial`: Quick dial entries modified
+- `BlockedNumbers`: Blocked numbers list modified
+- `WebhookActions`: Webhook actions modified
+- `RingPattern`: Ring pattern changes
+- `DeviceName`: Device name changes
+
 ### Preprocessor Guidelines
 - `#ifdef HOME_ASSISTANT_INTEGRATION` used ONLY for file inclusion/wrapping
 - NOT used for code branching within functions
@@ -292,7 +601,7 @@ src/
 
 ## Project Achievement Summary
 
-✅ **Complete Feature Implementation**: All 25 operations and 30 sensors operational  
+✅ **Complete Feature Implementation**: All 19 operations and 30 sensors operational  
 ✅ **Hardware Integration**: Audio config connected to modem hardware functions  
 ✅ **Webhook System**: End-to-end HTTP automation integration  
 ✅ **Maintenance Mode**: WiFi portal control via integration  

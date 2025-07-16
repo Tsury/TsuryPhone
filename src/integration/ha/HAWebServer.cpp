@@ -59,7 +59,7 @@ void HAWebServer::setupRoutes() {
     }
   });
 
-  // Status and configuration endpoints
+  // Data endpoints
   _server.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleGetStatus(request);
   });
@@ -69,34 +69,18 @@ void HAWebServer::setupRoutes() {
   });
 
   _server.on(
-      "/api/config",
+      "/api/stats", HTTP_GET, [this](AsyncWebServerRequest *request) { handleGetStats(request); });
+
+  _server.on("/api/refetch_all", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleRefetchAll(request);
+  });
+
+  // Call control endpoints
+  _server.on(
+      "/api/call/dial",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // POST handler will be called after body parsing
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        // Parse JSON body
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-        if (!error) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handlePostConfig(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/stats", HTTP_GET, [this](AsyncWebServerRequest *request) { handleGetStats(request); });
-
-  // Device operation endpoints
-  _server.on(
-      "/api/dial",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
       },
       NULL,
       [this](
@@ -110,20 +94,39 @@ void HAWebServer::setupRoutes() {
         }
       });
 
-  _server.on("/api/answer", HTTP_POST, [this](AsyncWebServerRequest *request) {
+  _server.on("/api/call/answer", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleAnswerCall(request);
   });
 
-  _server.on("/api/hangup", HTTP_POST, [this](AsyncWebServerRequest *request) {
+  _server.on("/api/call/hangup", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleHangupCall(request);
   });
 
-  _server.on("/api/switch_call_waiting", HTTP_POST, [this](AsyncWebServerRequest *request) {
+  _server.on("/api/call/switch_call_waiting", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleToggleCallWaiting(request);
   });
 
   _server.on(
-      "/api/dnd",
+      "/api/call/dial_quick_dial",
+      HTTP_POST,
+      [this](AsyncWebServerRequest *request) {
+        // Will be handled in body callback
+      },
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
+          JsonVariant variant = doc.as<JsonVariant>();
+          handleDialQuickDial(request, variant);
+        } else {
+          sendErrorResponse(request, "Invalid JSON");
+        }
+      });
+
+  // Configuration endpoints
+  _server.on(
+      "/api/config/dnd",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -141,7 +144,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/maintenance",
+      "/api/config/maintenance",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -159,109 +162,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/ring",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleRingOperation(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  // DND Schedule configuration endpoints
-  _server.on(
-      "/api/dnd_schedule",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetDNDSchedule(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  // Separate DND time configuration endpoints
-  _server.on(
-      "/api/dnd_start_time",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetDNDStartTime(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/dnd_end_time",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetDNDEndTime(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  // Quick dial operations
-  _server.on(
-      "/api/dial_quick_dial",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleDialQuickDial(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on("/api/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    handleResetDevice(request);
-  });
-
-  _server.on("/api/refetch", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    handleRefetchData(request);
-  });
-
-  // Audio configuration endpoints
-  _server.on(
-      "/api/audio",
+      "/api/config/audio",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -278,9 +179,26 @@ void HAWebServer::setupRoutes() {
         }
       });
 
-  // Quick dial, webhook actions, and blocked numbers configuration endpoints
   _server.on(
-      "/api/quick_dial",
+      "/api/config/ring_pattern",
+      HTTP_POST,
+      [this](AsyncWebServerRequest *request) {
+        // Will be handled in body callback
+      },
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
+          JsonVariant variant = doc.as<JsonVariant>();
+          handleSetRingPattern(request, variant);
+        } else {
+          sendErrorResponse(request, "Invalid JSON");
+        }
+      });
+
+  _server.on(
+      "/api/config/quick_dial_add",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -298,7 +216,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/quick_dial/remove",
+      "/api/config/quick_dial_remove",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -316,7 +234,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/webhook",
+      "/api/config/webhook_add",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -334,7 +252,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/webhook/remove",
+      "/api/config/webhook_remove",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -352,7 +270,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/blocked_number",
+      "/api/config/blocked_number_add",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -370,7 +288,7 @@ void HAWebServer::setupRoutes() {
       });
 
   _server.on(
-      "/api/blocked_number/remove",
+      "/api/config/blocked_number_remove",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -387,9 +305,9 @@ void HAWebServer::setupRoutes() {
         }
       });
 
-  // Ring pattern configuration endpoint
+  // System control endpoints
   _server.on(
-      "/api/ring_pattern",
+      "/api/system/ring",
       HTTP_POST,
       [this](AsyncWebServerRequest *request) {
         // Will be handled in body callback
@@ -400,11 +318,15 @@ void HAWebServer::setupRoutes() {
         JsonDocument doc;
         if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
           JsonVariant variant = doc.as<JsonVariant>();
-          handleSetRingPattern(request, variant);
+          handleRingOperation(request, variant);
         } else {
           sendErrorResponse(request, "Invalid JSON");
         }
       });
+
+  _server.on("/api/system/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleResetDevice(request);
+  });
 }
 
 void HAWebServer::setupWebSocket() {
@@ -490,10 +412,91 @@ void HAWebServer::handleGetConfig(AsyncWebServerRequest *request) {
   sendJsonResponse(request, doc);
 }
 
-void HAWebServer::handlePostConfig(AsyncWebServerRequest *request, JsonVariant &json) {
-  // Handle configuration updates
-  // This is a basic implementation - more specific endpoints would be better
-  sendErrorResponse(request, "Configuration updates via POST not implemented yet", 501);
+void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Refetch all data requested"));
+
+  // Reload configuration from SPIFFS
+  _config.load();
+  _stats.load();
+
+  JsonDocument doc;
+
+  // Get status data
+  JsonObject status = doc["status"].to<JsonObject>();
+  if (_statusCallback) {
+    _statusCallback(status);
+  } else {
+    // Fallback to basic device info if no callback is set
+    status["deviceName"] = _config.getDeviceName();
+    status["deviceId"] = _config.getDeviceId();
+    status["uptime"] = _stats.getUptime();
+    status["freeHeap"] = _stats.getFreeHeap();
+    status["rssi"] = _stats.getRSSI();
+    status["maintenanceMode"] = _config.isMaintenanceMode();
+    status["state"] = "unknown";
+  }
+
+  // Get stats data
+  JsonObject stats = doc["stats"].to<JsonObject>();
+  const CallStats &callStats = _stats.getCallStats();
+  stats["totalCalls"] = callStats.totalCalls;
+  stats["incomingCalls"] = callStats.incomingCalls;
+  stats["outgoingCalls"] = callStats.outgoingCalls;
+  stats["blockedCalls"] = callStats.blockedCalls;
+  stats["totalTalkTimeSeconds"] = callStats.totalTalkTimeSeconds;
+  stats["lastCall"] = callStats.lastCall;
+  stats["resetCount"] = _config.getResetCount();
+  stats["uptime"] = _stats.getUptime();
+  stats["freeHeap"] = _stats.getFreeHeap();
+  stats["rssi"] = _stats.getRSSI();
+
+  // Get config data
+  JsonObject config = doc["config"].to<JsonObject>();
+  // Device info
+  JsonObject device = config["device"].to<JsonObject>();
+  device["name"] = _config.getDeviceName();
+  device["id"] = _config.getDeviceId();
+
+  // Audio config
+  const AudioConfig &audioConfig = _config.getAudioConfig();
+  JsonObject audio = config["audio"].to<JsonObject>();
+  audio["earpieceVolume"] = audioConfig.earpieceVolume;
+  audio["earpieceGain"] = audioConfig.earpieceGain;
+  audio["speakerVolume"] = audioConfig.speakerVolume;
+  audio["speakerGain"] = audioConfig.speakerGain;
+
+  // DND config
+  const DndConfig &dndConfig = _config.getDndConfig();
+  JsonObject dnd = config["dnd"].to<JsonObject>();
+  dnd["force"] = dndConfig.force;
+  dnd["scheduled"] = dndConfig.scheduled;
+  dnd["startHour"] = dndConfig.startHour;
+  dnd["startMinute"] = dndConfig.startMinute;
+  dnd["endHour"] = dndConfig.endHour;
+  dnd["endMinute"] = dndConfig.endMinute;
+
+  // Quick dial entries
+  JsonObject quickDial = config["quickDial"].to<JsonObject>();
+  for (const auto &entry : _config.getQuickDialEntries()) {
+    quickDial[entry.first] = entry.second;
+  }
+
+  // Blocked numbers
+  JsonArray blocked = config["blockedNumbers"].to<JsonArray>();
+  for (const String &number : _config.getBlockedNumbers()) {
+    blocked.add(number);
+  }
+
+  // Webhook actions
+  JsonObject webhooks = config["webhookActions"].to<JsonObject>();
+  for (const auto &action : _config.getWebhookActions()) {
+    webhooks[action.first] = action.second;
+  }
+
+  // Ring pattern
+  config["ringPattern"] = _config.getRingPattern();
+
+  sendJsonResponse(request, doc);
 }
 
 void HAWebServer::handleGetStats(AsyncWebServerRequest *request) {
@@ -667,19 +670,6 @@ void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   ESP.restart();
 }
 
-void HAWebServer::handleRefetchData(AsyncWebServerRequest *request) {
-  Logger::infoln(F("HA API: Refetch data requested"));
-
-  // Reload configuration from SPIFFS
-  _config.load();
-  _stats.load();
-
-  JsonDocument doc;
-  doc["status"] = "success";
-  doc["message"] = "Data refetched successfully";
-  sendJsonResponse(request, doc);
-}
-
 void HAWebServer::handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json) {
   AudioConfig audioConfig = _config.getAudioConfig();
   bool changed = false;
@@ -766,65 +756,6 @@ void HAWebServer::setStatusCallback(std::function<void(JsonObject &)> callback) 
   _statusCallback = callback;
 }
 
-void HAWebServer::handleSetDNDSchedule(AsyncWebServerRequest *request, JsonVariant &json) {
-  DndConfig dndConfig = _config.getDndConfig();
-  bool changed = false;
-
-  if (json["startHour"].is<int>()) {
-    int hour = json["startHour"];
-    if (hour >= 0 && hour <= 23) {
-      dndConfig.startHour = hour;
-      changed = true;
-    } else {
-      sendErrorResponse(request, "Start hour must be between 0 and 23");
-      return;
-    }
-  }
-
-  if (json["startMinute"].is<int>()) {
-    int minute = json["startMinute"];
-    if (minute >= 0 && minute <= 59) {
-      dndConfig.startMinute = minute;
-      changed = true;
-    } else {
-      sendErrorResponse(request, "Start minute must be between 0 and 59");
-      return;
-    }
-  }
-
-  if (json["endHour"].is<int>()) {
-    int hour = json["endHour"];
-    if (hour >= 0 && hour <= 23) {
-      dndConfig.endHour = hour;
-      changed = true;
-    } else {
-      sendErrorResponse(request, "End hour must be between 0 and 23");
-      return;
-    }
-  }
-
-  if (json["endMinute"].is<int>()) {
-    int minute = json["endMinute"];
-    if (minute >= 0 && minute <= 59) {
-      dndConfig.endMinute = minute;
-      changed = true;
-    } else {
-      sendErrorResponse(request, "End minute must be between 0 and 59");
-      return;
-    }
-  }
-
-  if (changed) {
-    _config.setDndConfig(dndConfig);
-    Logger::infoln(F("HA API: DND schedule updated"));
-  }
-
-  JsonDocument doc;
-  doc["status"] = "success";
-  doc["message"] = "DND schedule updated";
-  sendJsonResponse(request, doc);
-}
-
 void HAWebServer::handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json) {
   if (!json["code"].is<String>()) {
     sendErrorResponse(request, "Missing 'code' parameter");
@@ -856,6 +787,21 @@ void HAWebServer::handleDialQuickDial(AsyncWebServerRequest *request, JsonVarian
   JsonDocument doc;
   doc["status"] = "success";
   doc["message"] = String("Dialing quick dial entry ") + code + " -> " + number;
+  sendJsonResponse(request, doc);
+}
+
+void HAWebServer::handleToggleCallWaiting(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Toggle call waiting request"));
+
+  // Send call waiting toggle command to integration
+  if (_stateUpdateCallback) {
+    JsonDocument commandData;
+    _stateUpdateCallback("switch_call_waiting", commandData.as<JsonVariant>());
+  }
+
+  JsonDocument doc;
+  doc["status"] = "success";
+  doc["message"] = "Call waiting toggled";
   sendJsonResponse(request, doc);
 }
 
@@ -1112,85 +1058,6 @@ void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, Json
   } else {
     sendErrorResponse(request, "Blocked number not found", 404);
   }
-}
-
-void HAWebServer::handleToggleCallWaiting(AsyncWebServerRequest *request) {
-  Logger::infoln(F("HA API: Toggle call waiting request"));
-
-  // Send call waiting toggle command to integration
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    _stateUpdateCallback("switch_call_waiting", commandData.as<JsonVariant>());
-  }
-
-  JsonDocument doc;
-  doc["status"] = "success";
-  doc["message"] = "Call waiting toggled";
-  sendJsonResponse(request, doc);
-}
-
-void HAWebServer::handleSetDNDStartTime(AsyncWebServerRequest *request, JsonVariant &json) {
-  DndConfig dndConfig = _config.getDndConfig();
-
-  if (json["hour"].is<int>()) {
-    int hour = json["hour"];
-    if (hour >= 0 && hour <= 23) {
-      dndConfig.startHour = hour;
-    } else {
-      sendErrorResponse(request, "Hour must be between 0 and 23");
-      return;
-    }
-  }
-
-  if (json["minute"].is<int>()) {
-    int minute = json["minute"];
-    if (minute >= 0 && minute <= 59) {
-      dndConfig.startMinute = minute;
-    } else {
-      sendErrorResponse(request, "Minute must be between 0 and 59");
-      return;
-    }
-  }
-
-  _config.setDndConfig(dndConfig);
-  Logger::infoln(F("HA API: DND start time updated"));
-
-  JsonDocument doc;
-  doc["status"] = "success";
-  doc["message"] = "DND start time updated";
-  sendJsonResponse(request, doc);
-}
-
-void HAWebServer::handleSetDNDEndTime(AsyncWebServerRequest *request, JsonVariant &json) {
-  DndConfig dndConfig = _config.getDndConfig();
-
-  if (json["hour"].is<int>()) {
-    int hour = json["hour"];
-    if (hour >= 0 && hour <= 23) {
-      dndConfig.endHour = hour;
-    } else {
-      sendErrorResponse(request, "Hour must be between 0 and 23");
-      return;
-    }
-  }
-
-  if (json["minute"].is<int>()) {
-    int minute = json["minute"];
-    if (minute >= 0 && minute <= 59) {
-      dndConfig.endMinute = minute;
-    } else {
-      sendErrorResponse(request, "Minute must be between 0 and 59");
-      return;
-    }
-  }
-
-  _config.setDndConfig(dndConfig);
-  Logger::infoln(F("HA API: DND end time updated"));
-
-  JsonDocument doc;
-  doc["status"] = "success";
-  doc["message"] = "DND end time updated";
-  sendJsonResponse(request, doc);
 }
 
 void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json) {

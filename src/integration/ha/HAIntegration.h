@@ -99,6 +99,7 @@ private:
   void addPhoneStateInfo(JsonObject &obj);
   void addCallInfo(JsonObject &obj);
   void addSystemInfo(JsonObject &obj);
+  JsonObject createEventObject(JsonDocument &doc, const String &event, const String &type);
 
   // Last update tracking for efficiency
   unsigned long _lastStatsUpdate = 0;

@@ -30,23 +30,25 @@ private:
   // REST API handlers
   void handleGetStatus(AsyncWebServerRequest *request);
   void handleGetConfig(AsyncWebServerRequest *request);
-  void handlePostConfig(AsyncWebServerRequest *request, JsonVariant &json);
   void handleGetStats(AsyncWebServerRequest *request);
+  void handleRefetchAll(AsyncWebServerRequest *request);
 
   // Device operation handlers
   void handleDialNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAnswerCall(AsyncWebServerRequest *request);
   void handleHangupCall(AsyncWebServerRequest *request);
-  void handleSetDND(AsyncWebServerRequest *request, JsonVariant &json);
-  void handleSetDNDSchedule(AsyncWebServerRequest *request, JsonVariant &json);
-  void handleSetDNDStartTime(AsyncWebServerRequest *request, JsonVariant &json);
-  void handleSetDNDEndTime(AsyncWebServerRequest *request, JsonVariant &json);
   void handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleToggleCallWaiting(AsyncWebServerRequest *request);
+
+  // Configuration handlers
+  void handleSetDND(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json);
+
+  // System control handlers
   void handleRingOperation(AsyncWebServerRequest *request, JsonVariant &json);
   void handleResetDevice(AsyncWebServerRequest *request);
-  void handleRefetchData(AsyncWebServerRequest *request);
-  void handleToggleCallWaiting(AsyncWebServerRequest *request);
 
   // Number management handlers
   void handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
@@ -55,10 +57,6 @@ private:
   void handleRemoveBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAddWebhookAction(AsyncWebServerRequest *request, JsonVariant &json);
   void handleRemoveWebhookAction(AsyncWebServerRequest *request, JsonVariant &json);
-
-  // Audio settings handlers
-  void handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json);
-  void handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json);
 
   // WebSocket event handlers
   void onWebSocketEvent(AsyncWebSocket *server,
