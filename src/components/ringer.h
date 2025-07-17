@@ -4,10 +4,21 @@
 #include <vector>
 
 struct RingPattern {
-  std::vector<int> timings; // Ring on/off durations in ms
-  int repeatCount;          // Number of times to repeat pattern
+  std::vector<uint32_t> durations;
+  uint32_t index = 0;
+  uint32_t startTime = 0UL;
+  uint32_t repeatCount = 1;
+  uint32_t currentRepeat = 0;
+  bool active = false;
 
-  RingPattern() : repeatCount(1) {}
+  void reset() {
+    durations.clear();
+    index = 0;
+    startTime = 0UL;
+    repeatCount = 1;
+    currentRepeat = 0;
+    active = false;
+  }
 };
 
 class Ringer {
@@ -16,12 +27,17 @@ public:
   void process(State &state);
 
   void startRinging();
+  void startRinging(uint32_t duration);
   void startRinging(const String &pattern);
   void stopRinging();
 
 private:
   void setRingerEnabled(const bool enabled) const;
-  RingPattern parseRingPattern(const String &pattern);
+  void parsePattern(const String &pattern);
+  void resetPattern();
+  void initializeRinging();
+  void updateRingState();
+  void setRingerPins(bool pin1High, bool pin2High) const;
 
   bool _ringing = false;
   bool _ringState = false;
@@ -30,8 +46,5 @@ private:
   uint32_t _lastCycleTime = 0UL;
 
   // Pattern support
-  RingPattern _currentPattern;
-  int _currentPatternIndex = 0;
-  int _currentRepeat = 0;
-  bool _usingCustomPattern = false;
+  RingPattern _pattern;
 };

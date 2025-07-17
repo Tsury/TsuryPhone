@@ -8,7 +8,8 @@
 #endif
 
 namespace {
-  const constexpr int kWifiManagerPortalTimeout = 60 * 5;
+  const constexpr int kWifiManagerPortalTimeoutSeconds = 60 * 5;
+  const constexpr uint32_t kWifiManagerPortalTimeoutMs = kWifiManagerPortalTimeoutSeconds * 1000UL;
 
 #ifdef WEB_SERIAL
   const constexpr int kWebSerialPort = 32860;
@@ -26,7 +27,9 @@ void Wifi::init() {
 
   WiFi.mode(WIFI_STA);
 
-  _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
+  // Set non-blocking mode and disable auto timeout for manual management
+  _wifiManager.setConfigPortalBlocking(false);
+  _wifiManager.setConfigPortalTimeout(0); // Disable auto timeout, we'll manage it manually
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
   if (_wifiManager.autoConnect(getWifiSsid().c_str())) {
@@ -69,6 +72,11 @@ void Wifi::onWifiConnected() {
   Logger::infoln(F("Connected to WiFi"));
   Logger::infoln(F("IP Address: %s"), WiFi.localIP().toString().c_str());
 
+  // Close config portal if it was active
+  if (_configPortalActive) {
+    closeConfigPortal();
+  }
+
 #ifdef WEB_SERIAL
   initWebSerial();
 #endif
@@ -76,6 +84,7 @@ void Wifi::onWifiConnected() {
 
 void Wifi::process() {
   _wifiManager.process();
+  processConfigPortal();
 
 #ifdef WEB_SERIAL
   processWebSerial();
@@ -98,23 +107,55 @@ void Wifi::processWebSerial() {
 }
 #endif
 
+void Wifi::processConfigPortal() {
+  // Handle config portal open request
+  if (_configPortalOpenRequested && !_configPortalActive) {
+    _configPortalActive = true;
+    _configPortalOpenRequested = false;
+    _configPortalStartTime = millis();
+    _configPortalTimeout = kWifiManagerPortalTimeoutMs;
+
+    _wifiManager.setConfigPortalBlocking(false);
+    _wifiManager.startConfigPortal(getWifiSsid().c_str());
+  }
+
+  // Handle config portal close request
+  if (_configPortalCloseRequested && _configPortalActive) {
+    _configPortalActive = false;
+    _configPortalCloseRequested = false;
+    _configPortalStartTime = 0UL;
+    _configPortalTimeout = 0UL;
+    _wifiManager.stopConfigPortal();
+  }
+
+  // Check if config portal timeout has been reached
+  if (_configPortalActive && _configPortalTimeout > 0) {
+    uint32_t elapsed = millis() - _configPortalStartTime;
+    if (elapsed >= _configPortalTimeout) {
+      Logger::infoln(F("Config portal timeout reached, closing portal"));
+      _configPortalCloseRequested = true; // Request close via process loop
+      onConfigPortalTimeout();
+    }
+  }
+}
+
 void Wifi::openConfigPortal() {
-  _wifiManager.setConfigPortalBlocking(false);
-  _wifiManager.setConfigPortalTimeout(kWifiManagerPortalTimeout);
-  _wifiManager.startConfigPortal(getWifiSsid().c_str());
+  Logger::infoln(F("Requesting config portal open"));
+  _configPortalOpenRequested = true;
 }
 
 void Wifi::closeConfigPortal() {
-  _wifiManager.stopConfigPortal();
+  Logger::infoln(F("Requesting config portal close"));
+  _configPortalCloseRequested = true;
 }
 
 bool Wifi::isConfigPortalActive() {
-  return _wifiManager.getConfigPortalActive();
+  return _configPortalActive;
 }
 
 void Wifi::setConfigPortalTimeoutCallback(std::function<void()> callback) {
   _configPortalTimeoutCallback = callback;
-  _wifiManager.setConfigPortalTimeoutCallback([this]() { onConfigPortalTimeout(); });
+  // Note: We don't set the WiFiManager callback since we manage timeout manually
 }
 
 void Wifi::onConfigPortalTimeout() {

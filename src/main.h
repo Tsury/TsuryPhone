@@ -54,7 +54,6 @@ private:
   bool handleIntegrationAnswerRequest();
   bool handleIntegrationHangupRequest();
   bool handleIntegrationRingRequest(const String &pattern);
-  bool handleIntegrationWebhookTrigger(const String &webhookId);
   bool handleIntegrationCallWaitingRequest();
 
   DeviceConfig _deviceConfig;

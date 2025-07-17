@@ -62,10 +62,6 @@ void PhoneApp::setup() {
     _integrationManager.setRingCallback(
         [this](const String &pattern) -> bool { return handleIntegrationRingRequest(pattern); });
 
-    _integrationManager.setWebhookCallback([this](const String &webhookId) -> bool {
-      return handleIntegrationWebhookTrigger(webhookId);
-    });
-
     _integrationManager.setCallWaitingCallback(
         [this]() -> bool { return handleIntegrationCallWaitingRequest(); });
 
@@ -364,9 +360,9 @@ void PhoneApp::processStateIdle() {
 
           break;
         case NumberAction::WebhookTrigger:
-          // Trigger webhook in HA integration for automation processing
+          // Trigger webhook HTTP call directly
           Logger::infoln(F("Webhook trigger: %s"), numberValidation.webhookId.c_str());
-          _integrationManager.reportWebhookTrigger(numberValidation.webhookId);
+          _integrationManager.triggerWebhook(numberValidation.webhookId);
           break;
 
         case NumberAction::Invalid:
@@ -509,14 +505,6 @@ bool PhoneApp::handleIntegrationRingRequest(const String &pattern) {
   }
 }
 
-bool PhoneApp::handleIntegrationWebhookTrigger(const String &webhookId) {
-  Logger::infoln(F("Integration webhook trigger: %s"), webhookId.c_str());
-
-  // Report webhook trigger to HA integration for automation processing
-  _integrationManager.reportWebhookTrigger(webhookId);
-  return true;
-}
-
 bool PhoneApp::handleIntegrationCallWaitingRequest() {
   Logger::infoln(F("Integration call waiting request"));
 
@@ -548,15 +536,15 @@ void PhoneApp::onMaintenanceModeChanged() {
   bool maintenanceMode = _deviceConfig.isMaintenanceMode();
   Logger::infoln(F("Maintenance mode changed to: %s"), maintenanceMode ? "enabled" : "disabled");
 
+  _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
+
   if (maintenanceMode) {
     // Entering maintenance mode - open config portal
     Logger::infoln(F("Opening WiFi config portal"));
-    _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
     _wifi.openConfigPortal();
   } else {
     // Exiting maintenance mode - close config portal
     Logger::infoln(F("Closing WiFi config portal"));
-    _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
     _wifi.closeConfigPortal();
   }
 }

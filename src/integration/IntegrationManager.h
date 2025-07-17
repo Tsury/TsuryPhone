@@ -34,7 +34,6 @@ public:
   void setAnswerCallback(std::function<bool()> callback);
   void setHangupCallback(std::function<bool()> callback);
   void setRingCallback(std::function<bool(const String &)> callback);
-  void setWebhookCallback(std::function<bool(const String &)> callback);
   void setCallWaitingCallback(std::function<bool()> callback);
 
   // Statistics and monitoring - reports to all integrations
@@ -42,7 +41,7 @@ public:
   void reportCallEnd(unsigned long duration);
   void reportBlockedCall(const String &number);
   void reportError(const String &error);
-  void reportWebhookTrigger(const String &webhookId);
+  void triggerWebhook(const String &webhookId);
 
   // Configuration synchronization - notifies all integrations
   void onConfigurationChanged();

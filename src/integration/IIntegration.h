@@ -31,7 +31,6 @@ public:
   virtual void setAnswerCallback(std::function<bool()> callback) = 0;
   virtual void setHangupCallback(std::function<bool()> callback) = 0;
   virtual void setRingCallback(std::function<bool(const String &)> callback) = 0;
-  virtual void setWebhookCallback(std::function<bool(const String &)> callback) = 0;
   virtual void setCallWaitingCallback(std::function<bool()> callback) = 0;
 
   // Statistics and monitoring
@@ -39,7 +38,7 @@ public:
   virtual void reportCallEnd(unsigned long duration) = 0;
   virtual void reportBlockedCall(const String &number) = 0;
   virtual void reportError(const String &error) = 0;
-  virtual void reportWebhookTrigger(const String &webhookId) = 0;
+  virtual void triggerWebhook(const String &webhookId) = 0;
 
   // Configuration synchronization
   virtual void onConfigurationChanged() = 0;

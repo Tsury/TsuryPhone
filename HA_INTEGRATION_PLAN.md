@@ -134,7 +134,7 @@ Response: { "status": "success", "message": "Call waiting toggled" }
 **POST /api/call/dial_quick_dial**
 ```json
 Request: { "code": "211" }
-Response: { "status": "success", "message": "Dialing quick dial entry 211 -> 0546662771" }
+Response: { "status": "success", "message": "Dialing quick dial entry 211 -> 0521234567" }
 ```
 
 #### **Configuration Endpoints**
@@ -285,8 +285,8 @@ Response: {
     "endMinute": 30
   },
   "quickDial": {
-    "211": "0546662771",
-    "212": "0524618858"
+    "211": "0521234567",
+    "212": "0526879368"
   },
   "blockedNumbers": ["0501234567"],
   "webhookActions": {
@@ -552,8 +552,8 @@ src/
     "endMinute": 30
   },
   "quickDial": {
-    "211": "0546662771",
-    "212": "0524618858"
+    "211": "0521234567",
+    "212": "0526879368"
   },
   "blockedNumbers": [
     "0501234567"

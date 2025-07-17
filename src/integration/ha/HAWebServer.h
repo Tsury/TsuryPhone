@@ -57,6 +57,7 @@ private:
   void handleRemoveBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAddWebhookAction(AsyncWebServerRequest *request, JsonVariant &json);
   void handleRemoveWebhookAction(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &json);
 
   // WebSocket event handlers
   void onWebSocketEvent(AsyncWebSocket *server,

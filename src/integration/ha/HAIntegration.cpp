@@ -162,10 +162,6 @@ void HAIntegration::setRingCallback(std::function<bool(const String &)> callback
   _ringCallback = callback;
 }
 
-void HAIntegration::setWebhookCallback(std::function<bool(const String &)> callback) {
-  _webhookCallback = callback;
-}
-
 void HAIntegration::setCallWaitingCallback(std::function<bool()> callback) {
   _callWaitingCallback = callback;
 }
@@ -218,19 +214,6 @@ void HAIntegration::reportError(const String &error) {
   JsonDocument doc;
   JsonObject obj = createEventObject(doc, "system", "error");
   obj["error"] = error;
-  _webServer.broadcastStateUpdate(doc);
-}
-
-void HAIntegration::reportWebhookTrigger(const String &webhookId) {
-  Logger::infoln(F("HA: Webhook triggered - %s"), webhookId.c_str());
-
-  // Trigger the actual HTTP webhook call to Home Assistant
-  triggerWebhookHttp(webhookId);
-
-  // Also broadcast via WebSocket for real-time updates
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "system", "webhook");
-  obj["webhook_id"] = webhookId;
   _webServer.broadcastStateUpdate(doc);
 }
 
@@ -391,7 +374,7 @@ void HAIntegration::triggerWebhookHttp(const String &webhookId) {
   }
 
   // Construct webhook URL
-  String webhookUrl = _homeAssistantUrl + "/api/webhook/" + webhookId;
+  String webhookUrl = _config.getHomeAssistantUrl() + "/api/webhook/" + webhookId;
 
   Logger::infoln(F("HA: Triggering webhook HTTP call: %s"), webhookUrl.c_str());
 
@@ -412,6 +395,13 @@ void HAIntegration::triggerWebhookHttp(const String &webhookId) {
   }
 
   http.end();
+}
+
+void HAIntegration::triggerWebhook(const String &webhookId) {
+  Logger::infoln(F("HA: Triggering webhook - %s"), webhookId.c_str());
+
+  // Trigger the actual HTTP webhook call to Home Assistant
+  triggerWebhookHttp(webhookId);
 }
 
 #endif // HOME_ASSISTANT_INTEGRATION

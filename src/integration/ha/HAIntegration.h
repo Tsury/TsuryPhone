@@ -35,7 +35,6 @@ public:
   void setAnswerCallback(std::function<bool()> callback) override;
   void setHangupCallback(std::function<bool()> callback) override;
   void setRingCallback(std::function<bool(const String &)> callback) override;
-  void setWebhookCallback(std::function<bool(const String &)> callback) override;
   void setCallWaitingCallback(std::function<bool()> callback) override;
 
   // Statistics and monitoring
@@ -43,7 +42,7 @@ public:
   void reportCallEnd(unsigned long duration) override;
   void reportBlockedCall(const String &number) override;
   void reportError(const String &error) override;
-  void reportWebhookTrigger(const String &webhookId) override;
+  void triggerWebhook(const String &webhookId) override;
 
   // Configuration synchronization
   void onConfigurationChanged() override;
@@ -60,11 +59,8 @@ public:
   void getFullStatus(JsonObject &obj);
 
   // Home Assistant configuration
-  void setHomeAssistantUrl(const String &url) {
-    _homeAssistantUrl = url;
-  }
   String getHomeAssistantUrl() const {
-    return _homeAssistantUrl;
+    return _config.getHomeAssistantUrl();
   }
 
 private:
@@ -85,7 +81,6 @@ private:
   std::function<bool()> _answerCallback;
   std::function<bool()> _hangupCallback;
   std::function<bool(const String &)> _ringCallback;
-  std::function<bool(const String &)> _webhookCallback;
   std::function<bool()> _callWaitingCallback;
 
   // Internal methods
@@ -106,9 +101,6 @@ private:
   unsigned long _lastSystemUpdate = 0;
   static const unsigned long kStatsUpdateInterval = 30000; // 30 seconds
   static const unsigned long kSystemUpdateInterval = 5000; // 5 seconds
-
-  // Home Assistant configuration
-  String _homeAssistantUrl = "http://homeassistant.local:8123";
 
   // Webhook HTTP functionality
   void triggerWebhookHttp(const String &webhookId);

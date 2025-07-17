@@ -112,12 +112,6 @@ void IntegrationManager::setRingCallback(std::function<bool(const String &)> cal
   }
 }
 
-void IntegrationManager::setWebhookCallback(std::function<bool(const String &)> callback) {
-  for (auto &integration : _integrations) {
-    integration->setWebhookCallback(callback);
-  }
-}
-
 void IntegrationManager::setCallWaitingCallback(std::function<bool()> callback) {
   for (auto &integration : _integrations) {
     integration->setCallWaitingCallback(callback);
@@ -145,12 +139,6 @@ void IntegrationManager::reportBlockedCall(const String &number) {
 void IntegrationManager::reportError(const String &error) {
   for (auto &integration : _integrations) {
     integration->reportError(error);
-  }
-}
-
-void IntegrationManager::reportWebhookTrigger(const String &webhookId) {
-  for (auto &integration : _integrations) {
-    integration->reportWebhookTrigger(webhookId);
   }
 }
 
@@ -197,4 +185,12 @@ void IntegrationManager::registerIntegrations() {
   // #endif
 
   Logger::infoln(F("Registered %d integrations"), static_cast<int>(_integrations.size()));
+}
+
+void IntegrationManager::triggerWebhook(const String &webhookId) {
+  for (auto &integration : _integrations) {
+    if (integration->isEnabled()) {
+      integration->triggerWebhook(webhookId);
+    }
+  }
 }

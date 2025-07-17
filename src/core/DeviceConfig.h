@@ -94,6 +94,12 @@ public:
   }
   void setRingPattern(const String &pattern);
 
+  // Home Assistant URL
+  String getHomeAssistantUrl() const {
+    return _homeAssistantUrl;
+  }
+  void setHomeAssistantUrl(const String &url);
+
   // Statistics
   int getResetCount() const {
     return _resetCount;
@@ -126,6 +132,7 @@ private:
   std::vector<String> _blockedNumbers;
   std::map<String, String> _webhookActions;
   String _ringPattern;
+  String _homeAssistantUrl;
   int _resetCount;
   bool _maintenanceMode;
 

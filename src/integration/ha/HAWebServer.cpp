@@ -327,6 +327,24 @@ void HAWebServer::setupRoutes() {
   _server.on("/api/system/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetDevice(request);
   });
+
+  _server.on(
+      "/api/config/ha_url",
+      HTTP_POST,
+      [this](AsyncWebServerRequest *request) {
+        // Will be handled in body callback
+      },
+      NULL,
+      [this](
+          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        JsonDocument doc;
+        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
+          JsonVariant variant = doc.as<JsonVariant>();
+          handleSetHAUrl(request, variant);
+        } else {
+          sendErrorResponse(request, "Invalid JSON");
+        }
+      });
 }
 
 void HAWebServer::setupWebSocket() {
@@ -665,8 +683,29 @@ void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   doc["message"] = "Device reset initiated";
   sendJsonResponse(request, doc);
 
-  // Delay reset to allow response to be sent
-  delay(1000);
+  // Send graceful shutdown notification via WebSocket
+  JsonDocument shutdownDoc;
+  JsonObject shutdownObj = shutdownDoc.to<JsonObject>();
+  shutdownObj["event"] = "system";
+  shutdownObj["type"] = "shutdown";
+  shutdownObj["timestamp"] = millis();
+  shutdownObj["reason"] = "reset_requested";
+  shutdownObj["message"] = "Device is shutting down for reset";
+
+  broadcastStateUpdate(shutdownDoc);
+
+  // Give time for WebSocket message to be sent and connections to close gracefully
+  delay(2000);
+
+  // Close all WebSocket connections gracefully
+  _webSocket.closeAll();
+
+  // Stop the web server
+  _server.end();
+
+  // Additional delay to ensure cleanup
+  delay(500);
+
   ESP.restart();
 }
 
@@ -757,12 +796,13 @@ void HAWebServer::setStatusCallback(std::function<void(JsonObject &)> callback) 
 }
 
 void HAWebServer::handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json) {
-  if (!json["code"].is<String>()) {
+  if (!json["code"]) {
     sendErrorResponse(request, "Missing 'code' parameter");
     return;
   }
 
-  String code = json["code"];
+  // Convert to string regardless of whether it's a string or number in JSON
+  String code = json["code"].as<String>();
 
   // Look up the quick dial entry
   auto quickDialEntries = _config.getQuickDialEntries();
@@ -872,11 +912,12 @@ void HAWebServer::handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["code"].is<String>() || !jsonObj["number"].is<String>()) {
+  if (!jsonObj["code"] || !jsonObj["number"]) {
     sendErrorResponse(request, "Missing required parameters: code, number", 400);
     return;
   }
 
+  // Convert to string regardless of whether they're strings or numbers in JSON
   String code = jsonObj["code"].as<String>();
   String number = jsonObj["number"].as<String>();
 
@@ -909,11 +950,12 @@ void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVari
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["code"].is<String>()) {
+  if (!jsonObj["code"]) {
     sendErrorResponse(request, "Missing required parameter: code", 400);
     return;
   }
 
+  // Convert to string regardless of whether it's a string or number in JSON
   String code = jsonObj["code"].as<String>();
 
   if (code.isEmpty()) {
@@ -940,16 +982,17 @@ void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVar
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["code"].is<String>() || !jsonObj["url"].is<String>()) {
-    sendErrorResponse(request, "Missing required parameters: code, url", 400);
+  if (!jsonObj["code"] || !jsonObj["id"]) {
+    sendErrorResponse(request, "Missing required parameters: code, id", 400);
     return;
   }
 
+  // Convert to string regardless of whether they're strings or numbers in JSON
   String code = jsonObj["code"].as<String>();
-  String url = jsonObj["url"].as<String>();
+  String webhookId = jsonObj["id"].as<String>();
 
-  if (code.isEmpty() || url.isEmpty()) {
-    sendErrorResponse(request, "Code and URL cannot be empty", 400);
+  if (code.isEmpty() || webhookId.isEmpty()) {
+    sendErrorResponse(request, "Code and webhook ID cannot be empty", 400);
     return;
   }
 
@@ -958,7 +1001,7 @@ void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVar
     return;
   }
 
-  if (_config.addWebhookAction(code, url)) {
+  if (_config.addWebhookAction(code, webhookId)) {
     doc["success"] = true;
     doc["message"] = "Webhook action added successfully";
     sendJsonResponse(request, doc);
@@ -977,11 +1020,12 @@ void HAWebServer::handleRemoveWebhookAction(AsyncWebServerRequest *request, Json
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["code"].is<String>()) {
+  if (!jsonObj["code"]) {
     sendErrorResponse(request, "Missing required parameter: code", 400);
     return;
   }
 
+  // Convert to string regardless of whether it's a string or number in JSON
   String code = jsonObj["code"].as<String>();
 
   if (code.isEmpty()) {
@@ -1008,11 +1052,12 @@ void HAWebServer::handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVar
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["number"].is<String>()) {
+  if (!jsonObj["number"]) {
     sendErrorResponse(request, "Missing required parameter: number", 400);
     return;
   }
 
+  // Convert to string regardless of whether it's a string or number in JSON
   String number = jsonObj["number"].as<String>();
 
   if (number.isEmpty()) {
@@ -1039,11 +1084,12 @@ void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, Json
 
   JsonObject jsonObj = json.as<JsonObject>();
 
-  if (!jsonObj["number"].is<String>()) {
+  if (!jsonObj["number"]) {
     sendErrorResponse(request, "Missing required parameter: number", 400);
     return;
   }
 
+  // Convert to string regardless of whether it's a string or number in JSON
   String number = jsonObj["number"].as<String>();
 
   if (number.isEmpty()) {
@@ -1078,6 +1124,35 @@ void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVaria
   doc["status"] = "success";
   doc["message"] = "Ring pattern updated successfully";
   doc["pattern"] = pattern;
+  sendJsonResponse(request, doc);
+}
+
+void HAWebServer::handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &json) {
+  JsonDocument doc;
+
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON", 400);
+    return;
+  }
+
+  JsonObject jsonObj = json.as<JsonObject>();
+
+  if (!jsonObj["url"]) {
+    sendErrorResponse(request, "Missing required parameter: url", 400);
+    return;
+  }
+
+  String url = jsonObj["url"].as<String>();
+
+  if (url.isEmpty()) {
+    sendErrorResponse(request, "URL cannot be empty", 400);
+    return;
+  }
+
+  // Set the HA URL in device config for persistence
+  _config.setHomeAssistantUrl(url);
+  doc["success"] = true;
+  doc["message"] = "Home Assistant URL set successfully";
   sendJsonResponse(request, doc);
 }
 

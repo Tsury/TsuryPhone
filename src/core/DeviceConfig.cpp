@@ -11,10 +11,12 @@ const char *DeviceConfig::kDefaultRingPattern = "500,500,500,500x3";
 
 DeviceConfig::DeviceConfig() : _resetCount(0), _maintenanceMode(false) {
   generateDeviceIdentifiers();
-  initializeDefaults();
+  // Note: Don't call initializeDefaults() here - only call it when no config exists
 }
 
 bool DeviceConfig::init() {
+  Logger::infoln(F("Initializing device configuration"));
+
   if (!SPIFFS.begin(true)) {
     Logger::errorln(F("Failed to initialize SPIFFS"));
     return false;
@@ -23,12 +25,12 @@ bool DeviceConfig::init() {
   if (!load()) {
     Logger::infoln(F("No existing config found, initializing with defaults"));
     initializeDefaults();
-    incrementResetCount();
-    return save();
+  } else {
+    Logger::infoln(F("Configuration loaded successfully"));
   }
 
   incrementResetCount();
-  return save();
+  return true;
 }
 
 bool DeviceConfig::save() {
@@ -78,6 +80,9 @@ bool DeviceConfig::save() {
   // Ring pattern
   doc["ringPattern"] = _ringPattern;
 
+  // Home Assistant URL
+  doc["homeAssistantUrl"] = _homeAssistantUrl;
+
   File file = SPIFFS.open(kConfigFilePath, "w");
   if (!file) {
     Logger::errorln(F("Failed to open config file for writing"));
@@ -97,6 +102,7 @@ bool DeviceConfig::save() {
 
 bool DeviceConfig::load() {
   if (!SPIFFS.exists(kConfigFilePath)) {
+    Logger::infoln(F("Config file does not exist: %s"), kConfigFilePath);
     return false;
   }
 
@@ -106,9 +112,11 @@ bool DeviceConfig::load() {
     return false;
   }
 
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, file);
+  String fileContent = file.readString();
   file.close();
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, fileContent);
 
   if (error) {
     Logger::errorln(F("Failed to parse config file: %s"), error.c_str());
@@ -116,10 +124,10 @@ bool DeviceConfig::load() {
   }
 
   // Device info
-  if (doc["device"]["name"]) {
+  if (doc["device"]["name"].is<const char *>()) {
     _deviceName = doc["device"]["name"].as<String>();
   }
-  if (doc["device"]["resetCount"]) {
+  if (doc["device"]["resetCount"].is<int>()) {
     _resetCount = doc["device"]["resetCount"];
   }
   // Note: maintenanceMode is not loaded - always starts as false
@@ -127,16 +135,16 @@ bool DeviceConfig::load() {
   // Audio config
   if (doc["audio"]) {
     JsonObject audio = doc["audio"];
-    if (audio["earpieceVolume"]) {
+    if (audio["earpieceVolume"].is<int>()) {
       _audioConfig.earpieceVolume = audio["earpieceVolume"];
     }
-    if (audio["earpieceGain"]) {
+    if (audio["earpieceGain"].is<int>()) {
       _audioConfig.earpieceGain = audio["earpieceGain"];
     }
-    if (audio["speakerVolume"]) {
+    if (audio["speakerVolume"].is<int>()) {
       _audioConfig.speakerVolume = audio["speakerVolume"];
     }
-    if (audio["speakerGain"]) {
+    if (audio["speakerGain"].is<int>()) {
       _audioConfig.speakerGain = audio["speakerGain"];
     }
   }
@@ -144,22 +152,22 @@ bool DeviceConfig::load() {
   // DND config
   if (doc["dnd"]) {
     JsonObject dnd = doc["dnd"];
-    if (dnd["force"]) {
+    if (dnd["force"].is<bool>()) {
       _dndConfig.force = dnd["force"];
     }
-    if (dnd["scheduled"]) {
+    if (dnd["scheduled"].is<bool>()) {
       _dndConfig.scheduled = dnd["scheduled"];
     }
-    if (dnd["startHour"]) {
+    if (dnd["startHour"].is<int>()) {
       _dndConfig.startHour = dnd["startHour"];
     }
-    if (dnd["startMinute"]) {
+    if (dnd["startMinute"].is<int>()) {
       _dndConfig.startMinute = dnd["startMinute"];
     }
-    if (dnd["endHour"]) {
+    if (dnd["endHour"].is<int>()) {
       _dndConfig.endHour = dnd["endHour"];
     }
-    if (dnd["endMinute"]) {
+    if (dnd["endMinute"].is<int>()) {
       _dndConfig.endMinute = dnd["endMinute"];
     }
   }
@@ -171,6 +179,7 @@ bool DeviceConfig::load() {
     for (JsonPair entry : quickDial) {
       _quickDialEntries[entry.key().c_str()] = entry.value().as<String>();
     }
+    Logger::infoln(F("Loaded %d quick dial entries"), _quickDialEntries.size());
   }
 
   // Blocked numbers
@@ -180,6 +189,7 @@ bool DeviceConfig::load() {
     for (JsonVariant number : blocked) {
       _blockedNumbers.push_back(number.as<String>());
     }
+    Logger::infoln(F("Loaded %d blocked numbers"), _blockedNumbers.size());
   }
 
   // Webhook actions
@@ -189,22 +199,25 @@ bool DeviceConfig::load() {
     for (JsonPair action : webhooks) {
       _webhookActions[action.key().c_str()] = action.value().as<String>();
     }
+    Logger::infoln(F("Loaded %d webhook actions"), _webhookActions.size());
   }
 
   // Ring pattern
-  if (doc["ringPattern"]) {
+  if (doc["ringPattern"].is<const char *>()) {
     _ringPattern = doc["ringPattern"].as<String>();
   }
 
-  Logger::infoln(F("Configuration loaded successfully"));
+  // Home Assistant URL
+  if (doc["homeAssistantUrl"].is<const char *>()) {
+    _homeAssistantUrl = doc["homeAssistantUrl"].as<String>();
+  }
+
   return true;
 }
 
 void DeviceConfig::generateDeviceIdentifiers() {
-  uint64_t chipid = ESP.getEfuseMac();
-  _deviceId = String((uint32_t)(chipid >> 32), HEX) + String((uint32_t)chipid, HEX);
-  _deviceId.toUpperCase();
-  _deviceName = "TsuryPhone-" + _deviceId.substring(_deviceId.length() - 6);
+  _deviceId = generateDeviceId();
+  _deviceName = generateDeviceName(_deviceId);
 }
 
 void DeviceConfig::initializeDefaults() {
@@ -221,19 +234,21 @@ void DeviceConfig::initializeDefaults() {
   _audioConfig.speakerGain = kSpeakerMicGain;
 
   // Initialize DND config with defaults from config.h
+  _dndConfig.force = kDndForce;
+  _dndConfig.scheduled = kDndScheduled;
   _dndConfig.startHour = kDndStartHour;
   _dndConfig.startMinute = kDndStartMinute;
   _dndConfig.endHour = kDndEndHour;
   _dndConfig.endMinute = kDndEndMinute;
 
   _ringPattern = kDefaultRingPattern;
+  _homeAssistantUrl = "http://homeassistant.local:8123";
 }
 
 void DeviceConfig::setDeviceName(const String &name) {
   if (_deviceName != name) {
     _deviceName = name;
-    save();
-    notifyConfigChanged(ConfigChangeType::DeviceName);
+    saveAndNotify(ConfigChangeType::DeviceName);
   }
 }
 
@@ -364,4 +379,11 @@ void DeviceConfig::saveAndNotify(ConfigChangeType changeType) {
 
 bool DeviceConfig::isCodeConflict(const String &code) const {
   return hasQuickDialEntry(code) || hasWebhookAction(code);
+}
+
+void DeviceConfig::setHomeAssistantUrl(const String &url) {
+  if (_homeAssistantUrl != url) {
+    _homeAssistantUrl = url;
+    save(); // Save immediately, no need to notify since this is integration-specific
+  }
 }
