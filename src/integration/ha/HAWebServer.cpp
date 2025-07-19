@@ -3,6 +3,7 @@
 #include "HAWebServer.h"
 #include "../../common/logger.h"
 #include "../../common/state.h"
+#include "../../config.h"
 #include "../../core/DeviceConfig.h"
 #include "../../core/DeviceStats.h"
 #include <ESPmDNS.h>
@@ -25,11 +26,11 @@ bool HAWebServer::init() {
   _server.begin();
 
   // Setup mDNS for auto-discovery
-  if (MDNS.begin(_config.getDeviceName().c_str())) {
+  if (MDNS.begin(_config.getDeviceId().c_str())) {
     MDNS.addService("http", "tcp", kServerPort);
     MDNS.addServiceTxt("http", "tcp", "device", "tsuryphone");
     MDNS.addServiceTxt("http", "tcp", "version", "1.0");
-    Logger::infoln(F("mDNS responder started: %s.local"), _config.getDeviceName().c_str());
+    Logger::infoln(F("mDNS responder started: %s.local"), _config.getDeviceId().c_str());
   } else {
     Logger::errorln(F("Error setting up mDNS responder"));
   }
@@ -73,8 +74,8 @@ void HAWebServer::setupRoutes() {
     handleGetStatus(request);
   });
 
-  _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    handleGetConfig(request);
+  _server.on("/api/config/tsuryphone", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleGetTsuryPhoneConfig(request);
   });
 
   _server.on(
@@ -354,6 +355,15 @@ void HAWebServer::setupRoutes() {
           sendErrorResponse(request, "Invalid JSON");
         }
       });
+
+  _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    if (request->url() != "/api/config") {
+      request->send(404, "application/json", "{\"error\":\"Not Found\"}");
+      return;
+    }
+
+    handleGetConfig(request);
+  });
 }
 
 void HAWebServer::setupWebSocket() {
@@ -377,7 +387,6 @@ void HAWebServer::handleGetStatus(AsyncWebServerRequest *request) {
     _statusCallback(obj);
   } else {
     // Fallback to basic device info if no callback is set
-    obj["deviceName"] = _config.getDeviceName();
     obj["deviceId"] = _config.getDeviceId();
     obj["uptime"] = _stats.getUptime();
     obj["freeHeap"] = _stats.getFreeHeap();
@@ -394,8 +403,7 @@ void HAWebServer::handleGetConfig(AsyncWebServerRequest *request) {
 
   // Device info
   JsonObject device = doc["device"].to<JsonObject>();
-  device["name"] = _config.getDeviceName();
-  device["id"] = _config.getDeviceId();
+  device["deviceId"] = _config.getDeviceId();
 
   // Audio config
   const AudioConfig &audioConfig = _config.getAudioConfig();
@@ -439,6 +447,15 @@ void HAWebServer::handleGetConfig(AsyncWebServerRequest *request) {
   sendJsonResponse(request, doc);
 }
 
+void HAWebServer::handleGetTsuryPhoneConfig(AsyncWebServerRequest *request) {
+  JsonDocument doc;
+
+  // Device identification info for Home Assistant integration discovery
+  doc["deviceId"] = _config.getDeviceId();
+
+  sendJsonResponse(request, doc);
+}
+
 void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Refetch all data requested"));
 
@@ -454,7 +471,6 @@ void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
     _statusCallback(status);
   } else {
     // Fallback to basic device info if no callback is set
-    status["deviceName"] = _config.getDeviceName();
     status["deviceId"] = _config.getDeviceId();
     status["uptime"] = _stats.getUptime();
     status["freeHeap"] = _stats.getFreeHeap();
@@ -479,10 +495,6 @@ void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
 
   // Get config data
   JsonObject config = doc["config"].to<JsonObject>();
-  // Device info
-  JsonObject device = config["device"].to<JsonObject>();
-  device["name"] = _config.getDeviceName();
-  device["id"] = _config.getDeviceId();
 
   // Audio config
   const AudioConfig &audioConfig = _config.getAudioConfig();

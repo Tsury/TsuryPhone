@@ -34,7 +34,7 @@ void Wifi::init() {
   _wifiManager.setConfigPortalTimeout(0); // Disable auto timeout, we'll manage it manually
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
 
-  if (_wifiManager.autoConnect(getWifiSsid().c_str())) {
+  if (_wifiManager.autoConnect(_config.getWifiSsid().c_str())) {
     onWifiConnected();
   } else {
     Logger::infoln(F("Config portal running"));
@@ -118,7 +118,7 @@ void Wifi::processConfigPortal() {
     _configPortalTimeout = kWifiManagerPortalTimeoutMs;
 
     _wifiManager.setConfigPortalBlocking(false);
-    _wifiManager.startConfigPortal(getWifiSsid().c_str());
+    _wifiManager.startConfigPortal(_config.getWifiSsid().c_str());
   }
 
   // Handle config portal close request

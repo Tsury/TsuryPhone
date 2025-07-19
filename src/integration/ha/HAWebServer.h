@@ -30,6 +30,7 @@ private:
   // REST API handlers
   void handleGetStatus(AsyncWebServerRequest *request);
   void handleGetConfig(AsyncWebServerRequest *request);
+  void handleGetTsuryPhoneConfig(AsyncWebServerRequest *request);
   void handleGetStats(AsyncWebServerRequest *request);
   void handleRefetchAll(AsyncWebServerRequest *request);
 

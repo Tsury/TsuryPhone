@@ -41,13 +41,14 @@ public:
   bool load();
 
   // Device identification
-  String getDeviceName() const {
-    return _deviceName;
-  }
+
   String getDeviceId() const {
     return _deviceId;
   }
-  void setDeviceName(const String &name);
+
+  String getWifiSsid() const {
+    return _deviceId;
+  }
 
   // Audio configuration
   const AudioConfig &getAudioConfig() const {
@@ -111,13 +112,11 @@ public:
   }
 
 private:
-  void generateDeviceIdentifiers();
   void initializeDefaults();
   bool isCodeConflict(const String &code) const;
   void notifyConfigChanged(ConfigChangeType changeType);
   void saveAndNotify(ConfigChangeType changeType);
 
-  String _deviceName;
   String _deviceId;
   AudioConfig _audioConfig;
   DndConfig _dndConfig;

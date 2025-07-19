@@ -16,23 +16,9 @@ const constexpr char *timeZone = "IST-2IDT,M3.4.4/26,M10.5.0";
 // Utility function to generate device ID from chip MAC
 inline String generateDeviceId() {
   uint64_t chipid = ESP.getEfuseMac();
-  String deviceId = String((uint32_t)(chipid >> 32), HEX) + String((uint32_t)chipid, HEX);
-  deviceId.toUpperCase();
-  return deviceId;
-}
-
-// Utility function to generate device name from device ID
-inline String generateDeviceName(const String &deviceId) {
-  return "TsuryPhone-" + deviceId.substring(deviceId.length() - 4);
-}
-
-inline String getDeviceName() {
-  String deviceId = generateDeviceId();
-  return generateDeviceName(deviceId);
-}
-
-inline String getWifiSsid() {
-  return getDeviceName();
+  String macId = String((uint32_t)(chipid >> 32), HEX) + String((uint32_t)chipid, HEX);
+  macId.toUpperCase();
+  return "TsuryPhone-" + macId.substring(0, 6);
 }
 
 // Default audio settings (used for fallback)

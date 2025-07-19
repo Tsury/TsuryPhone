@@ -303,7 +303,6 @@ void HAIntegration::handleWebServerCommand(const String &command, const JsonVari
 }
 
 void HAIntegration::addBasicDeviceInfo(JsonObject &obj) {
-  obj["deviceName"] = _config.getDeviceName();
   obj["deviceId"] = _config.getDeviceId();
 }
 

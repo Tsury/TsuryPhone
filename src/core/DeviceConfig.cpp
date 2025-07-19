@@ -10,7 +10,7 @@ const char *DeviceConfig::kConfigFilePath = "/config.json";
 const char *DeviceConfig::kDefaultRingPattern = "500,500,500,500x3";
 
 DeviceConfig::DeviceConfig() : _resetCount(0) {
-  generateDeviceIdentifiers();
+  _deviceId = generateDeviceId();
   // Note: Don't call initializeDefaults() here - only call it when no config exists
 }
 
@@ -38,8 +38,6 @@ bool DeviceConfig::save() {
 
   // Device info
   JsonObject device = doc["device"].to<JsonObject>();
-  device["name"] = _deviceName;
-  device["id"] = _deviceId;
   device["resetCount"] = _resetCount;
 
   // Audio config
@@ -123,9 +121,6 @@ bool DeviceConfig::load() {
   }
 
   // Device info
-  if (doc["device"]["name"].is<const char *>()) {
-    _deviceName = doc["device"]["name"].as<String>();
-  }
   if (doc["device"]["resetCount"].is<int>()) {
     _resetCount = doc["device"]["resetCount"];
   }
@@ -213,11 +208,6 @@ bool DeviceConfig::load() {
   return true;
 }
 
-void DeviceConfig::generateDeviceIdentifiers() {
-  _deviceId = generateDeviceId();
-  _deviceName = generateDeviceName(_deviceId);
-}
-
 void DeviceConfig::initializeDefaults() {
   // Initialize with generated phoneBook entries dynamically
   size_t numEntries = sizeof(phoneBookEntries) / sizeof(phoneBookEntries[0]);
@@ -241,13 +231,6 @@ void DeviceConfig::initializeDefaults() {
 
   _ringPattern = kDefaultRingPattern;
   _homeAssistantUrl = "http://homeassistant.local:8123";
-}
-
-void DeviceConfig::setDeviceName(const String &name) {
-  if (_deviceName != name) {
-    _deviceName = name;
-    saveAndNotify(ConfigChangeType::DeviceName);
-  }
 }
 
 void DeviceConfig::setAudioConfig(const AudioConfig &config) {
