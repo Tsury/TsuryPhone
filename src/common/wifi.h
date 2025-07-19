@@ -1,17 +1,24 @@
 #pragma once
 
+#include "../core/DeviceConfig.h" // Include DeviceConfig definition
 #include <WiFiManager.h>
 #include <functional>
 
 class Wifi {
 public:
+  Wifi(DeviceConfig &config);
+
   void init();
   void process();
 
   void openConfigPortal();
   void closeConfigPortal();
   bool isConfigPortalActive();
-  void setConfigPortalTimeoutCallback(std::function<void()> callback);
+
+  // Set callback for when config portal times out (to exit maintenance mode)
+  void setPortalTimeoutCallback(std::function<void()> callback) {
+    _portalTimeoutCallback = callback;
+  }
 
 private:
   void onWifiConnected();
@@ -23,8 +30,9 @@ private:
   void processWebSerial();
 #endif
 
+  DeviceConfig &_config;
   WiFiManager _wifiManager;
-  std::function<void()> _configPortalTimeoutCallback;
+  std::function<void()> _portalTimeoutCallback;
 
   // Config portal state management
   bool _configPortalOpenRequested = false;

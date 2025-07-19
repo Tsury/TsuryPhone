@@ -91,6 +91,7 @@ void DeviceStats::recordOutgoingCall(const String &number) {
 
 void DeviceStats::recordBlockedCall(const String &number) {
   _callStats.blockedCalls++;
+  _callStats.lastCall = "Blocked - " + number;
   save();
   Logger::infoln(F("Blocked call from: %s"), number.c_str());
 }

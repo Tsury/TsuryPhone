@@ -9,7 +9,7 @@
 const char *DeviceConfig::kConfigFilePath = "/config.json";
 const char *DeviceConfig::kDefaultRingPattern = "500,500,500,500x3";
 
-DeviceConfig::DeviceConfig() : _resetCount(0), _maintenanceMode(false) {
+DeviceConfig::DeviceConfig() : _resetCount(0) {
   generateDeviceIdentifiers();
   // Note: Don't call initializeDefaults() here - only call it when no config exists
 }
@@ -41,7 +41,6 @@ bool DeviceConfig::save() {
   device["name"] = _deviceName;
   device["id"] = _deviceId;
   device["resetCount"] = _resetCount;
-  // Note: maintenanceMode is not saved - it's runtime-only state
 
   // Audio config
   JsonObject audio = doc["audio"].to<JsonObject>();
@@ -130,7 +129,6 @@ bool DeviceConfig::load() {
   if (doc["device"]["resetCount"].is<int>()) {
     _resetCount = doc["device"]["resetCount"];
   }
-  // Note: maintenanceMode is not loaded - always starts as false
 
   // Audio config
   if (doc["audio"]) {
@@ -356,14 +354,6 @@ void DeviceConfig::setRingPattern(const String &pattern) {
 void DeviceConfig::incrementResetCount() {
   _resetCount++;
   save();
-}
-
-void DeviceConfig::setMaintenanceMode(bool enabled) {
-  if (_maintenanceMode != enabled) {
-    _maintenanceMode = enabled;
-    // Note: Don't save to persistent storage - maintenance mode is runtime-only
-    notifyConfigChanged(ConfigChangeType::MaintenanceMode);
-  }
 }
 
 void DeviceConfig::notifyConfigChanged(ConfigChangeType changeType) {

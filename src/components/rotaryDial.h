@@ -1,23 +1,17 @@
 #pragma once
 
 #include "common/consts.h"
+#include "common/state.h"
 #include <Arduino.h>
 
 const constexpr int kInvalidDialedDigit = 99;
 
-struct DialedNumberResult {
-  char callNumber[kSmallBufferSize];
-  int dialedDigit;
-};
-
 class RotaryDial {
 public:
   void init() const;
-  void process();
+  void process(State &state);
 
-  void resetCurrentNumber();
   int getDialedDigit() const;
-  DialedNumberResult getCurrentNumber();
 
 private:
   int _inDialState = HIGH;
@@ -30,5 +24,4 @@ private:
   uint32_t _pulseChangeTime = 0UL;
 
   char _dialedDigit = kInvalidDialedDigit;
-  char _currentNumber[kSmallBufferSize] = "";
 };

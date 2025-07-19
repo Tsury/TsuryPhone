@@ -16,7 +16,7 @@
  */
 class HAIntegration : public IIntegration {
 public:
-  HAIntegration(DeviceConfig &config, DeviceStats &stats);
+  HAIntegration(DeviceConfig &config, DeviceStats &stats, State &state);
 
   // Lifecycle management
   bool init() override;
@@ -29,6 +29,7 @@ public:
   void updateDialingProgress(const String &currentNumber) override;
   void updateRingState(bool isRinging) override;
   void updateSystemStatus() override;
+  void updateDndState(bool isDndActive);
 
   // Device operation callbacks (to be called by main application)
   void setDialCallback(std::function<bool(const String &)> callback) override;
@@ -36,6 +37,7 @@ public:
   void setHangupCallback(std::function<bool()> callback) override;
   void setRingCallback(std::function<bool(const String &)> callback) override;
   void setCallWaitingCallback(std::function<bool()> callback) override;
+  void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) override;
 
   // Statistics and monitoring
   void reportCallStart(const String &number, bool isIncoming) override;
@@ -66,15 +68,18 @@ public:
 private:
   DeviceConfig &_config;
   DeviceStats &_stats;
+  State &_state;
   HAWebServer _webServer;
 
-  // Current state tracking
-  AppState _currentState = AppState::Idle;
-  String _currentCallNumber;
-  bool _currentCallIsIncoming = false;
-  unsigned long _currentCallStartTime = 0;
-  String _currentDialingNumber;
-  bool _isRinging = false;
+  // Remove duplicated state tracking - use _state reference instead
+  // Keep only essential additional information not available in main State
+  struct CallInfo {
+    String number;
+    bool isIncoming = false;
+    unsigned long startTime = 0;
+  } _currentCall;
+
+  String _currentDialingNumber; // Keep for dialing progress
 
   // Callback functions for device operations
   std::function<bool(const String &)> _dialCallback;
@@ -82,6 +87,7 @@ private:
   std::function<bool()> _hangupCallback;
   std::function<bool(const String &)> _ringCallback;
   std::function<bool()> _callWaitingCallback;
+  std::function<void(bool)> _maintenanceModeChangedCallback;
 
   // Internal methods
   void setupWebServerCallbacks();
@@ -94,13 +100,14 @@ private:
   void addPhoneStateInfo(JsonObject &obj);
   void addCallInfo(JsonObject &obj);
   void addSystemInfo(JsonObject &obj);
+  void addStatsInfo(JsonObject &obj);
   JsonObject createEventObject(JsonDocument &doc, const String &event, const String &type);
 
   // Last update tracking for efficiency
   unsigned long _lastStatsUpdate = 0;
   unsigned long _lastSystemUpdate = 0;
-  static const unsigned long kStatsUpdateInterval = 30000; // 30 seconds
-  static const unsigned long kSystemUpdateInterval = 5000; // 5 seconds
+  static const unsigned long kStatsUpdateInterval = 60000;  // 60 seconds
+  static const unsigned long kSystemUpdateInterval = 60000; // 60 seconds
 
   // Webhook HTTP functionality
   void triggerWebhookHttp(const String &webhookId);

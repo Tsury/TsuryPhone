@@ -8,7 +8,6 @@
 // Enum to specify what configuration changed
 enum class ConfigChangeType {
   Audio,
-  MaintenanceMode,
   DND,
   QuickDial,
   BlockedNumbers,
@@ -106,12 +105,6 @@ public:
   }
   void incrementResetCount();
 
-  // Maintenance mode
-  bool isMaintenanceMode() const {
-    return _maintenanceMode;
-  }
-  void setMaintenanceMode(bool enabled);
-
   // Configuration change callbacks
   void setConfigChangeCallback(std::function<void(ConfigChangeType)> callback) {
     _configChangeCallback = callback;
@@ -134,7 +127,6 @@ private:
   String _ringPattern;
   String _homeAssistantUrl;
   int _resetCount;
-  bool _maintenanceMode;
 
   std::function<void(ConfigChangeType)> _configChangeCallback;
 

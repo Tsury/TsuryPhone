@@ -22,6 +22,8 @@ namespace {
 AsyncWebServer server(kWebSerialPort);
 #endif
 
+Wifi::Wifi(DeviceConfig &config) : _config(config) {}
+
 void Wifi::init() {
   Logger::infoln(F("Initializing WiFi..."));
 
@@ -153,13 +155,9 @@ bool Wifi::isConfigPortalActive() {
   return _configPortalActive;
 }
 
-void Wifi::setConfigPortalTimeoutCallback(std::function<void()> callback) {
-  _configPortalTimeoutCallback = callback;
-  // Note: We don't set the WiFiManager callback since we manage timeout manually
-}
-
 void Wifi::onConfigPortalTimeout() {
-  if (_configPortalTimeoutCallback) {
-    _configPortalTimeoutCallback();
+  // When portal times out, notify to exit maintenance mode
+  if (_portalTimeoutCallback) {
+    _portalTimeoutCallback();
   }
 }

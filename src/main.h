@@ -43,11 +43,10 @@ private:
 
   void stopEverything();
 
-  // Audio configuration change handler
+  // Configuration change handlers
+  void handleConfigChange(ConfigChangeType changeType);
   void onAudioConfigChanged();
-
-  // Maintenance mode change handler
-  void onMaintenanceModeChanged();
+  void onMaintenanceModeChanged(const bool enabled);
 
   // Integration operation callbacks
   bool handleIntegrationDialRequest(const String &number);
@@ -56,8 +55,13 @@ private:
   bool handleIntegrationRingRequest(const String &pattern);
   bool handleIntegrationCallWaitingRequest();
 
+  // Call blocking callback
+  void handleCallBlocked(const String &number);
+
   DeviceConfig _deviceConfig;
   DeviceStats _deviceStats;
+  State _state; // Will be initialized by constructor
+
   Modem _modem;
   Ringer _ringer;
   HookSwitch _hookSwitch;
@@ -66,7 +70,6 @@ private:
   TimeManager _timeManager;
   NumberHandler _numberHandler;
   IntegrationManager _integrationManager;
-  State _state = {AppState::Startup, AppState::Startup, CallState(), "", false, false};
 
   uint32_t _stateTime = 0UL;
   bool _firstTimeSystemReady = false;

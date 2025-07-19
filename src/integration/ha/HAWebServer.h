@@ -12,7 +12,7 @@ class DeviceStats;
 
 class HAWebServer {
 public:
-  HAWebServer(DeviceConfig &config, DeviceStats &stats);
+  HAWebServer(DeviceConfig &config, DeviceStats &stats, State &state);
 
   bool init();
   void process();
@@ -75,10 +75,15 @@ private:
 
   DeviceConfig &_config;
   DeviceStats &_stats;
+  State &_state;
   AsyncWebServer _server;
   AsyncWebSocket _webSocket;
   std::function<void(JsonObject &)> _statusCallback;
   std::function<void(const String &, const JsonVariant &)> _stateUpdateCallback;
+
+  // WebSocket cleanup optimization
+  unsigned long _lastCleanupTime = 0;
+  static const unsigned long kWebSocketCleanupInterval = 60000; // 60 seconds
 
   static const int kServerPort = 8080;
   static const char *kWebSocketPath;

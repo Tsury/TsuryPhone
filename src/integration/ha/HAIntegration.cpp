@@ -32,8 +32,8 @@ const char *getStateName(AppState state) {
   }
 }
 
-HAIntegration::HAIntegration(DeviceConfig &config, DeviceStats &stats)
-    : _config(config), _stats(stats), _webServer(config, stats) {}
+HAIntegration::HAIntegration(DeviceConfig &config, DeviceStats &stats, State &state)
+    : _config(config), _stats(stats), _state(state), _webServer(config, stats, state) {}
 
 bool HAIntegration::init() {
   Logger::infoln(F("Initializing Home Assistant integration..."));
@@ -63,7 +63,7 @@ void HAIntegration::process() {
     _lastStatsUpdate = now;
     JsonDocument doc;
     JsonObject obj = createEventObject(doc, "system", "stats");
-    addSystemInfo(obj);
+    addStatsInfo(obj);
     _webServer.broadcastStateUpdate(doc);
   }
 
@@ -80,28 +80,24 @@ void HAIntegration::stop() {
 }
 
 void HAIntegration::updatePhoneState(AppState newState, AppState previousState) {
-  if (_currentState != newState) {
-    _currentState = newState;
+  Logger::infoln(F("HA: Phone state changed from %s to %s"),
+                 getStateName(previousState),
+                 getStateName(newState));
 
-    Logger::infoln(F("HA: Phone state changed from %d to %d"),
-                   static_cast<int>(previousState),
-                   static_cast<int>(newState));
+  JsonDocument doc;
+  JsonObject obj = createEventObject(doc, "phone_state", "state");
+  obj["state"] = static_cast<int>(newState);
+  obj["previousState"] = static_cast<int>(previousState);
+  obj["stateName"] = getStateName(newState);
 
-    JsonDocument doc;
-    JsonObject obj = createEventObject(doc, "phone_state", "state");
-    obj["state"] = static_cast<int>(newState);
-    obj["previousState"] = static_cast<int>(previousState);
-    obj["stateName"] = getStateName(newState);
-
-    addPhoneStateInfo(obj);
-    _webServer.broadcastStateUpdate(doc);
-  }
+  addPhoneStateInfo(obj);
+  _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateCallInfo(const String &number, bool isIncoming, unsigned long startTime) {
-  _currentCallNumber = number;
-  _currentCallIsIncoming = isIncoming;
-  _currentCallStartTime = startTime > 0 ? startTime : millis();
+  _currentCall.number = number;
+  _currentCall.isIncoming = isIncoming;
+  _currentCall.startTime = startTime > 0 ? startTime : millis();
 
   Logger::infoln(F("HA: Call info updated - %s call to/from %s"),
                  isIncoming ? F("Incoming") : F("Outgoing"),
@@ -127,16 +123,21 @@ void HAIntegration::updateDialingProgress(const String &currentNumber) {
 }
 
 void HAIntegration::updateRingState(bool isRinging) {
-  if (_isRinging != isRinging) {
-    _isRinging = isRinging;
+  Logger::infoln(F("HA: Ring state changed - %s"), isRinging ? F("ringing") : F("not ringing"));
 
-    Logger::infoln(F("HA: Ring state changed - %s"), isRinging ? F("ringing") : F("not ringing"));
+  JsonDocument doc;
+  JsonObject obj = createEventObject(doc, "phone_state", "ring");
+  obj["isRinging"] = isRinging;
+  _webServer.broadcastStateUpdate(doc);
+}
 
-    JsonDocument doc;
-    JsonObject obj = createEventObject(doc, "phone_state", "ring");
-    obj["isRinging"] = isRinging;
-    _webServer.broadcastStateUpdate(doc);
-  }
+void HAIntegration::updateDndState(bool isDndActive) {
+  Logger::infoln(F("HA: DND state updated - %s"), isDndActive ? F("active") : F("inactive"));
+
+  JsonDocument doc;
+  JsonObject obj = createEventObject(doc, "phone_state", "dnd");
+  obj["dndActive"] = isDndActive;
+  _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateSystemStatus() {
@@ -166,14 +167,13 @@ void HAIntegration::setCallWaitingCallback(std::function<bool()> callback) {
   _callWaitingCallback = callback;
 }
 
+void HAIntegration::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
+  _maintenanceModeChangedCallback = callback;
+}
+
 void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
-  // Record basic call statistics
-  if (isIncoming) {
-    _stats.recordIncomingCall(number);
-  } else {
-    _stats.recordOutgoingCall(number);
-  }
-  _stats.recordCallStart();
+  // Note: Stats recording is now handled by StatsManager automatically
+  // This method only needs to update call info and broadcast to HA
   updateCallInfo(number, isIncoming);
 
   JsonDocument doc;
@@ -184,22 +184,22 @@ void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
 }
 
 void HAIntegration::reportCallEnd(unsigned long duration) {
-  _stats.recordCallEnd();
-
+  // Note: Stats recording is now handled by StatsManager automatically
+  // This method only needs to broadcast to HA
   JsonDocument doc;
   JsonObject obj = createEventObject(doc, "call", "end");
   obj["duration"] = duration;
   _webServer.broadcastStateUpdate(doc);
 
   // Clear call info
-  _currentCallNumber = "";
-  _currentCallIsIncoming = false;
-  _currentCallStartTime = 0;
+  _currentCall.number = "";
+  _currentCall.isIncoming = false;
+  _currentCall.startTime = 0;
 }
 
 void HAIntegration::reportBlockedCall(const String &number) {
-  _stats.recordBlockedCall(number);
-
+  // Note: Stats recording is now handled by StatsManager automatically
+  // This method only needs to broadcast to HA
   Logger::infoln(F("HA: Blocked call from %s"), number.c_str());
 
   JsonDocument doc;
@@ -237,6 +237,7 @@ void HAIntegration::broadcastFullState() {
   addPhoneStateInfo(obj);
   addCallInfo(obj);
   addSystemInfo(obj);
+  addStatsInfo(obj);
 
   _webServer.broadcastStateUpdate(doc);
 }
@@ -292,6 +293,10 @@ void HAIntegration::handleWebServerCommand(const String &command, const JsonVari
     }
   } else if (command == "refresh") {
     broadcastFullState();
+  } else if (command == "maintenance_mode" && _maintenanceModeChangedCallback) {
+    bool enabled = data["enabled"].as<bool>();
+    Logger::infoln(F("HA: Maintenance mode %s"), enabled ? F("enabled") : F("disabled"));
+    _maintenanceModeChangedCallback(enabled);
   } else {
     Logger::warnln(F("HA: Unknown command: %s"), command.c_str());
   }
@@ -300,30 +305,28 @@ void HAIntegration::handleWebServerCommand(const String &command, const JsonVari
 void HAIntegration::addBasicDeviceInfo(JsonObject &obj) {
   obj["deviceName"] = _config.getDeviceName();
   obj["deviceId"] = _config.getDeviceId();
-  obj["uptime"] = _stats.getUptime();
-  obj["maintenanceMode"] = _config.isMaintenanceMode();
 }
 
 void HAIntegration::addPhoneStateInfo(JsonObject &obj) {
-  obj["state"] = static_cast<int>(_currentState);
-  obj["stateName"] = getStateName(_currentState);
-  obj["dialing"] = (_currentState == AppState::Dialing);
-  obj["callActive"] = (_currentState == AppState::InCall);
-  obj["ringing"] = _isRinging;
+  obj["state"] = static_cast<int>(_state.newAppState);
+  obj["stateName"] = getStateName(_state.newAppState);
+  obj["dndActive"] = _state.isDnd;
+  obj["maintenanceMode"] = _state.isMaintenanceMode;
 
-  if (!_currentDialingNumber.isEmpty()) {
-    obj["currentDialingNumber"] = _currentDialingNumber;
+  // Add call state information
+  if (_state.callState.callNumber[0] != '\0') {
+    obj["currentDialingNumber"] = _state.callState.callNumber;
   }
 }
 
 void HAIntegration::addCallInfo(JsonObject &obj) {
-  if (!_currentCallNumber.isEmpty()) {
-    obj["currentCallNumber"] = _currentCallNumber;
-    obj["currentCallIsIncoming"] = _currentCallIsIncoming;
-    obj["currentCallStartTime"] = _currentCallStartTime;
+  if (!_currentCall.number.isEmpty()) {
+    obj["currentCallNumber"] = _currentCall.number;
+    obj["currentCallIsIncoming"] = _currentCall.isIncoming;
+    obj["currentCallStartTime"] = _currentCall.startTime;
 
-    if (_currentCallStartTime > 0) {
-      obj["currentCallDuration"] = (millis() - _currentCallStartTime) / 1000;
+    if (_currentCall.startTime > 0) {
+      obj["currentCallDuration"] = (millis() - _currentCall.startTime) / 1000;
     }
   }
 }
@@ -332,14 +335,16 @@ void HAIntegration::addSystemInfo(JsonObject &obj) {
   obj["freeHeap"] = _stats.getFreeHeap();
   obj["rssi"] = _stats.getRSSI();
   obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
+  obj["uptime"] = _stats.getUptime();
+}
 
+void HAIntegration::addStatsInfo(JsonObject &obj) {
   const CallStats &callStats = _stats.getCallStats();
-  JsonObject stats = obj["stats"].to<JsonObject>();
-  stats["totalCalls"] = callStats.totalCalls;
-  stats["incomingCalls"] = callStats.incomingCalls;
-  stats["outgoingCalls"] = callStats.outgoingCalls;
-  stats["blockedCalls"] = callStats.blockedCalls;
-  stats["totalTalkTimeSeconds"] = callStats.totalTalkTimeSeconds;
+  obj["totalCalls"] = callStats.totalCalls;
+  obj["incomingCalls"] = callStats.incomingCalls;
+  obj["outgoingCalls"] = callStats.outgoingCalls;
+  obj["blockedCalls"] = callStats.blockedCalls;
+  obj["totalTalkTimeSeconds"] = callStats.totalTalkTimeSeconds;
 }
 
 void HAIntegration::getFullStatus(JsonObject &obj) {
@@ -354,6 +359,9 @@ void HAIntegration::getFullStatus(JsonObject &obj) {
 
   // Add system info
   addSystemInfo(obj);
+
+  // Add stats info
+  addStatsInfo(obj);
 }
 
 // Helper function to create WebSocket event objects

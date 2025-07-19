@@ -19,14 +19,15 @@ namespace {
 PhoneApp::PhoneApp()
     : _deviceConfig(),
       _deviceStats(),
+      _state{},
       _modem(_deviceConfig),
       _ringer(),
       _hookSwitch(),
       _rotaryDial(),
-      _wifi(),
+      _wifi(_deviceConfig),
       _timeManager(_deviceConfig),
       _numberHandler(_deviceConfig),
-      _integrationManager(_deviceConfig, _deviceStats) {}
+      _integrationManager(_deviceConfig, _deviceStats, _state) {}
 
 void PhoneApp::setup() {
   Serial.begin(kSerialBaudRate);
@@ -65,32 +66,24 @@ void PhoneApp::setup() {
     _integrationManager.setCallWaitingCallback(
         [this]() -> bool { return handleIntegrationCallWaitingRequest(); });
 
-    // Set up config change callback to notify integrations and handle specific changes
-    _deviceConfig.setConfigChangeCallback([this](ConfigChangeType changeType) {
-      _integrationManager.onConfigurationChanged();
+    _integrationManager.setCallBlockedCallback(
+        [this](const String &number) { handleCallBlocked(number); });
 
-      // Handle specific config changes
-      switch (changeType) {
-      case ConfigChangeType::Audio:
-        onAudioConfigChanged();
-        break;
-      case ConfigChangeType::MaintenanceMode:
-        onMaintenanceModeChanged();
-        break;
-      default:
-        // Other config changes don't need specific handling
-        break;
-      }
-    });
+    _integrationManager.setMaintenanceModeChangedCallback(
+        [this](bool enabled) { onMaintenanceModeChanged(enabled); });
   } else {
     Logger::errorln(F("Failed to initialize Integration Manager"));
   }
 
-  // Set up wifi config portal timeout callback
-  _wifi.setConfigPortalTimeoutCallback([this]() {
-    // When portal times out, exit maintenance mode
-    if (_deviceConfig.isMaintenanceMode()) {
-      _deviceConfig.setMaintenanceMode(false);
+  // Set up device config callback for organic/physical device events
+  _deviceConfig.setConfigChangeCallback(
+      [this](ConfigChangeType changeType) { handleConfigChange(changeType); });
+
+  // Set up wifi portal timeout callback to exit maintenance mode
+  _wifi.setPortalTimeoutCallback([this]() {
+    if (_state.isMaintenanceMode) {
+      _state.isMaintenanceMode = false;
+      onMaintenanceModeChanged(_state.isMaintenanceMode);
     }
   });
 
@@ -121,10 +114,9 @@ void PhoneApp::loop() {
   _modem.process(_state);
   _wifi.process();
   _hookSwitch.process();
-  _rotaryDial.process();
+  _rotaryDial.process(_state);
   _ringer.process(_state);
   _timeManager.process(_state);
-
   _integrationManager.process();
 
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
@@ -156,8 +148,7 @@ void PhoneApp::onStateChanged() {
                    appStateToString(_state.newAppState));
   }
 
-  // Report state change to HA integration
-  _integrationManager.updatePhoneState(_state.newAppState, _state.prevAppState);
+  // Note: State changes are now automatically detected by IntegrationManager
 
   _stateTime = millis();
 
@@ -215,19 +206,8 @@ void PhoneApp::onStateIncomingCall() {
 
   // Record incoming call statistics when we first get the call number
   if (callNumber[0] != '\0' && !callState.introducedCaller) {
-    // Check if the incoming call is blocked
-    if (_deviceConfig.isIncomingCallBlocked(String(callNumber))) {
-      _deviceStats.recordBlockedCall(String(callNumber));
-      _integrationManager.reportBlockedCall(String(callNumber));
-      // Block the call by not answering and hanging up
-      _modem.hangUp();
-      setState(AppState::Idle);
-      return;
-    }
-
-    _deviceStats.recordIncomingCall(String(callNumber));
-    _integrationManager.reportCallStart(String(callNumber), true);
-    _integrationManager.updateCallInfo(String(callNumber), true);
+    // Note: Call blocking is now handled automatically by IntegrationManager
+    // Note: Call start and call info are now handled automatically by IntegrationManager
   }
 
   if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
@@ -265,13 +245,14 @@ void PhoneApp::stopEverything() {
   Logger::infoln(F("Stopping everything..."));
   _modem.stopAllAudio();
   _ringer.stopRinging();
-  _rotaryDial.resetCurrentNumber();
+  // Reset current dialing number in state
+  _state.currentDialingNumber[0] = '\0';
 }
 
 void PhoneApp::onStateInCall() {
   stopEverything();
   _modem.setEarpieceVolume();
-  _deviceStats.recordCallStart();
+  // Note: Call start recording is now handled automatically by StatsManager
 }
 
 void PhoneApp::processState() {
@@ -323,18 +304,17 @@ void PhoneApp::processStateIdle() {
   }
 
   if (_hookSwitch.isOffHook()) {
-    DialedNumberResult dialedNumberResult = _rotaryDial.getCurrentNumber();
-    char *dialedNumber = dialedNumberResult.callNumber;
+    int dialedDigit = _rotaryDial.getDialedDigit();
+    char *dialedNumber = _state.currentDialingNumber;
 
-    if (dialedNumberResult.dialedDigit != kInvalidDialedDigit) {
+    if (dialedDigit != kInvalidDialedDigit) {
       _modem.stopTone();
-      Logger::infoln(F("Dialed digit: %d"), dialedNumberResult.dialedDigit);
+      Logger::infoln(F("Dialed digit: %d"), dialedDigit);
       Logger::infoln(F("Dialed number: %s"), dialedNumber);
 
-      _modem.enqueueMp3(dialedDigitsToMp3s[dialedNumberResult.dialedDigit]);
+      _modem.enqueueMp3(dialedDigitsToMp3s[dialedDigit]);
 
-      // Report dialing progress to HA
-      _integrationManager.updateDialingProgress(String(dialedNumber));
+      // Note: Dialing progress is now handled automatically by IntegrationManager
 
       const NumberValidationResult numberValidation = _numberHandler.validateNumber(dialedNumber);
 
@@ -345,19 +325,16 @@ void PhoneApp::processStateIdle() {
             _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
             ESP.restart();
           } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
-            // Toggle maintenance mode - the callback will handle portal control
-            bool newMaintenanceMode = !_deviceConfig.isMaintenanceMode();
-            _deviceConfig.setMaintenanceMode(newMaintenanceMode);
+            // Toggle maintenance mode - update state directly
+            _state.isMaintenanceMode = !_state.isMaintenanceMode;
+            onMaintenanceModeChanged(_state.isMaintenanceMode);
           }
           break;
 
         case NumberAction::QuickDial:
         case NumberAction::DirectDial:
-          _deviceStats.recordOutgoingCall(numberValidation.targetNumber);
-          _integrationManager.reportCallStart(numberValidation.targetNumber, false);
-          _integrationManager.updateCallInfo(numberValidation.targetNumber, false);
           _modem.enqueueCall(numberValidation.targetNumber.c_str());
-
+          // Note: Call start and call info are now handled automatically by IntegrationManager
           break;
         case NumberAction::WebhookTrigger:
           // Trigger webhook HTTP call directly
@@ -374,7 +351,8 @@ void PhoneApp::processStateIdle() {
           break;
         }
 
-        _rotaryDial.resetCurrentNumber();
+        // Reset current dialing number in state
+        _state.currentDialingNumber[0] = '\0';
       } else if (numberValidation.action == NumberAction::Pending) {
         // Continue waiting for more digits
       }
@@ -390,19 +368,15 @@ void PhoneApp::processStateIncomingCall() {
 
 void PhoneApp::processStateDialing() {
   if (_hookSwitch.justChangedOnHook()) {
-    unsigned long callDuration = _deviceStats.isCallActive() ? (millis() - _stateTime) / 1000 : 0;
-    _deviceStats.recordCallEnd();
-    _integrationManager.reportCallEnd(callDuration);
     _modem.hangUp();
+    // Note: Call end is now handled automatically by IntegrationManager
   }
 }
 
 void PhoneApp::processStateInCall() {
   if (_hookSwitch.justChangedOnHook()) {
-    unsigned long callDuration = _deviceStats.isCallActive() ? (millis() - _stateTime) / 1000 : 0;
-    _deviceStats.recordCallEnd();
-    _integrationManager.reportCallEnd(callDuration);
     _modem.hangUp();
+    // Note: Call end is now handled automatically by IntegrationManager
   }
 
   const int dialedDigit = _rotaryDial.getDialedDigit();
@@ -420,7 +394,8 @@ void PhoneApp::processStateInCall() {
     _state.callState.playedCallWaitingTone = true;
   }
 
-  _rotaryDial.resetCurrentNumber();
+  // Reset current dialing number in state
+  _state.currentDialingNumber[0] = '\0';
 }
 
 // Integration Callback Methods
@@ -434,7 +409,6 @@ bool PhoneApp::handleIntegrationDialRequest(const String &number) {
 
     if (validation.isComplete && (validation.action == NumberAction::QuickDial ||
                                   validation.action == NumberAction::DirectDial)) {
-      _deviceStats.recordOutgoingCall(validation.targetNumber);
       _modem.enqueueCall(validation.targetNumber.c_str());
       return true;
     } else {
@@ -472,9 +446,6 @@ bool PhoneApp::handleIntegrationHangupRequest() {
       _state.newAppState == AppState::IncomingCall ||
       _state.newAppState == AppState::IncomingCallRing) {
 
-    if (_deviceStats.isCallActive()) {
-      _deviceStats.recordCallEnd();
-    }
     _modem.hangUp();
     return true;
   } else {
@@ -521,6 +492,29 @@ bool PhoneApp::handleIntegrationCallWaitingRequest() {
   }
 }
 
+// Call Blocking Callback
+void PhoneApp::handleCallBlocked(const String &number) {
+  Logger::infoln(F("Blocking call from: %s"), number.c_str());
+
+  // Block the call by not answering and hanging up
+  _modem.hangUp();
+  setState(AppState::Idle);
+}
+
+void PhoneApp::handleConfigChange(ConfigChangeType changeType) {
+  // Note: IntegrationManager now handles notifying integrations automatically
+
+  // Handle specific config changes that affect the device directly
+  switch (changeType) {
+  case ConfigChangeType::Audio:
+    onAudioConfigChanged();
+    break;
+  default:
+    // Other config changes don't need specific handling
+    break;
+  }
+}
+
 void PhoneApp::onAudioConfigChanged() {
   Logger::infoln(F("Audio configuration changed, updating modem settings"));
 
@@ -532,13 +526,15 @@ void PhoneApp::onAudioConfigChanged() {
   }
 }
 
-void PhoneApp::onMaintenanceModeChanged() {
-  bool maintenanceMode = _deviceConfig.isMaintenanceMode();
-  Logger::infoln(F("Maintenance mode changed to: %s"), maintenanceMode ? "enabled" : "disabled");
+void PhoneApp::onMaintenanceModeChanged(const bool enabled) {
+  Logger::infoln(F("Maintenance mode changed to: %s"), enabled ? "enabled" : "disabled");
+
+  // Notify integrations about the maintenance mode change
+  // _integrationManager.onConfigurationChanged();
 
   _modem.enqueueTone(Tone::GeneralBeep, kWifiPortalToneDuration);
 
-  if (maintenanceMode) {
+  if (enabled) {
     // Entering maintenance mode - open config portal
     Logger::infoln(F("Opening WiFi config portal"));
     _wifi.openConfigPortal();

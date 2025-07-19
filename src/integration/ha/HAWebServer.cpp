@@ -9,8 +9,12 @@
 
 const char *HAWebServer::kWebSocketPath = "/ws";
 
-HAWebServer::HAWebServer(DeviceConfig &config, DeviceStats &stats)
-    : _config(config), _stats(stats), _server(kServerPort), _webSocket(kWebSocketPath) {}
+HAWebServer::HAWebServer(DeviceConfig &config, DeviceStats &stats, State &state)
+    : _config(config),
+      _stats(stats),
+      _state(state),
+      _server(kServerPort),
+      _webSocket(kWebSocketPath) {}
 
 bool HAWebServer::init() {
   Logger::infoln(F("Initializing HA Web Server on port %d..."), kServerPort);
@@ -35,7 +39,12 @@ bool HAWebServer::init() {
 }
 
 void HAWebServer::process() {
-  _webSocket.cleanupClients();
+  // Only cleanup WebSocket clients every 60 seconds to reduce overhead
+  unsigned long now = millis();
+  if (now - _lastCleanupTime >= kWebSocketCleanupInterval) {
+    _webSocket.cleanupClients();
+    _lastCleanupTime = now;
+  }
 }
 
 void HAWebServer::stop() {
@@ -373,7 +382,7 @@ void HAWebServer::handleGetStatus(AsyncWebServerRequest *request) {
     obj["uptime"] = _stats.getUptime();
     obj["freeHeap"] = _stats.getFreeHeap();
     obj["rssi"] = _stats.getRSSI();
-    obj["maintenanceMode"] = _config.isMaintenanceMode();
+    obj["maintenanceMode"] = _state.isMaintenanceMode;
     obj["state"] = "unknown";
   }
 
@@ -450,7 +459,7 @@ void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
     status["uptime"] = _stats.getUptime();
     status["freeHeap"] = _stats.getFreeHeap();
     status["rssi"] = _stats.getRSSI();
-    status["maintenanceMode"] = _config.isMaintenanceMode();
+    status["maintenanceMode"] = _state.isMaintenanceMode;
     status["state"] = "unknown";
   }
 
@@ -641,9 +650,15 @@ void HAWebServer::handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonV
   }
 
   bool enabled = json["enabled"];
-  _config.setMaintenanceMode(enabled);
+  _state.isMaintenanceMode = enabled;
 
   Logger::infoln(F("HA API: Maintenance mode %s"), enabled ? F("enabled") : F("disabled"));
+
+  if (_stateUpdateCallback) {
+    JsonDocument commandData;
+    commandData["enabled"] = enabled;
+    _stateUpdateCallback("maintenance_mode", commandData.as<JsonVariant>());
+  }
 
   JsonDocument doc;
   doc["status"] = "success";

@@ -15,7 +15,7 @@ void RotaryDial::init() const {
   Logger::infoln(F("Rotary dial initialized!"));
 }
 
-void RotaryDial::process() {
+void RotaryDial::process(State &state) {
   _dialedDigit = kInvalidDialedDigit;
 
   int newInDialedState = digitalRead(kRotaryDialInDialPin);
@@ -40,6 +40,13 @@ void RotaryDial::process() {
           }
 
           _dialedDigit = _counter;
+
+          // Add the dialed digit to the state's current dialing number
+          size_t len = strlen(state.currentDialingNumber);
+          if (len < sizeof(state.currentDialingNumber) - 1) {
+            state.currentDialingNumber[len] = '0' + _dialedDigit;
+            state.currentDialingNumber[len + 1] = '\0';
+          }
         }
       }
     }
@@ -72,29 +79,4 @@ void RotaryDial::process() {
 
 int RotaryDial::getDialedDigit() const {
   return _dialedDigit;
-}
-
-DialedNumberResult RotaryDial::getCurrentNumber() {
-  DialedNumberResult res = {"", kInvalidDialedDigit};
-
-  const int dialedDigit = getDialedDigit();
-
-  if (dialedDigit != kInvalidDialedDigit) {
-    size_t len = strlen(_currentNumber);
-
-    if (len < sizeof(_currentNumber) - 1) {
-      _currentNumber[len] = '0' + dialedDigit;
-      _currentNumber[len + 1] = '\0';
-    }
-
-    res.dialedDigit = dialedDigit;
-  }
-
-  snprintf(res.callNumber, sizeof(res.callNumber), "%s", _currentNumber);
-
-  return res;
-}
-
-void RotaryDial::resetCurrentNumber() {
-  _currentNumber[0] = '\0';
 }

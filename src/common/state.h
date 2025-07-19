@@ -53,6 +53,19 @@ struct State {
   char lastModemMessage[kBigBufferSize];
   bool messageHandled;
   bool isDnd;
+  bool isMaintenanceMode;
+  char currentDialingNumber[kSmallBufferSize]; // Current number being dialed
+
+  State()
+      : newAppState(AppState::Startup),
+        prevAppState(AppState::Startup),
+        callState(),
+        messageHandled(false),
+        isDnd(false),
+        isMaintenanceMode(false) {
+    lastModemMessage[0] = '\0';
+    currentDialingNumber[0] = '\0';
+  }
 };
 
 const __FlashStringHelper *appStateToString(const AppState state);

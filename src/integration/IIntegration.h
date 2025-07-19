@@ -25,6 +25,7 @@ public:
   virtual void updateDialingProgress(const String &currentNumber) = 0;
   virtual void updateRingState(bool isRinging) = 0;
   virtual void updateSystemStatus() = 0;
+  virtual void updateDndState(bool isDndActive) = 0;
 
   // Device operation callbacks
   virtual void setDialCallback(std::function<bool(const String &)> callback) = 0;
@@ -32,6 +33,7 @@ public:
   virtual void setHangupCallback(std::function<bool()> callback) = 0;
   virtual void setRingCallback(std::function<bool(const String &)> callback) = 0;
   virtual void setCallWaitingCallback(std::function<bool()> callback) = 0;
+  virtual void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) = 0;
 
   // Statistics and monitoring
   virtual void reportCallStart(const String &number, bool isIncoming) = 0;
