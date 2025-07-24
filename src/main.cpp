@@ -52,25 +52,34 @@ void PhoneApp::setup() {
 
     // Set up device operation callbacks for all integrations
     _integrationManager.setDialCallback(
-        [this](const String &number) -> bool { return handleIntegrationDialRequest(number); });
+        [this](const String &number) -> IntegrationCallbackResult { return handleIntegrationDialRequest(number); });
 
     _integrationManager.setAnswerCallback(
-        [this]() -> bool { return handleIntegrationAnswerRequest(); });
+        [this]() -> IntegrationCallbackResult { return handleIntegrationAnswerRequest(); });
 
     _integrationManager.setHangupCallback(
-        [this]() -> bool { return handleIntegrationHangupRequest(); });
+        [this]() -> IntegrationCallbackResult { return handleIntegrationHangupRequest(); });
 
     _integrationManager.setRingCallback(
-        [this](const String &pattern) -> bool { return handleIntegrationRingRequest(pattern); });
+        [this](const String &pattern) -> IntegrationCallbackResult { return handleIntegrationRingRequest(pattern); });
 
     _integrationManager.setCallWaitingCallback(
-        [this]() -> bool { return handleIntegrationCallWaitingRequest(); });
+        [this]() -> IntegrationCallbackResult { return handleIntegrationCallWaitingRequest(); });
 
     _integrationManager.setCallBlockedCallback(
         [this](const String &number) { handleCallBlocked(number); });
 
     _integrationManager.setMaintenanceModeChangedCallback(
         [this](bool enabled) { onMaintenanceModeChanged(enabled); });
+
+    // Set up config change event callback to trigger TimeManager updates
+    _integrationManager.addConfigChangeCallback(
+        [this](ConfigChangeEvent event) {
+          if (event == ConfigChangeEvent::DND_CONFIG_CHANGED) {
+            Logger::infoln(F("DND config changed, updating DND state"));
+            _timeManager.determineDndState(_state);
+          }
+        });
   } else {
     Logger::errorln(F("Failed to initialize Integration Manager"));
   }
@@ -399,7 +408,7 @@ void PhoneApp::processStateInCall() {
 }
 
 // Integration Callback Methods
-bool PhoneApp::handleIntegrationDialRequest(const String &number) {
+IntegrationCallbackResult PhoneApp::handleIntegrationDialRequest(const String &number) {
   Logger::infoln(F("Integration dial request: %s"), number.c_str());
 
   // Only allow dialing when idle and off-hook
@@ -410,35 +419,36 @@ bool PhoneApp::handleIntegrationDialRequest(const String &number) {
     if (validation.isComplete && (validation.action == NumberAction::QuickDial ||
                                   validation.action == NumberAction::DirectDial)) {
       _modem.enqueueCall(validation.targetNumber.c_str());
-      return true;
+      return IntegrationCallbackResult(true);
     } else {
-      Logger::errorln(F("Integration dial request: Invalid number %s"), number.c_str());
-      return false;
+      String error = "Invalid number: " + number;
+      Logger::errorln(F("Integration dial request: %s"), error.c_str());
+      return IntegrationCallbackResult(false, error);
     }
   } else {
-    Logger::errorln(F("Integration dial request: Phone not ready (state: %s, hook: %s)"),
-                    appStateToString(_state.newAppState),
-                    _hookSwitch.isOffHook() ? "off" : "on");
-    return false;
+    String error = "Phone not ready (state: " + String(appStateToString(_state.newAppState)) + 
+                   ", hook: " + String(_hookSwitch.isOffHook() ? "off" : "on") + ")";
+    Logger::errorln(F("Integration dial request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error);
   }
 }
 
-bool PhoneApp::handleIntegrationAnswerRequest() {
+IntegrationCallbackResult PhoneApp::handleIntegrationAnswerRequest() {
   Logger::infoln(F("Integration answer request"));
 
   // Only allow answering during incoming call states
   if (_state.newAppState == AppState::IncomingCall ||
       _state.newAppState == AppState::IncomingCallRing) {
     _modem.answer();
-    return true;
+    return IntegrationCallbackResult(true);
   } else {
-    Logger::errorln(F("Integration answer request: No incoming call (state: %s)"),
-                    appStateToString(_state.newAppState));
-    return false;
+    String error = "No incoming call (state: " + String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration answer request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error);
   }
 }
 
-bool PhoneApp::handleIntegrationHangupRequest() {
+IntegrationCallbackResult PhoneApp::handleIntegrationHangupRequest() {
   Logger::infoln(F("Integration hangup request"));
 
   // Allow hangup in any active call state
@@ -447,15 +457,15 @@ bool PhoneApp::handleIntegrationHangupRequest() {
       _state.newAppState == AppState::IncomingCallRing) {
 
     _modem.hangUp();
-    return true;
+    return IntegrationCallbackResult(true);
   } else {
-    Logger::errorln(F("Integration hangup request: No active call (state: %s)"),
-                    appStateToString(_state.newAppState));
-    return false;
+    String error = "No active call (state: " + String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration hangup request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error);
   }
 }
 
-bool PhoneApp::handleIntegrationRingRequest(const String &pattern) {
+IntegrationCallbackResult PhoneApp::handleIntegrationRingRequest(const String &pattern) {
   Logger::infoln(F("Integration ring request: %s"), pattern.c_str());
 
   // Only allow ringing when idle
@@ -468,27 +478,26 @@ bool PhoneApp::handleIntegrationRingRequest(const String &pattern) {
       // Use specified pattern
       _ringer.startRinging(pattern);
     }
-    return true;
+    return IntegrationCallbackResult(true);
   } else {
-    Logger::errorln(F("Integration ring request: Phone not idle (state: %s)"),
-                    appStateToString(_state.newAppState));
-    return false;
+    String error = "Phone not idle (state: " + String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration ring request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error);
   }
 }
 
-bool PhoneApp::handleIntegrationCallWaitingRequest() {
+IntegrationCallbackResult PhoneApp::handleIntegrationCallWaitingRequest() {
   Logger::infoln(F("Integration call waiting request"));
 
   // Only allow call waiting switch during an active call with call waiting available
   if (_state.newAppState == AppState::InCall && _state.callState.hasCallWaiting()) {
     _modem.switchToCallWaiting();
-    return true;
+    return IntegrationCallbackResult(true);
   } else {
-    Logger::errorln(F("Integration call waiting request: No active call with call waiting (state: "
-                      "%s, has waiting: %s)"),
-                    appStateToString(_state.newAppState),
-                    _state.callState.hasCallWaiting() ? "yes" : "no");
-    return false;
+    String error = "No active call with call waiting (state: " + String(appStateToString(_state.newAppState)) + 
+                   ", has waiting: " + String(_state.callState.hasCallWaiting() ? "yes" : "no") + ")";
+    Logger::errorln(F("Integration call waiting request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error);
   }
 }
 

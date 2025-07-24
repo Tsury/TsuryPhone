@@ -2,13 +2,21 @@
 
 #include <Arduino.h>
 
+struct LastCallInfo {
+  String number;
+  String type; // "incoming", "outgoing", "blocked"
+
+  LastCallInfo() = default;
+  LastCallInfo(const String &n, const String &t) : number(n), type(t) {}
+};
+
 struct CallStats {
   uint32_t totalCalls = 0;
   uint32_t incomingCalls = 0;
   uint32_t outgoingCalls = 0;
   uint32_t blockedCalls = 0;
   uint32_t totalTalkTimeSeconds = 0;
-  String lastCall;
+  LastCallInfo lastCall;
 };
 
 class DeviceStats {
@@ -29,6 +37,12 @@ public:
     return _callStartTime != 0;
   }
 
+  // System statistics
+  int getResetCount() const {
+    return _resetCount;
+  }
+  void incrementResetCount();
+
   // Getters
   const CallStats &getCallStats() const {
     return _callStats;
@@ -46,6 +60,7 @@ private:
   CallStats _callStats;
   uint32_t _systemStartTime;
   uint32_t _callStartTime;
+  int _resetCount = 0;
 
   static const char *kStatsFilePath;
 };

@@ -5,9 +5,34 @@
 #include "../core/DeviceStats.h"
 #include "../core/StatsManager.h"
 #include "IIntegration.h"
+#include <ArduinoJson.h>
 #include <functional>
 #include <memory>
 #include <vector>
+
+// Config change event types
+enum class ConfigChangeEvent {
+  DND_CONFIG_CHANGED,
+  AUDIO_CONFIG_CHANGED,
+  QUICK_DIAL_CHANGED,
+  BLOCKED_NUMBER_CHANGED,
+  WEBHOOK_ACTION_CHANGED,
+  HA_URL_CHANGED,
+  RING_PATTERN_CHANGED
+};
+
+// Result structure for integration callbacks
+struct IntegrationCallbackResult {
+  bool success = false;
+  String errorMessage;
+  
+  IntegrationCallbackResult() = default;
+  IntegrationCallbackResult(bool success) : success(success) {}
+  IntegrationCallbackResult(bool success, const String& error) : success(success), errorMessage(error) {}
+};
+
+// Callback function type for config changes
+using ConfigChangeCallback = std::function<void(ConfigChangeEvent event)>;
 
 /**
  * Manager for all device integrations
@@ -32,11 +57,11 @@ public:
   void updateDndState(bool isDndActive);
 
   // Device operation callbacks - sets callbacks for all integrations
-  void setDialCallback(std::function<bool(const String &)> callback);
-  void setAnswerCallback(std::function<bool()> callback);
-  void setHangupCallback(std::function<bool()> callback);
-  void setRingCallback(std::function<bool(const String &)> callback);
-  void setCallWaitingCallback(std::function<bool()> callback);
+  void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
+  void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
+  void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
 
   // Call blocking callback - notifies when a call should be blocked
@@ -51,6 +76,10 @@ public:
 
   // Configuration synchronization - notifies all integrations
   void onConfigurationChanged();
+
+  // Config change event system
+  void addConfigChangeCallback(ConfigChangeCallback callback);
+  void notifyConfigChange(ConfigChangeEvent event);
 
   // Management
   bool hasEnabledIntegrations() const;
@@ -89,6 +118,9 @@ private:
 
   // Callback for blocked calls
   std::function<void(const String &)> _callBlockedCallback;
+
+  // Config change callbacks
+  std::vector<ConfigChangeCallback> _configChangeCallbacks;
 
   std::vector<std::unique_ptr<IIntegration>> _integrations;
 

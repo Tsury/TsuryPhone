@@ -13,20 +13,36 @@ DeviceStats::DeviceStats() : _systemStartTime(0), _callStartTime(0) {
 bool DeviceStats::init() {
   if (!load()) {
     Logger::infoln(F("No existing stats found, starting fresh"));
-    return save();
   }
+
+  // Increment reset count on every initialization
+  incrementResetCount();
+
   return true;
 }
 
 bool DeviceStats::save() {
   JsonDocument doc;
 
-  doc["totalCalls"] = _callStats.totalCalls;
-  doc["incomingCalls"] = _callStats.incomingCalls;
-  doc["outgoingCalls"] = _callStats.outgoingCalls;
-  doc["blockedCalls"] = _callStats.blockedCalls;
-  doc["totalTalkTimeSeconds"] = _callStats.totalTalkTimeSeconds;
-  doc["lastCall"] = _callStats.lastCall;
+  // Stats hierarchy: stats.calls.totals.*
+  JsonObject stats = doc["stats"].to<JsonObject>();
+  JsonObject calls = stats["calls"].to<JsonObject>();
+  JsonObject totals = calls["totals"].to<JsonObject>();
+
+  totals["calls"] = _callStats.totalCalls;
+  totals["incoming"] = _callStats.incomingCalls;
+  totals["outgoing"] = _callStats.outgoingCalls;
+  totals["blocked"] = _callStats.blockedCalls;
+  totals["talkTime"] = _callStats.totalTalkTimeSeconds;
+
+  // Save lastCall as object: stats.calls.lastCall.*
+  JsonObject lastCall = calls["lastCall"].to<JsonObject>();
+  lastCall["number"] = _callStats.lastCall.number;
+  lastCall["type"] = _callStats.lastCall.type;
+
+  // System stats: stats.system.*
+  JsonObject system = stats["system"].to<JsonObject>();
+  system["resets"] = _resetCount;
 
   File file = SPIFFS.open(kStatsFilePath, "w");
   if (!file) {
@@ -64,12 +80,28 @@ bool DeviceStats::load() {
     return false;
   }
 
-  _callStats.totalCalls = doc["totalCalls"] | 0;
-  _callStats.incomingCalls = doc["incomingCalls"] | 0;
-  _callStats.outgoingCalls = doc["outgoingCalls"] | 0;
-  _callStats.blockedCalls = doc["blockedCalls"] | 0;
-  _callStats.totalTalkTimeSeconds = doc["totalTalkTimeSeconds"] | 0;
-  _callStats.lastCall = doc["lastCall"].as<String>();
+  // Load hierarchical format: stats.calls.totals.*
+  if (doc["stats"]["calls"]["totals"]) {
+    JsonObject totals = doc["stats"]["calls"]["totals"];
+    _callStats.totalCalls = totals["calls"] | 0;
+    _callStats.incomingCalls = totals["incoming"] | 0;
+    _callStats.outgoingCalls = totals["outgoing"] | 0;
+    _callStats.blockedCalls = totals["blocked"] | 0;
+    _callStats.totalTalkTimeSeconds = totals["talkTime"] | 0;
+  }
+
+  // Load lastCall: stats.calls.lastCall.*
+  if (doc["stats"]["calls"]["lastCall"].is<JsonObject>()) {
+    JsonObject lastCall = doc["stats"]["calls"]["lastCall"];
+    _callStats.lastCall.number = lastCall["number"].as<String>();
+    _callStats.lastCall.type = lastCall["type"].as<String>();
+  }
+
+  // Load system stats: stats.system.*
+  if (doc["stats"]["system"]) {
+    JsonObject systemStats = doc["stats"]["system"];
+    _resetCount = systemStats["resets"] | 0;
+  }
 
   Logger::infoln(F("Statistics loaded successfully"));
   return true;
@@ -78,20 +110,20 @@ bool DeviceStats::load() {
 void DeviceStats::recordIncomingCall(const String &number) {
   _callStats.incomingCalls++;
   _callStats.totalCalls++;
-  _callStats.lastCall = "Incoming - " + number;
+  _callStats.lastCall = LastCallInfo(number, "incoming");
   save();
 }
 
 void DeviceStats::recordOutgoingCall(const String &number) {
   _callStats.outgoingCalls++;
   _callStats.totalCalls++;
-  _callStats.lastCall = "Outgoing - " + number;
+  _callStats.lastCall = LastCallInfo(number, "outgoing");
   save();
 }
 
 void DeviceStats::recordBlockedCall(const String &number) {
   _callStats.blockedCalls++;
-  _callStats.lastCall = "Blocked - " + number;
+  _callStats.lastCall = LastCallInfo(number, "blocked");
   save();
   Logger::infoln(F("Blocked call from: %s"), number.c_str());
 }
@@ -129,4 +161,9 @@ int DeviceStats::getRSSI() const {
 
 void DeviceStats::recordSystemStart() {
   _systemStartTime = millis();
+}
+
+void DeviceStats::incrementResetCount() {
+  _resetCount++;
+  save();
 }

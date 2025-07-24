@@ -13,6 +13,9 @@
 #include "integration\IntegrationManager.h"
 #include <Arduino.h>
 
+// Forward declaration
+struct IntegrationCallbackResult;
+
 class PhoneApp {
 public:
   PhoneApp();
@@ -49,11 +52,11 @@ private:
   void onMaintenanceModeChanged(const bool enabled);
 
   // Integration operation callbacks
-  bool handleIntegrationDialRequest(const String &number);
-  bool handleIntegrationAnswerRequest();
-  bool handleIntegrationHangupRequest();
-  bool handleIntegrationRingRequest(const String &pattern);
-  bool handleIntegrationCallWaitingRequest();
+  IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
+  IntegrationCallbackResult handleIntegrationAnswerRequest();
+  IntegrationCallbackResult handleIntegrationHangupRequest();
+  IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern);
+  IntegrationCallbackResult handleIntegrationCallWaitingRequest();
 
   // Call blocking callback
   void handleCallBlocked(const String &number);

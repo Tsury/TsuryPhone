@@ -114,31 +114,31 @@ void IntegrationManager::updateDndState(bool isDndActive) {
   }
 }
 
-void IntegrationManager::setDialCallback(std::function<bool(const String &)> callback) {
+void IntegrationManager::setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
   for (auto &integration : _integrations) {
     integration->setDialCallback(callback);
   }
 }
 
-void IntegrationManager::setAnswerCallback(std::function<bool()> callback) {
+void IntegrationManager::setAnswerCallback(std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setAnswerCallback(callback);
   }
 }
 
-void IntegrationManager::setHangupCallback(std::function<bool()> callback) {
+void IntegrationManager::setHangupCallback(std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setHangupCallback(callback);
   }
 }
 
-void IntegrationManager::setRingCallback(std::function<bool(const String &)> callback) {
+void IntegrationManager::setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
   for (auto &integration : _integrations) {
     integration->setRingCallback(callback);
   }
 }
 
-void IntegrationManager::setCallWaitingCallback(std::function<bool()> callback) {
+void IntegrationManager::setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setCallWaitingCallback(callback);
   }
@@ -207,8 +207,14 @@ void IntegrationManager::registerIntegrations() {
   // Register available integrations based on compile-time flags
 
 #ifdef HOME_ASSISTANT_INTEGRATION
-  _integrations.push_back(
-      std::unique_ptr<IIntegration>(new HAIntegration(_config, _stats, _state)));
+  std::unique_ptr<HAIntegration> haIntegration(new HAIntegration(_config, _stats, _state));
+  
+  // Set up config change callback
+  haIntegration->setConfigChangeCallback([this](ConfigChangeEvent event) {
+    this->notifyConfigChange(event);
+  });
+  
+  _integrations.push_back(std::move(haIntegration));
   Logger::infoln(F("Registered Home Assistant integration"));
 #endif
 
@@ -386,5 +392,33 @@ void IntegrationManager::triggerWebhook(const String &webhookId) {
     if (integration->isEnabled()) {
       integration->triggerWebhook(webhookId);
     }
+  }
+}
+
+// Config change event system implementation
+void IntegrationManager::addConfigChangeCallback(ConfigChangeCallback callback) {
+  _configChangeCallbacks.push_back(callback);
+  Logger::infoln(F("Config change callback registered. Total callbacks: %d"), 
+                 static_cast<int>(_configChangeCallbacks.size()));
+}
+
+void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
+  const char* eventName = "";
+  switch (event) {
+    case ConfigChangeEvent::DND_CONFIG_CHANGED: eventName = "DND_CONFIG_CHANGED"; break;
+    case ConfigChangeEvent::AUDIO_CONFIG_CHANGED: eventName = "AUDIO_CONFIG_CHANGED"; break;
+    case ConfigChangeEvent::QUICK_DIAL_CHANGED: eventName = "QUICK_DIAL_CHANGED"; break;
+    case ConfigChangeEvent::BLOCKED_NUMBER_CHANGED: eventName = "BLOCKED_NUMBER_CHANGED"; break;
+    case ConfigChangeEvent::WEBHOOK_ACTION_CHANGED: eventName = "WEBHOOK_ACTION_CHANGED"; break;
+    case ConfigChangeEvent::HA_URL_CHANGED: eventName = "HA_URL_CHANGED"; break;
+    case ConfigChangeEvent::RING_PATTERN_CHANGED: eventName = "RING_PATTERN_CHANGED"; break;
+  }
+
+  Logger::infoln(F("Notifying config change: %s to %d callbacks"), 
+                 eventName, static_cast<int>(_configChangeCallbacks.size()));
+
+  // Notify all registered callbacks
+  for (const auto& callback : _configChangeCallbacks) {
+    callback(event);
   }
 }

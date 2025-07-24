@@ -32,6 +32,34 @@ struct DndConfig {
   int endMinute = 30;
 };
 
+struct QuickDialEntry {
+  String code;
+  String number;
+  String name;
+
+  QuickDialEntry() = default;
+  QuickDialEntry(const String &c, const String &n, const String &nm = "")
+      : code(c), number(n), name(nm) {}
+};
+
+struct BlockedNumberEntry {
+  String number;
+  String reason;
+
+  BlockedNumberEntry() = default;
+  BlockedNumberEntry(const String &n, const String &r = "") : number(n), reason(r) {}
+};
+
+struct WebhookActionEntry {
+  String code;
+  String id;
+  String actionName;
+
+  WebhookActionEntry() = default;
+  WebhookActionEntry(const String &c, const String &i, const String &an = "")
+      : code(c), id(i), actionName(an) {}
+};
+
 class DeviceConfig {
 public:
   DeviceConfig();
@@ -63,27 +91,27 @@ public:
   void setDndConfig(const DndConfig &config);
 
   // Quick dial entries
-  const std::map<String, String> &getQuickDialEntries() const {
+  const std::vector<QuickDialEntry> &getQuickDialEntries() const {
     return _quickDialEntries;
   }
-  bool addQuickDialEntry(const String &code, const String &number);
+  bool addQuickDialEntry(const String &code, const String &number, const String &name = "");
   bool removeQuickDialEntry(const String &code);
   String getQuickDialNumber(const String &code) const;
   bool hasQuickDialEntry(const String &code) const;
 
   // Blocked numbers
-  const std::vector<String> &getBlockedNumbers() const {
+  const std::vector<BlockedNumberEntry> &getBlockedNumbers() const {
     return _blockedNumbers;
   }
-  bool addBlockedNumber(const String &number);
+  bool addBlockedNumber(const String &number, const String &reason = "");
   bool removeBlockedNumber(const String &number);
   bool isIncomingCallBlocked(const String &number) const;
 
   // Webhook actions
-  const std::map<String, String> &getWebhookActions() const {
+  const std::vector<WebhookActionEntry> &getWebhookActions() const {
     return _webhookActions;
   }
-  bool addWebhookAction(const String &code, const String &webhookId);
+  bool addWebhookAction(const String &code, const String &webhookId, const String &actionName = "");
   bool removeWebhookAction(const String &code);
   String getWebhookId(const String &code) const;
   bool hasWebhookAction(const String &code) const;
@@ -100,12 +128,6 @@ public:
   }
   void setHomeAssistantUrl(const String &url);
 
-  // Statistics
-  int getResetCount() const {
-    return _resetCount;
-  }
-  void incrementResetCount();
-
   // Configuration change callbacks
   void setConfigChangeCallback(std::function<void(ConfigChangeType)> callback) {
     _configChangeCallback = callback;
@@ -120,12 +142,11 @@ private:
   String _deviceId;
   AudioConfig _audioConfig;
   DndConfig _dndConfig;
-  std::map<String, String> _quickDialEntries;
-  std::vector<String> _blockedNumbers;
-  std::map<String, String> _webhookActions;
+  std::vector<QuickDialEntry> _quickDialEntries;
+  std::vector<BlockedNumberEntry> _blockedNumbers;
+  std::vector<WebhookActionEntry> _webhookActions;
   String _ringPattern;
   String _homeAssistantUrl;
-  int _resetCount;
 
   std::function<void(ConfigChangeType)> _configChangeCallback;
 

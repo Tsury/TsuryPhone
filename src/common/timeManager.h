@@ -10,6 +10,7 @@ public:
   TimeManager(DeviceConfig &config);
   void init() const;
   void process(State &state);
+  void determineDndState(State &state);
 
 private:
   bool fetchLocalTime(struct tm &timeinfo) const;

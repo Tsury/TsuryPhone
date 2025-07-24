@@ -5,11 +5,12 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
+#include <algorithm>
 
 const char *DeviceConfig::kConfigFilePath = "/config.json";
 const char *DeviceConfig::kDefaultRingPattern = "500,500,500,500x3";
 
-DeviceConfig::DeviceConfig() : _resetCount(0) {
+DeviceConfig::DeviceConfig() {
   _deviceId = generateDeviceId();
   // Note: Don't call initializeDefaults() here - only call it when no config exists
 }
@@ -29,16 +30,11 @@ bool DeviceConfig::init() {
     Logger::infoln(F("Configuration loaded successfully"));
   }
 
-  incrementResetCount();
   return true;
 }
 
 bool DeviceConfig::save() {
   JsonDocument doc;
-
-  // Device info
-  JsonObject device = doc["device"].to<JsonObject>();
-  device["resetCount"] = _resetCount;
 
   // Audio config
   JsonObject audio = doc["audio"].to<JsonObject>();
@@ -57,21 +53,29 @@ bool DeviceConfig::save() {
   dnd["endMinute"] = _dndConfig.endMinute;
 
   // Quick dial entries
-  JsonObject quickDial = doc["quickDial"].to<JsonObject>();
+  JsonArray quickDial = doc["quickDial"].to<JsonArray>();
   for (const auto &entry : _quickDialEntries) {
-    quickDial[entry.first] = entry.second;
+    JsonObject entryObj = quickDial.add<JsonObject>();
+    entryObj["code"] = entry.code;
+    entryObj["number"] = entry.number;
+    entryObj["name"] = entry.name;
   }
 
   // Blocked numbers
   JsonArray blocked = doc["blockedNumbers"].to<JsonArray>();
-  for (const String &number : _blockedNumbers) {
-    blocked.add(number);
+  for (const auto &entry : _blockedNumbers) {
+    JsonObject entryObj = blocked.add<JsonObject>();
+    entryObj["number"] = entry.number;
+    entryObj["reason"] = entry.reason;
   }
 
   // Webhook actions
-  JsonObject webhooks = doc["webhookActions"].to<JsonObject>();
-  for (const auto &action : _webhookActions) {
-    webhooks[action.first] = action.second;
+  JsonArray webhooks = doc["webhookActions"].to<JsonArray>();
+  for (const auto &entry : _webhookActions) {
+    JsonObject entryObj = webhooks.add<JsonObject>();
+    entryObj["code"] = entry.code;
+    entryObj["id"] = entry.id;
+    entryObj["actionName"] = entry.actionName;
   }
 
   // Ring pattern
@@ -120,11 +124,6 @@ bool DeviceConfig::load() {
     return false;
   }
 
-  // Device info
-  if (doc["device"]["resetCount"].is<int>()) {
-    _resetCount = doc["device"]["resetCount"];
-  }
-
   // Audio config
   if (doc["audio"]) {
     JsonObject audio = doc["audio"];
@@ -168,9 +167,16 @@ bool DeviceConfig::load() {
   // Quick dial entries
   if (doc["quickDial"]) {
     _quickDialEntries.clear();
-    JsonObject quickDial = doc["quickDial"];
-    for (JsonPair entry : quickDial) {
-      _quickDialEntries[entry.key().c_str()] = entry.value().as<String>();
+    JsonArray quickDial = doc["quickDial"];
+    for (JsonVariant entry : quickDial) {
+      if (entry.is<JsonObject>()) {
+        JsonObject entryObj = entry.as<JsonObject>();
+        QuickDialEntry qde;
+        qde.code = entryObj["code"].as<String>();
+        qde.number = entryObj["number"].as<String>();
+        qde.name = entryObj["name"].as<String>();
+        _quickDialEntries.push_back(qde);
+      }
     }
     Logger::infoln(F("Loaded %d quick dial entries"), _quickDialEntries.size());
   }
@@ -179,8 +185,14 @@ bool DeviceConfig::load() {
   if (doc["blockedNumbers"]) {
     _blockedNumbers.clear();
     JsonArray blocked = doc["blockedNumbers"];
-    for (JsonVariant number : blocked) {
-      _blockedNumbers.push_back(number.as<String>());
+    for (JsonVariant entry : blocked) {
+      if (entry.is<JsonObject>()) {
+        JsonObject entryObj = entry.as<JsonObject>();
+        BlockedNumberEntry bne;
+        bne.number = entryObj["number"].as<String>();
+        bne.reason = entryObj["reason"].as<String>();
+        _blockedNumbers.push_back(bne);
+      }
     }
     Logger::infoln(F("Loaded %d blocked numbers"), _blockedNumbers.size());
   }
@@ -188,9 +200,16 @@ bool DeviceConfig::load() {
   // Webhook actions
   if (doc["webhookActions"]) {
     _webhookActions.clear();
-    JsonObject webhooks = doc["webhookActions"];
-    for (JsonPair action : webhooks) {
-      _webhookActions[action.key().c_str()] = action.value().as<String>();
+    JsonArray webhooks = doc["webhookActions"];
+    for (JsonVariant entry : webhooks) {
+      if (entry.is<JsonObject>()) {
+        JsonObject entryObj = entry.as<JsonObject>();
+        WebhookActionEntry wae;
+        wae.code = entryObj["code"].as<String>();
+        wae.id = entryObj["id"].as<String>();
+        wae.actionName = entryObj["actionName"].as<String>();
+        _webhookActions.push_back(wae);
+      }
     }
     Logger::infoln(F("Loaded %d webhook actions"), _webhookActions.size());
   }
@@ -212,7 +231,8 @@ void DeviceConfig::initializeDefaults() {
   // Initialize with generated phoneBook entries dynamically
   size_t numEntries = sizeof(phoneBookEntries) / sizeof(phoneBookEntries[0]);
   for (size_t i = 0; i < numEntries; ++i) {
-    _quickDialEntries[String(phoneBookEntries[i].entry)] = String(phoneBookEntries[i].number);
+    QuickDialEntry entry(String(phoneBookEntries[i].entry), String(phoneBookEntries[i].number), "");
+    _quickDialEntries.push_back(entry);
   }
 
   // Initialize audio config with defaults from config.h
@@ -243,18 +263,21 @@ void DeviceConfig::setDndConfig(const DndConfig &config) {
   saveAndNotify(ConfigChangeType::DND);
 }
 
-bool DeviceConfig::addQuickDialEntry(const String &code, const String &number) {
+bool DeviceConfig::addQuickDialEntry(const String &code, const String &number, const String &name) {
   if (isCodeConflict(code)) {
     return false;
   }
 
-  _quickDialEntries[code] = number;
+  QuickDialEntry entry(code, number, name);
+  _quickDialEntries.push_back(entry);
   saveAndNotify(ConfigChangeType::QuickDial);
   return true;
 }
 
 bool DeviceConfig::removeQuickDialEntry(const String &code) {
-  auto it = _quickDialEntries.find(code);
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&code](const QuickDialEntry &entry) { return entry.code == code; });
   if (it != _quickDialEntries.end()) {
     _quickDialEntries.erase(it);
     saveAndNotify(ConfigChangeType::QuickDial);
@@ -264,28 +287,39 @@ bool DeviceConfig::removeQuickDialEntry(const String &code) {
 }
 
 String DeviceConfig::getQuickDialNumber(const String &code) const {
-  auto it = _quickDialEntries.find(code);
-  return (it != _quickDialEntries.end()) ? it->second : String();
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&code](const QuickDialEntry &entry) { return entry.code == code; });
+  return (it != _quickDialEntries.end()) ? it->number : String();
 }
 
 bool DeviceConfig::hasQuickDialEntry(const String &code) const {
-  return _quickDialEntries.find(code) != _quickDialEntries.end();
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&code](const QuickDialEntry &entry) { return entry.code == code; });
+  return it != _quickDialEntries.end();
 }
 
-bool DeviceConfig::addBlockedNumber(const String &number) {
-  for (const String &blocked : _blockedNumbers) {
-    if (blocked == number) {
-      return false;
-    }
+bool DeviceConfig::addBlockedNumber(const String &number, const String &reason) {
+  auto it =
+      std::find_if(_blockedNumbers.begin(),
+                   _blockedNumbers.end(),
+                   [&number](const BlockedNumberEntry &entry) { return entry.number == number; });
+  if (it != _blockedNumbers.end()) {
+    return false;
   }
 
-  _blockedNumbers.push_back(number);
+  BlockedNumberEntry entry(number, reason);
+  _blockedNumbers.push_back(entry);
   saveAndNotify(ConfigChangeType::BlockedNumbers);
   return true;
 }
 
 bool DeviceConfig::removeBlockedNumber(const String &number) {
-  auto it = std::find(_blockedNumbers.begin(), _blockedNumbers.end(), number);
+  auto it =
+      std::find_if(_blockedNumbers.begin(),
+                   _blockedNumbers.end(),
+                   [&number](const BlockedNumberEntry &entry) { return entry.number == number; });
   if (it != _blockedNumbers.end()) {
     _blockedNumbers.erase(it);
     saveAndNotify(ConfigChangeType::BlockedNumbers);
@@ -295,21 +329,30 @@ bool DeviceConfig::removeBlockedNumber(const String &number) {
 }
 
 bool DeviceConfig::isIncomingCallBlocked(const String &number) const {
-  return std::find(_blockedNumbers.begin(), _blockedNumbers.end(), number) != _blockedNumbers.end();
+  auto it =
+      std::find_if(_blockedNumbers.begin(),
+                   _blockedNumbers.end(),
+                   [&number](const BlockedNumberEntry &entry) { return entry.number == number; });
+  return it != _blockedNumbers.end();
 }
 
-bool DeviceConfig::addWebhookAction(const String &code, const String &webhookId) {
+bool DeviceConfig::addWebhookAction(const String &code,
+                                    const String &webhookId,
+                                    const String &actionName) {
   if (isCodeConflict(code)) {
     return false;
   }
 
-  _webhookActions[code] = webhookId;
+  WebhookActionEntry entry(code, webhookId, actionName);
+  _webhookActions.push_back(entry);
   saveAndNotify(ConfigChangeType::WebhookActions);
   return true;
 }
 
 bool DeviceConfig::removeWebhookAction(const String &code) {
-  auto it = _webhookActions.find(code);
+  auto it = std::find_if(_webhookActions.begin(),
+                         _webhookActions.end(),
+                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
   if (it != _webhookActions.end()) {
     _webhookActions.erase(it);
     saveAndNotify(ConfigChangeType::WebhookActions);
@@ -319,12 +362,17 @@ bool DeviceConfig::removeWebhookAction(const String &code) {
 }
 
 String DeviceConfig::getWebhookId(const String &code) const {
-  auto it = _webhookActions.find(code);
-  return (it != _webhookActions.end()) ? it->second : String();
+  auto it = std::find_if(_webhookActions.begin(),
+                         _webhookActions.end(),
+                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
+  return (it != _webhookActions.end()) ? it->id : String();
 }
 
 bool DeviceConfig::hasWebhookAction(const String &code) const {
-  return _webhookActions.find(code) != _webhookActions.end();
+  auto it = std::find_if(_webhookActions.begin(),
+                         _webhookActions.end(),
+                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
+  return it != _webhookActions.end();
 }
 
 void DeviceConfig::setRingPattern(const String &pattern) {
@@ -332,11 +380,6 @@ void DeviceConfig::setRingPattern(const String &pattern) {
     _ringPattern = pattern;
     saveAndNotify(ConfigChangeType::RingPattern);
   }
-}
-
-void DeviceConfig::incrementResetCount() {
-  _resetCount++;
-  save();
 }
 
 void DeviceConfig::notifyConfigChanged(ConfigChangeType changeType) {

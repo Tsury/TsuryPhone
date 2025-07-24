@@ -5,6 +5,9 @@
 #include "../core/DeviceStats.h"
 #include <functional>
 
+// Forward declaration
+struct IntegrationCallbackResult;
+
 /**
  * Base interface for all device integrations
  * Defines the contract that all integrations must implement
@@ -28,11 +31,11 @@ public:
   virtual void updateDndState(bool isDndActive) = 0;
 
   // Device operation callbacks
-  virtual void setDialCallback(std::function<bool(const String &)> callback) = 0;
-  virtual void setAnswerCallback(std::function<bool()> callback) = 0;
-  virtual void setHangupCallback(std::function<bool()> callback) = 0;
-  virtual void setRingCallback(std::function<bool(const String &)> callback) = 0;
-  virtual void setCallWaitingCallback(std::function<bool()> callback) = 0;
+  virtual void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
+  virtual void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) = 0;
+  virtual void setHangupCallback(std::function<IntegrationCallbackResult()> callback) = 0;
+  virtual void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
+  virtual void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) = 0;
 
   // Statistics and monitoring

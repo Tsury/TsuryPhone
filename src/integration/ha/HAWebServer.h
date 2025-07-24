@@ -10,6 +10,17 @@
 class DeviceConfig;
 class DeviceStats;
 
+// Result structure for business logic operations
+struct HAOperationResult {
+  bool success = false;
+  String errorMessage;
+  JsonDocument data;
+  
+  HAOperationResult() = default;
+  HAOperationResult(bool success) : success(success) {}
+  HAOperationResult(bool success, const String& error) : success(success), errorMessage(error) {}
+};
+
 class HAWebServer {
 public:
   HAWebServer(DeviceConfig &config, DeviceStats &stats, State &state);
@@ -21,17 +32,14 @@ public:
   // WebSocket communication
   void broadcastStateUpdate(const JsonDocument &stateData);
   void setStatusCallback(std::function<void(JsonObject &)> callback);
-  void setStateUpdateCallback(std::function<void(const String &, const JsonVariant &)> callback);
+  void setStateUpdateCallback(std::function<HAOperationResult(const String &, const JsonVariant &)> callback);
 
 private:
   void setupRoutes();
   void setupWebSocket();
 
   // REST API handlers
-  void handleGetStatus(AsyncWebServerRequest *request);
-  void handleGetConfig(AsyncWebServerRequest *request);
   void handleGetTsuryPhoneConfig(AsyncWebServerRequest *request);
-  void handleGetStats(AsyncWebServerRequest *request);
   void handleRefetchAll(AsyncWebServerRequest *request);
 
   // Device operation handlers
@@ -74,13 +82,19 @@ private:
   void sendErrorResponse(AsyncWebServerRequest *request, const String &error, int statusCode = 400);
   bool parseJsonBody(AsyncWebServerRequest *request, JsonVariant &json);
 
+  // Helper functions for hierarchical data building
+  void addStatus(JsonObject &root);
+  void addConfig(JsonObject &root);
+  void addStats(JsonObject &root);
+  void addPhone(JsonObject &root);
+
   DeviceConfig &_config;
   DeviceStats &_stats;
   State &_state;
   AsyncWebServer _server;
   AsyncWebSocket _webSocket;
   std::function<void(JsonObject &)> _statusCallback;
-  std::function<void(const String &, const JsonVariant &)> _stateUpdateCallback;
+  std::function<HAOperationResult(const String &, const JsonVariant &)> _stateUpdateCallback;
 
   // WebSocket cleanup optimization
   unsigned long _lastCleanupTime = 0;

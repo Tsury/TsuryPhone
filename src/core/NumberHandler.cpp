@@ -77,14 +77,14 @@ bool NumberHandler::isPartialMatch(const char *dialedNumber) {
 
   // Check quick dial entries for partial matches
   for (const auto &entry : _config.getQuickDialEntries()) {
-    if (entry.first.startsWith(dialedStr)) {
+    if (entry.code.startsWith(dialedStr)) {
       return true;
     }
   }
 
   // Check webhook actions for partial matches
   for (const auto &action : _config.getWebhookActions()) {
-    if (action.first.startsWith(dialedStr)) {
+    if (action.code.startsWith(dialedStr)) {
       return true;
     }
   }

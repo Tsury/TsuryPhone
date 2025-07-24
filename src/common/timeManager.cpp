@@ -30,6 +30,10 @@ bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
 }
 
 void TimeManager::process(State &state) {
+  determineDndState(state);
+}
+
+void TimeManager::determineDndState(State &state) {
   uint32_t currentMillis = millis();
 
   // _lastDndCheckTime != 0 is a workaround for the first time the time manager is called.

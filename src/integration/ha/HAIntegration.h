@@ -9,6 +9,10 @@
 #include "HAWebServer.h"
 #include <functional>
 
+// Forward declaration
+enum class ConfigChangeEvent;
+using ConfigChangeCallback = std::function<void(ConfigChangeEvent event)>;
+
 /**
  * Home Assistant integration implementation
  * Manages all HA-related functionality including web server, state synchronization,
@@ -32,11 +36,11 @@ public:
   void updateDndState(bool isDndActive);
 
   // Device operation callbacks (to be called by main application)
-  void setDialCallback(std::function<bool(const String &)> callback) override;
-  void setAnswerCallback(std::function<bool()> callback) override;
-  void setHangupCallback(std::function<bool()> callback) override;
-  void setRingCallback(std::function<bool(const String &)> callback) override;
-  void setCallWaitingCallback(std::function<bool()> callback) override;
+  void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
+  void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) override;
+  void setHangupCallback(std::function<IntegrationCallbackResult()> callback) override;
+  void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
+  void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) override;
 
   // Statistics and monitoring
@@ -48,6 +52,30 @@ public:
 
   // Configuration synchronization
   void onConfigurationChanged() override;
+
+  // Config change event system
+  void setConfigChangeCallback(ConfigChangeCallback callback);
+
+  // Business logic methods for web server
+  HAOperationResult handleDialRequest(const String &number);
+  HAOperationResult handleAnswerRequest();
+  HAOperationResult handleHangupRequest();
+  HAOperationResult handleSetDND(const JsonVariant &data);
+  HAOperationResult handleSetMaintenanceMode(const JsonVariant &data);
+  HAOperationResult handleSetAudioConfig(const JsonVariant &data);
+  HAOperationResult handleSetRingPattern(const JsonVariant &data);
+  HAOperationResult handleRingOperation(const JsonVariant &data);
+  HAOperationResult handleResetDevice();
+  HAOperationResult handleAddQuickDial(const JsonVariant &data);
+  HAOperationResult handleRemoveQuickDial(const JsonVariant &data);
+  HAOperationResult handleDialQuickDial(const JsonVariant &data);
+  HAOperationResult handleToggleCallWaiting();
+  HAOperationResult handleAddBlockedNumber(const JsonVariant &data);
+  HAOperationResult handleRemoveBlockedNumber(const JsonVariant &data);
+  HAOperationResult handleAddWebhookAction(const JsonVariant &data);
+  HAOperationResult handleRemoveWebhookAction(const JsonVariant &data);
+  HAOperationResult handleSetHAUrl(const JsonVariant &data);
+  HAOperationResult handleRefetchAll();
 
   // IIntegration interface implementation
   const char *getName() const override {
@@ -82,12 +110,15 @@ private:
   String _currentDialingNumber; // Keep for dialing progress
 
   // Callback functions for device operations
-  std::function<bool(const String &)> _dialCallback;
-  std::function<bool()> _answerCallback;
-  std::function<bool()> _hangupCallback;
-  std::function<bool(const String &)> _ringCallback;
-  std::function<bool()> _callWaitingCallback;
+  std::function<IntegrationCallbackResult(const String &)> _dialCallback;
+  std::function<IntegrationCallbackResult()> _answerCallback;
+  std::function<IntegrationCallbackResult()> _hangupCallback;
+  std::function<IntegrationCallbackResult(const String &)> _ringCallback;
+  std::function<IntegrationCallbackResult()> _callWaitingCallback;
   std::function<void(bool)> _maintenanceModeChangedCallback;
+
+  // Config change callback
+  ConfigChangeCallback _configChangeCallback;
 
   // Internal methods
   void setupWebServerCallbacks();
@@ -111,6 +142,10 @@ private:
 
   // Webhook HTTP functionality
   void triggerWebhookHttp(const String &webhookId);
+  
+  // Reset management
+  bool _resetRequested = false;
+  unsigned long _resetScheduledTime = 0;
 };
 
 #endif // HOME_ASSISTANT_INTEGRATION
