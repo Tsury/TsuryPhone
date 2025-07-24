@@ -52,7 +52,7 @@ void HAWebServer::process() {
 void HAWebServer::stop() {
   // Close all WebSocket connections gracefully
   _webSocket.closeAll();
-  
+
   // Stop the web server
   _server.end();
   MDNS.end();
@@ -382,11 +382,11 @@ void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
   if (_stateUpdateCallback) {
     JsonDocument commandData;
     HAOperationResult result = _stateUpdateCallback("refetch_all", commandData.as<JsonVariant>());
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
-      
+
       // If the integration returned data, use it; otherwise build our own
       if (!result.data.isNull()) {
         doc["data"] = result.data;
@@ -398,7 +398,7 @@ void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
         addStats(data);
         addPhone(data);
       }
-      
+
       sendJsonResponse(request, doc);
     } else {
       sendErrorResponse(request, result.errorMessage);
@@ -437,7 +437,7 @@ void HAWebServer::handleDialNumber(AsyncWebServerRequest *request, JsonVariant &
     JsonDocument commandData;
     commandData["number"] = number;
     HAOperationResult result = _stateUpdateCallback("dial", commandData.as<JsonVariant>());
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -460,7 +460,7 @@ void HAWebServer::handleAnswerCall(AsyncWebServerRequest *request) {
   if (_stateUpdateCallback) {
     JsonDocument commandData;
     HAOperationResult result = _stateUpdateCallback("answer", commandData.as<JsonVariant>());
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -483,7 +483,7 @@ void HAWebServer::handleHangupCall(AsyncWebServerRequest *request) {
   if (_stateUpdateCallback) {
     JsonDocument commandData;
     HAOperationResult result = _stateUpdateCallback("hangup", commandData.as<JsonVariant>());
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -505,7 +505,7 @@ void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("dnd", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -527,7 +527,7 @@ void HAWebServer::handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonV
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("maintenance_mode", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -549,7 +549,7 @@ void HAWebServer::handleRingOperation(AsyncWebServerRequest *request, JsonVarian
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("ring", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -572,7 +572,7 @@ void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   if (_stateUpdateCallback) {
     JsonDocument commandData;
     HAOperationResult result = _stateUpdateCallback("reset", commandData.as<JsonVariant>());
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -591,7 +591,7 @@ void HAWebServer::handleSetAudioConfig(AsyncWebServerRequest *request, JsonVaria
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("audio_config", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -628,7 +628,7 @@ void HAWebServer::handleDialQuickDial(AsyncWebServerRequest *request, JsonVarian
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("dial_quick_dial", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -650,8 +650,9 @@ void HAWebServer::handleToggleCallWaiting(AsyncWebServerRequest *request) {
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     JsonDocument commandData;
-    HAOperationResult result = _stateUpdateCallback("switch_call_waiting", commandData.as<JsonVariant>());
-    
+    HAOperationResult result =
+        _stateUpdateCallback("switch_call_waiting", commandData.as<JsonVariant>());
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -732,7 +733,7 @@ void HAWebServer::handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("quick_dial_add", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -754,7 +755,7 @@ void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVari
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("quick_dial_remove", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -776,7 +777,7 @@ void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVar
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("webhook_add", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -798,7 +799,7 @@ void HAWebServer::handleRemoveWebhookAction(AsyncWebServerRequest *request, Json
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("webhook_remove", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -820,7 +821,7 @@ void HAWebServer::handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVar
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("blocked_number_add", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -842,7 +843,7 @@ void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, Json
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("blocked_number_remove", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -864,7 +865,7 @@ void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVaria
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("ring_pattern", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;
@@ -886,7 +887,7 @@ void HAWebServer::handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &js
   // Delegate to integration business logic
   if (_stateUpdateCallback) {
     HAOperationResult result = _stateUpdateCallback("ha_url", json);
-    
+
     if (result.success) {
       JsonDocument doc;
       doc["success"] = true;

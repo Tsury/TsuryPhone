@@ -1,8 +1,8 @@
 #ifdef HOME_ASSISTANT_INTEGRATION
 
 #include "HAIntegration.h"
-#include "../IntegrationManager.h"  // For ConfigChangeEvent enum
 #include "../../common/logger.h"
+#include "../IntegrationManager.h" // For ConfigChangeEvent enum
 // #include "../../common/timeManager.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
@@ -59,15 +59,15 @@ void HAIntegration::process() {
   // Handle scheduled reset
   if (_resetRequested && millis() >= _resetScheduledTime) {
     Logger::infoln(F("HA: Executing scheduled device reset"));
-    
+
     // Close WebSocket connections gracefully
     // Note: We need to access the WebSocket through the web server
     // The web server will handle its own cleanup
     _webServer.stop();
-    
+
     // Additional delay to ensure cleanup
     delay(500);
-    
+
     // Restart the device
     ESP.restart();
   }
@@ -164,7 +164,8 @@ void HAIntegration::updateSystemStatus() {
   _webServer.broadcastStateUpdate(doc);
 }
 
-void HAIntegration::setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
+void HAIntegration::setDialCallback(
+    std::function<IntegrationCallbackResult(const String &)> callback) {
   _dialCallback = callback;
 }
 
@@ -176,7 +177,8 @@ void HAIntegration::setHangupCallback(std::function<IntegrationCallbackResult()>
   _hangupCallback = callback;
 }
 
-void HAIntegration::setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
+void HAIntegration::setRingCallback(
+    std::function<IntegrationCallbackResult(const String &)> callback) {
   _ringCallback = callback;
 }
 
@@ -437,7 +439,8 @@ HAOperationResult HAIntegration::handleDialRequest(const String &number) {
     Logger::infoln(F("HA: Dial command successful for %s"), number.c_str());
     return HAOperationResult(true);
   } else {
-    Logger::errorln(F("HA: Dial command failed for %s: %s"), number.c_str(), result.errorMessage.c_str());
+    Logger::errorln(
+        F("HA: Dial command failed for %s: %s"), number.c_str(), result.errorMessage.c_str());
     return HAOperationResult(false, result.errorMessage);
   }
 }
@@ -509,7 +512,7 @@ HAOperationResult HAIntegration::handleSetDND(const JsonVariant &json) {
   if (changed) {
     _config.setDndConfig(dndConfig);
     Logger::infoln(F("HA: DND configuration updated"));
-    
+
     // Publish config change event
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::DND_CONFIG_CHANGED);
@@ -589,7 +592,7 @@ HAOperationResult HAIntegration::handleSetAudioConfig(const JsonVariant &json) {
   if (changed) {
     _config.setAudioConfig(audioConfig);
     Logger::infoln(F("HA: Audio configuration updated"));
-    
+
     // Publish config change event
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::AUDIO_CONFIG_CHANGED);
@@ -666,16 +669,16 @@ HAOperationResult HAIntegration::handleResetDevice() {
 
   // Return success immediately - the reset will happen after response is sent
   HAOperationResult result(true);
-  
+
   // Use a simple timer approach to delay the reset
   // This allows the HTTP response to be sent first
   static unsigned long resetTime = millis() + 2500; // 2.5 seconds delay
-  
+
   // Schedule the reset in the integration's process() method
   // by setting a flag that process() will check
   _resetRequested = true;
   _resetScheduledTime = resetTime;
-  
+
   return result;
 }
 
@@ -707,7 +710,7 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::QUICK_DIAL_CHANGED);
     }
-    
+
     HAOperationResult result(true);
     JsonObject data = result.data.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
@@ -742,7 +745,7 @@ HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) 
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::QUICK_DIAL_CHANGED);
     }
-    
+
     return HAOperationResult(true);
   } else {
     return HAOperationResult(false, "Failed to remove quick dial entry or entry not found");
@@ -817,7 +820,7 @@ HAOperationResult HAIntegration::handleAddBlockedNumber(const JsonVariant &json)
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::BLOCKED_NUMBER_CHANGED);
     }
-    
+
     HAOperationResult result(true);
     JsonObject data = result.data.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
@@ -851,7 +854,7 @@ HAOperationResult HAIntegration::handleRemoveBlockedNumber(const JsonVariant &js
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::BLOCKED_NUMBER_CHANGED);
     }
-    
+
     HAOperationResult result(true);
     JsonObject data = result.data.to<JsonObject>();
     data["number"] = number;
@@ -889,7 +892,7 @@ HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json)
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::WEBHOOK_ACTION_CHANGED);
     }
-    
+
     HAOperationResult result(true);
     JsonObject data = result.data.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
@@ -924,7 +927,7 @@ HAOperationResult HAIntegration::handleRemoveWebhookAction(const JsonVariant &js
     if (_configChangeCallback) {
       _configChangeCallback(ConfigChangeEvent::WEBHOOK_ACTION_CHANGED);
     }
-    
+
     HAOperationResult result(true);
     JsonObject data = result.data.to<JsonObject>();
     data["code"] = code;

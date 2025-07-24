@@ -15,10 +15,10 @@ struct HAOperationResult {
   bool success = false;
   String errorMessage;
   JsonDocument data;
-  
+
   HAOperationResult() = default;
   HAOperationResult(bool success) : success(success) {}
-  HAOperationResult(bool success, const String& error) : success(success), errorMessage(error) {}
+  HAOperationResult(bool success, const String &error) : success(success), errorMessage(error) {}
 };
 
 class HAWebServer {
@@ -32,7 +32,8 @@ public:
   // WebSocket communication
   void broadcastStateUpdate(const JsonDocument &stateData);
   void setStatusCallback(std::function<void(JsonObject &)> callback);
-  void setStateUpdateCallback(std::function<HAOperationResult(const String &, const JsonVariant &)> callback);
+  void setStateUpdateCallback(
+      std::function<HAOperationResult(const String &, const JsonVariant &)> callback);
 
 private:
   void setupRoutes();
