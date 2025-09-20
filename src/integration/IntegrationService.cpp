@@ -413,7 +413,10 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
     return IntegrationCallbackResult(false, "Failed to add priority caller (already exists?)");
   }
 
-  INT_LOG_INFO("CORE", "Priority caller added %s total=%u", number.c_str(), (unsigned)_config.getPriorityCallers().size());
+  INT_LOG_INFO("CORE",
+               "Priority caller added %s total=%u",
+               number.c_str(),
+               (unsigned)_config.getPriorityCallers().size());
 
   // Create response data
   JsonDocument resultData;
@@ -435,7 +438,10 @@ IntegrationCallbackResult IntegrationService::handleRemovePriorityCaller(const S
     return IntegrationCallbackResult(false, "Priority caller not found");
   }
 
-  INT_LOG_INFO("CORE", "Priority caller removed %s remaining=%u", number.c_str(), (unsigned)_config.getPriorityCallers().size());
+  INT_LOG_INFO("CORE",
+               "Priority caller removed %s remaining=%u",
+               number.c_str(),
+               (unsigned)_config.getPriorityCallers().size());
 
   return IntegrationCallbackResult(true);
 }

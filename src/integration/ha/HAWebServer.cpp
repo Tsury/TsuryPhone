@@ -151,12 +151,14 @@ void HAWebServer::setupRoutes() {
   });
 
   // Priority callers
-  addJsonPostRoute(
-      "/api/config/priority_add",
-      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddPriorityCaller(req, json); });
-  addJsonPostRoute(
-      "/api/config/priority_remove",
-      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleRemovePriorityCaller(req, json); });
+  addJsonPostRoute("/api/config/priority_add",
+                   [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                     handleAddPriorityCaller(req, json);
+                   });
+  addJsonPostRoute("/api/config/priority_remove",
+                   [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                     handleRemovePriorityCaller(req, json);
+                   });
 
   addJsonPostRoute("/api/config/ha_url", [this](AsyncWebServerRequest *req, JsonVariant &json) {
     handleSetHAUrl(req, json);

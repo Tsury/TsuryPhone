@@ -40,7 +40,9 @@ def main():
 
     phonebook_header_content = generate_phonebook_header(entries)
 
-    output_path = args.output  # path to phoneBook.h provided by caller (batch file unchanged)
+    output_path = (
+        args.output
+    )  # path to phoneBook.h provided by caller (batch file unchanged)
     out_dir = os.path.dirname(output_path)
     os.makedirs(out_dir, exist_ok=True)
     with open(output_path, "w") as out_file:
@@ -54,7 +56,10 @@ def main():
     # Conflict detection: intersection must be empty; if not, fail generation.
     conflict = set(priority_numbers) & set(blocked_numbers)
     if conflict:
-        print("ERROR: Numbers present in BOTH priority and blocked lists:", ", ".join(sorted(conflict)))
+        print(
+            "ERROR: Numbers present in BOTH priority and blocked lists:",
+            ", ".join(sorted(conflict)),
+        )
         print("Generation aborted due to list conflict (policy: fail on conflict).")
         sys.exit(1)
 
@@ -67,13 +72,25 @@ def main():
     blocked_header_path = os.path.join(out_dir, "blocked_numbers.h")
 
     with open(priority_header_path, "w") as f:
-        f.write(generate_simple_number_header(
-            header_name="PRIORITY_CALLERS", array_name="priorityCallerNumbers", func_name="isPriorityCaller", numbers=priority_numbers))
+        f.write(
+            generate_simple_number_header(
+                header_name="PRIORITY_CALLERS",
+                array_name="priorityCallerNumbers",
+                func_name="isPriorityCaller",
+                numbers=priority_numbers,
+            )
+        )
     print("Generated", priority_header_path)
 
     with open(blocked_header_path, "w") as f:
-        f.write(generate_simple_number_header(
-            header_name="BLOCKED_NUMBERS", array_name="blockedNumbers", func_name="isBlockedNumber", numbers=blocked_numbers))
+        f.write(
+            generate_simple_number_header(
+                header_name="BLOCKED_NUMBERS",
+                array_name="blockedNumbers",
+                func_name="isBlockedNumber",
+                numbers=blocked_numbers,
+            )
+        )
     print("Generated", blocked_header_path)
 
 
