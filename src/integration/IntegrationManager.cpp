@@ -460,7 +460,6 @@ void IntegrationManager::handleCallBlocked(const String &number) {
   reportBlockedCall(number);
 }
 
-
 void IntegrationManager::updateMaintenanceMode(bool enabled) {
   INT_LOG_INFO("CORE", "Updating maintenance mode to %s", enabled ? "enabled" : "disabled");
 

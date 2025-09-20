@@ -110,7 +110,6 @@ public:
   void handleCallStarted(const String &number, bool isIncoming);
   void handleCallEnded(unsigned long duration);
 
-
   // Device config updates - for local changes that should notify integrations
   void updateMaintenanceMode(bool enabled);
 

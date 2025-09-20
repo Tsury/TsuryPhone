@@ -1,9 +1,9 @@
 #include "DeviceConfig.h"
 #include "../common/logger.h"
 #include "../config.h"
+#include "../generated/blocked_numbers.h"
 #include "../generated/phoneBook.h"
 #include "../generated/priority_callers.h"
-#include "../generated/blocked_numbers.h"
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
@@ -361,7 +361,9 @@ bool DeviceConfig::addPriorityCaller(const String &number) {
     Logger::warnln(F("Cannot add priority caller %s: number is blocked"), number.c_str());
     return false;
   }
-  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&number](const String &n) { return n == number; });
   if (it != _priorityCallers.end()) {
     Logger::debugln(F("Priority caller already present: %s"), number.c_str());
     return false; // already present
@@ -372,7 +374,9 @@ bool DeviceConfig::addPriorityCaller(const String &number) {
 }
 
 bool DeviceConfig::removePriorityCaller(const String &number) {
-  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&number](const String &n) { return n == number; });
   if (it != _priorityCallers.end()) {
     _priorityCallers.erase(it);
     saveAndNotify(ConfigChangeType::PriorityCallers);
@@ -382,7 +386,9 @@ bool DeviceConfig::removePriorityCaller(const String &number) {
 }
 
 bool DeviceConfig::isPriorityCaller(const String &number) const {
-  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&number](const String &n) { return n == number; });
   return it != _priorityCallers.end();
 }
 
