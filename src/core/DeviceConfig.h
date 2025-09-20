@@ -10,8 +10,8 @@ enum class ConfigChangeType {
   Audio,
   DND,
   QuickDial,
+  PriorityCallers,
   BlockedNumbers,
-  WebhookActions,
   RingPattern,
   DeviceName
 };
@@ -48,16 +48,6 @@ struct BlockedNumberEntry {
 
   BlockedNumberEntry() = default;
   BlockedNumberEntry(const String &n, const String &r = "") : number(n), reason(r) {}
-};
-
-struct WebhookActionEntry {
-  String code;
-  String id;
-  String actionName;
-
-  WebhookActionEntry() = default;
-  WebhookActionEntry(const String &c, const String &i, const String &an = "")
-      : code(c), id(i), actionName(an) {}
 };
 
 class DeviceConfig {
@@ -107,14 +97,19 @@ public:
   bool removeBlockedNumber(const String &number);
   bool isIncomingCallBlocked(const String &number) const;
 
-  // Webhook actions
-  const std::vector<WebhookActionEntry> &getWebhookActions() const {
-    return _webhookActions;
+  // Priority callers
+  const std::vector<String> &getPriorityCallers() const {
+    return _priorityCallers;
   }
-  bool addWebhookAction(const String &code, const String &webhookId, const String &actionName = "");
-  bool removeWebhookAction(const String &code);
-  String getWebhookId(const String &code) const;
-  bool hasWebhookAction(const String &code) const;
+  bool addPriorityCaller(const String &number);
+  bool removePriorityCaller(const String &number);
+  bool isPriorityCaller(const String &number) const;
+
+  struct NumberClassification {
+    bool isBlocked = false;
+    bool isPriority = false;
+  };
+  NumberClassification classifyNumber(const String &number) const;
 
   // Ring pattern
   String getRingPattern() const {
@@ -144,7 +139,7 @@ private:
   DndConfig _dndConfig;
   std::vector<QuickDialEntry> _quickDialEntries;
   std::vector<BlockedNumberEntry> _blockedNumbers;
-  std::vector<WebhookActionEntry> _webhookActions;
+  std::vector<String> _priorityCallers; // numbers that bypass DND / special handling
   String _ringPattern;
   String _homeAssistantUrl;
 

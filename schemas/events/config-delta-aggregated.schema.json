@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/config-delta-aggregated.schema.json",
+  "title": "Config Delta Event (Aggregated)",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "config" },
+        "event": { "const": "config_delta" },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "oldValue": {},
+              "newValue": {}
+            },
+            "required": ["key", "newValue"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["category", "event", "changes"],
+      "additionalProperties": false
+    }
+  ]
+}

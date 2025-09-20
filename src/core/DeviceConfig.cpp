@@ -2,6 +2,8 @@
 #include "../common/logger.h"
 #include "../config.h"
 #include "../generated/phoneBook.h"
+#include "../generated/priority_callers.h"
+#include "../generated/blocked_numbers.h"
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
@@ -12,7 +14,6 @@ const char *DeviceConfig::kDefaultRingPattern = "500,500,500,500x3";
 
 DeviceConfig::DeviceConfig() {
   _deviceId = generateDeviceId();
-  // Note: Don't call initializeDefaults() here - only call it when no config exists
 }
 
 bool DeviceConfig::init() {
@@ -69,13 +70,10 @@ bool DeviceConfig::save() {
     entryObj["reason"] = entry.reason;
   }
 
-  // Webhook actions
-  JsonArray webhooks = doc["webhookActions"].to<JsonArray>();
-  for (const auto &entry : _webhookActions) {
-    JsonObject entryObj = webhooks.add<JsonObject>();
-    entryObj["code"] = entry.code;
-    entryObj["id"] = entry.id;
-    entryObj["actionName"] = entry.actionName;
+  // Priority callers
+  JsonArray priority = doc["priorityCallers"].to<JsonArray>();
+  for (const auto &num : _priorityCallers) {
+    priority.add(num);
   }
 
   // Ring pattern
@@ -197,21 +195,16 @@ bool DeviceConfig::load() {
     Logger::infoln(F("Loaded %d blocked numbers"), _blockedNumbers.size());
   }
 
-  // Webhook actions
-  if (doc["webhookActions"]) {
-    _webhookActions.clear();
-    JsonArray webhooks = doc["webhookActions"];
-    for (JsonVariant entry : webhooks) {
-      if (entry.is<JsonObject>()) {
-        JsonObject entryObj = entry.as<JsonObject>();
-        WebhookActionEntry wae;
-        wae.code = entryObj["code"].as<String>();
-        wae.id = entryObj["id"].as<String>();
-        wae.actionName = entryObj["actionName"].as<String>();
-        _webhookActions.push_back(wae);
+  // Priority callers
+  if (doc["priorityCallers"]) {
+    _priorityCallers.clear();
+    JsonArray priority = doc["priorityCallers"];
+    for (JsonVariant numVar : priority) {
+      if (numVar.is<const char *>()) {
+        _priorityCallers.push_back(String(numVar.as<const char *>()));
       }
     }
-    Logger::infoln(F("Loaded %d webhook actions"), _webhookActions.size());
+    Logger::infoln(F("Loaded %d priority callers"), _priorityCallers.size());
   }
 
   // Ring pattern
@@ -233,6 +226,26 @@ void DeviceConfig::initializeDefaults() {
   for (size_t i = 0; i < numEntries; ++i) {
     QuickDialEntry entry(String(phoneBookEntries[i].entry), String(phoneBookEntries[i].number), "");
     _quickDialEntries.push_back(entry);
+  }
+
+  // Seed priority callers from generated header (bootstrap only on fresh defaults)
+  size_t prioCount = getPriorityCallersCount();
+  for (size_t i = 0; i < prioCount; ++i) {
+    if (!isBlockedNumber(priorityCallerNumbers[i])) { // defensive conflict guard
+      _priorityCallers.push_back(String(priorityCallerNumbers[i]));
+    }
+  }
+
+  // Seed blocked numbers from generated header (bootstrap only on fresh defaults)
+  size_t blockedCount = getBlockedNumbersCount();
+  for (size_t i = 0; i < blockedCount; ++i) {
+    const char *bn = blockedNumbers[i];
+    if (bn && *bn) {
+      // Priority list takes precedence; do not add if seeded as priority (policy: no overlap)
+      if (!isPriorityCaller(String(bn))) {
+        _blockedNumbers.push_back(BlockedNumberEntry(String(bn), String("seed")));
+      }
+    }
   }
 
   // Initialize audio config with defaults from config.h
@@ -301,11 +314,17 @@ bool DeviceConfig::hasQuickDialEntry(const String &code) const {
 }
 
 bool DeviceConfig::addBlockedNumber(const String &number, const String &reason) {
+  // Prevent adding a blocked number that is already a priority caller (policy: cannot conflict)
+  if (isPriorityCaller(number)) {
+    Logger::warnln(F("Cannot block number %s: it is a priority caller"), number.c_str());
+    return false;
+  }
   auto it =
       std::find_if(_blockedNumbers.begin(),
                    _blockedNumbers.end(),
                    [&number](const BlockedNumberEntry &entry) { return entry.number == number; });
   if (it != _blockedNumbers.end()) {
+    Logger::debugln(F("Blocked number already present: %s"), number.c_str());
     return false;
   }
 
@@ -336,43 +355,46 @@ bool DeviceConfig::isIncomingCallBlocked(const String &number) const {
   return it != _blockedNumbers.end();
 }
 
-bool DeviceConfig::addWebhookAction(const String &code,
-                                    const String &webhookId,
-                                    const String &actionName) {
-  if (isCodeConflict(code)) {
+bool DeviceConfig::addPriorityCaller(const String &number) {
+  // Cannot add if currently blocked
+  if (isIncomingCallBlocked(number)) {
+    Logger::warnln(F("Cannot add priority caller %s: number is blocked"), number.c_str());
     return false;
   }
-
-  WebhookActionEntry entry(code, webhookId, actionName);
-  _webhookActions.push_back(entry);
-  saveAndNotify(ConfigChangeType::WebhookActions);
+  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  if (it != _priorityCallers.end()) {
+    Logger::debugln(F("Priority caller already present: %s"), number.c_str());
+    return false; // already present
+  }
+  _priorityCallers.push_back(number);
+  saveAndNotify(ConfigChangeType::PriorityCallers);
   return true;
 }
 
-bool DeviceConfig::removeWebhookAction(const String &code) {
-  auto it = std::find_if(_webhookActions.begin(),
-                         _webhookActions.end(),
-                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
-  if (it != _webhookActions.end()) {
-    _webhookActions.erase(it);
-    saveAndNotify(ConfigChangeType::WebhookActions);
+bool DeviceConfig::removePriorityCaller(const String &number) {
+  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  if (it != _priorityCallers.end()) {
+    _priorityCallers.erase(it);
+    saveAndNotify(ConfigChangeType::PriorityCallers);
     return true;
   }
   return false;
 }
 
-String DeviceConfig::getWebhookId(const String &code) const {
-  auto it = std::find_if(_webhookActions.begin(),
-                         _webhookActions.end(),
-                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
-  return (it != _webhookActions.end()) ? it->id : String();
+bool DeviceConfig::isPriorityCaller(const String &number) const {
+  auto it = std::find_if(_priorityCallers.begin(), _priorityCallers.end(), [&number](const String &n) { return n == number; });
+  return it != _priorityCallers.end();
 }
 
-bool DeviceConfig::hasWebhookAction(const String &code) const {
-  auto it = std::find_if(_webhookActions.begin(),
-                         _webhookActions.end(),
-                         [&code](const WebhookActionEntry &entry) { return entry.code == code; });
-  return it != _webhookActions.end();
+DeviceConfig::NumberClassification DeviceConfig::classifyNumber(const String &number) const {
+  NumberClassification c;
+  if (number.isEmpty()) {
+    return c; // defaults false
+  }
+  c.isBlocked = isIncomingCallBlocked(number);
+  c.isPriority = isPriorityCaller(number);
+  // Policy: blocked supersedes priority logically for ring suppression, but we expose both flags
+  return c;
 }
 
 void DeviceConfig::setRingPattern(const String &pattern) {
@@ -394,7 +416,7 @@ void DeviceConfig::saveAndNotify(ConfigChangeType changeType) {
 }
 
 bool DeviceConfig::isCodeConflict(const String &code) const {
-  return hasQuickDialEntry(code) || hasWebhookAction(code);
+  return hasQuickDialEntry(code);
 }
 
 void DeviceConfig::setHomeAssistantUrl(const String &url) {

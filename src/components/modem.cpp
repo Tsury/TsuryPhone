@@ -20,6 +20,7 @@ namespace {
   const constexpr uint32_t kInitTimeoutMs = 5000UL;
   const constexpr uint32_t kKeepAliveIntervalMs = 30000UL;
   const constexpr uint32_t kKeepAliveTimeoutMs = 5000UL;
+  const constexpr uint8_t kKeepAliveMaxRetries = 1;
 
   const constexpr uint16_t kModemHardResetRetries = 5;
   const constexpr uint32_t kModemHardResetRetryDelay = 500UL;
@@ -271,6 +272,7 @@ void Modem::deriveStateFromMessage(State &state) {
 
   if (strEqual(msg, "OK") && _waitingForKeepAlive) {
     _waitingForKeepAlive = false;
+    _keepAliveRetryCount = 0;
     Logger::infoln(F("Keep-alive received after %lu ms"), millis() - _lastKeepAliveSent);
   }
 
@@ -473,25 +475,38 @@ void Modem::process(const State &state) {
 }
 
 void Modem::keepAliveWatchdog() {
-  uint32_t now = millis();
-  uint32_t timeSinceLastKeepAlive = now - _lastKeepAliveSent;
+  const uint32_t now = millis();
+  const uint32_t timeSinceLastKeepAlive = now - _lastKeepAliveSent;
 
   if (_waitingForKeepAlive) {
     if (timeSinceLastKeepAlive > kKeepAliveTimeoutMs) {
-      Logger::warnln(F("No keep-alive response, resetting modem..."));
-      reset();
+      _waitingForKeepAlive = false;
+      ++_keepAliveRetryCount;
+
+      if (_keepAliveRetryCount > kKeepAliveMaxRetries) {
+        Logger::warnln(F("Keep-alive timed out %u times -> hard reset"), _keepAliveRetryCount);
+        reset();
+        _keepAliveRetryCount = 0;
+      } else {
+        Logger::warnln(F("Keep-alive timeout (%u/%u). Retrying soon..."),
+                       _keepAliveRetryCount,
+                       kKeepAliveMaxRetries + 1);
+      }
     }
-  } else {
-    if (timeSinceLastKeepAlive >= kKeepAliveIntervalMs) {
-      sendKeepAlive();
-      _lastKeepAliveSent = now;
-      _waitingForKeepAlive = true;
-    }
+    return;
+  }
+
+  if (timeSinceLastKeepAlive >= kKeepAliveIntervalMs) {
+    sendKeepAlive();
+    _lastKeepAliveSent = now;
+    _waitingForKeepAlive = true;
   }
 }
 
 void Modem::sendKeepAlive() {
-  Logger::infoln(F("Sending keep-alive. (Watchdog resets so far: %lu)"), _watchdogResetCounter);
+  Logger::infoln(F("Sending keep-alive (resets=%lu retries=%u)..."),
+                 _watchdogResetCounter,
+                 _keepAliveRetryCount);
   _modemImpl.sendAT("");
 }
 

@@ -1,5 +1,7 @@
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "StatsManager.h"
-#include "../common/logger.h"
+#include "../../common/logger.h"
 
 StatsManager::StatsManager(DeviceStats &stats, State &state)
     : _stats(stats),
@@ -82,8 +84,6 @@ void StatsManager::onCallBlocked(const String &number) {
 void StatsManager::onDialingProgressChanged(const String &currentNumber) {
   Logger::infoln(F("StatsManager: Dialing progress changed to %s"), currentNumber.c_str());
   _lastDialingNumber = currentNumber;
-  // Note: Dialing progress is mainly for integration notifications,
-  // actual call stats are handled by state changes
 }
 
 void StatsManager::handleCallStart(const String &number, bool isIncoming) {
@@ -135,3 +135,5 @@ bool StatsManager::isCallActiveState(AppState state) const {
 bool StatsManager::isDialingState(AppState state) const {
   return state == AppState::Dialing;
 }
+
+#endif // HOME_ASSISTANT_INTEGRATION

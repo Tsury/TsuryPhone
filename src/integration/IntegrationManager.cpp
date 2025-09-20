@@ -1,16 +1,30 @@
+#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+
 #include "IntegrationManager.h"
 #include "../common/logger.h"
+#include "IntegrationLog.h"
+#include <map>
+
+#include "IntegrationService.h"
+
+// Forward declarations to avoid header conflicts
+class TsuryPhone;
+struct IntegrationCallbackResult;
 
 // Include available integrations
 #ifdef HOME_ASSISTANT_INTEGRATION
 #include "ha/HAIntegration.h"
 #endif
+#ifdef MOCK_INTEGRATION
+#include "mock/MockIntegration.h"
+#endif
 
-IntegrationManager::IntegrationManager(DeviceConfig &config, DeviceStats &stats, State &state)
-    : _config(config),
-      _stats(stats),
+IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &config, State &state)
+    : _tsuryPhone(tsuryPhone),
+      _config(config),
+      _stats(),
       _state(state),
-      _statsManager(stats, state),
+      _statsManager(_stats, state),
       _prevDndState(false),
       _prevMaintenanceMode(false),
       _prevAppState(AppState::Startup),
@@ -21,9 +35,15 @@ IntegrationManager::~IntegrationManager() {
 }
 
 bool IntegrationManager::init() {
-  Logger::infoln(F("Initializing Integration Manager..."));
+  INT_LOG_INFO("CORE", "Initializing Integration Manager...");
 
-  // Initialize StatsManager first
+  // Initialize DeviceStats first
+  if (!_stats.init()) {
+    Logger::errorln(F("Failed to initialize DeviceStats"));
+    return false;
+  }
+
+  // Initialize StatsManager
   if (!_statsManager.init()) {
     Logger::errorln(F("Failed to initialize StatsManager"));
     return false;
@@ -34,18 +54,19 @@ bool IntegrationManager::init() {
   bool anyInitialized = false;
   for (auto &integration : _integrations) {
     if (integration->init()) {
-      Logger::infoln(F("Integration '%s' initialized successfully"), integration->getName());
+      INT_LOG_INFO("CORE", "Integration '%s' initialized successfully", integration->getTag());
       anyInitialized = true;
     } else {
-      Logger::errorln(F("Failed to initialize integration '%s'"), integration->getName());
+      INT_LOG_ERROR("CORE", "Failed to initialize integration '%s'", integration->getTag());
     }
   }
 
   if (anyInitialized) {
-    Logger::infoln(F("Integration Manager initialized with %d active integrations"),
-                   static_cast<int>(_integrations.size()));
+    INT_LOG_INFO("CORE",
+                 "Integration Manager initialized with %d active integrations",
+                 static_cast<int>(_integrations.size()));
   } else {
-    Logger::infoln(F("Integration Manager initialized with no active integrations"));
+    INT_LOG_WARN("CORE", "Integration Manager initialized with no active integrations");
   }
 
   return true; // Always return true as IntegrationManager itself initializes successfully
@@ -57,6 +78,26 @@ void IntegrationManager::process() {
 
   // Check for state changes
   checkForStateChanges();
+
+  // Handle any queued debug serial characters (m/j/k) centrally
+  if (!_debugCharQueue.empty()) {
+    for (char c : _debugCharQueue) {
+      switch (c) {
+      case 'm':
+        exportMetricsSnapshot();
+        break;
+      case 'j':
+        emitStructuredJsonLog("debug_test", "manual");
+        break;
+      case 'k':
+        emitStructuredJsonLogKV("kv", "mode", _state.isMaintenanceMode ? "maintenance" : "normal");
+        break;
+      default:
+        break; // Ignore other chars
+      }
+    }
+    _debugCharQueue.clear();
+  }
 
   // Process all integrations
   for (auto &integration : _integrations) {
@@ -74,8 +115,6 @@ void IntegrationManager::updatePhoneState(AppState newState, AppState previousSt
   for (auto &integration : _integrations) {
     integration->updatePhoneState(newState, previousState);
   }
-
-  // Note: Ring state changes are now handled automatically in checkForStateChanges()
 }
 
 void IntegrationManager::updateCallInfo(const String &number,
@@ -114,7 +153,8 @@ void IntegrationManager::updateDndState(bool isDndActive) {
   }
 }
 
-void IntegrationManager::setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
+void IntegrationManager::setDialCallback(
+    std::function<IntegrationCallbackResult(const String &)> callback) {
   for (auto &integration : _integrations) {
     integration->setDialCallback(callback);
   }
@@ -132,13 +172,15 @@ void IntegrationManager::setHangupCallback(std::function<IntegrationCallbackResu
   }
 }
 
-void IntegrationManager::setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) {
+void IntegrationManager::setRingCallback(
+    std::function<IntegrationCallbackResult(const String &)> callback) {
   for (auto &integration : _integrations) {
     integration->setRingCallback(callback);
   }
 }
 
-void IntegrationManager::setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) {
+void IntegrationManager::setCallWaitingCallback(
+    std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setCallWaitingCallback(callback);
   }
@@ -195,11 +237,12 @@ bool IntegrationManager::hasEnabledIntegrations() const {
 }
 
 void IntegrationManager::listIntegrations() const {
-  Logger::infoln(F("Registered integrations:"));
+  INT_LOG_INFO("CORE", "Registered integrations:");
   for (const auto &integration : _integrations) {
-    Logger::infoln(F("  - %s: %s"),
-                   integration->getName(),
-                   integration->isEnabled() ? F("enabled") : F("disabled"));
+    INT_LOG_INFO("CORE",
+                 "  - %s: %s",
+                 integration->getTag(),
+                 integration->isEnabled() ? "enabled" : "disabled");
   }
 }
 
@@ -208,14 +251,19 @@ void IntegrationManager::registerIntegrations() {
 
 #ifdef HOME_ASSISTANT_INTEGRATION
   std::unique_ptr<HAIntegration> haIntegration(new HAIntegration(_config, _stats, _state));
-  
-  // Set up config change callback
-  haIntegration->setConfigChangeCallback([this](ConfigChangeEvent event) {
-    this->notifyConfigChange(event);
-  });
-  
+
+  // Register HA number handler as action handler if capability present
+  // Access underlying handler via dynamic_cast to concrete type (acceptable here during
+  // registration) This cast will be removed once a generic integration-provided registration hook
+  // exists.
   _integrations.push_back(std::move(haIntegration));
-  Logger::infoln(F("Registered Home Assistant integration"));
+  INT_LOG_INFO("CORE", "Registered Home Assistant integration");
+#endif
+
+#ifdef MOCK_INTEGRATION
+  std::unique_ptr<MockIntegration> mockInt(new MockIntegration());
+  _integrations.push_back(std::move(mockInt));
+  INT_LOG_INFO("CORE", "Registered Mock integration");
 #endif
 
   // Future integrations can be added here:
@@ -228,7 +276,58 @@ void IntegrationManager::registerIntegrations() {
   // Logger::infoln(F("Registered MQTT integration"));
   // #endif
 
-  Logger::infoln(F("Registered %d integrations"), static_cast<int>(_integrations.size()));
+  INT_LOG_INFO("CORE", "Registered %d integrations", static_cast<int>(_integrations.size()));
+
+  // Log capability summary
+  for (const auto &integration : _integrations) {
+    uint32_t caps = integration->getCapabilities();
+    INT_LOG_INFO("CORE",
+                 "Capabilities for %s: %s%s",
+                 integration->getTag(),
+                 (caps & IIntegration::IC_ACTIONS) ? "ACTIONS " : "",
+                 (caps & IIntegration::IC_NUMBER_CODE_HANDLER) ? "NUMBER_CODES" : "");
+    // Let integration register its action handlers if any
+    integration->registerActionHandlers(*this);
+  }
+
+  // Conflict detection (M3): enumerate all handler codes and detect duplicates
+  if (!_actionHandlers.empty()) {
+    std::map<String, int> counts;
+    for (auto *h : _actionHandlers) {
+      for (const auto &code : h->listFullCodes()) {
+        counts[code]++;
+      }
+    }
+    for (const auto &kv : counts) {
+      if (kv.second > 1) {
+        INT_LOG_WARN("CORE",
+                     "Action code conflict '%s' claimed by %d handlers",
+                     kv.first.c_str(),
+                     kv.second);
+      }
+    }
+
+    // Emit structured JSON summary of action codes (T4.3)
+    String json = F("{\"type\":\"action_codes\",\"integration\":\"core\",\"ts\":");
+    json += String(millis());
+    json += F(",\"codes\":[");
+    bool first = true;
+    for (auto &kv : counts) {
+      if (!first) {
+        json += ',';
+      } else {
+        first = false;
+      }
+      json += F("{\"code\":\"");
+      json += kv.first;
+      json += F("\",\"count\":");
+      json += String(kv.second);
+      json += '}';
+    }
+    json += ']';
+    json += '}';
+    Logger::infoln(json.c_str());
+  }
 }
 
 void IntegrationManager::checkForStateChanges() {
@@ -247,6 +346,8 @@ void IntegrationManager::checkForStateChanges() {
       // Call started
       _callWasActive = true;
       _callStartTime = millis();
+      auto &svc = IntegrationService::shared(_config, _stats, _state);
+      svc.setCurrentCallStartTs(_callStartTime);
 
       // If we have call info, report call start
       if (_state.callState.callNumber[0] != '\0' &&
@@ -255,6 +356,8 @@ void IntegrationManager::checkForStateChanges() {
         bool isIncoming =
             (currentState == AppState::InCall && (_prevAppState == AppState::IncomingCall ||
                                                   _prevAppState == AppState::IncomingCallRing));
+        auto &svc = IntegrationService::shared(_config, _stats, _state);
+        svc.setCurrentCallDirection(isIncoming);
         handleCallStarted(_prevCallStateNumber, isIncoming);
       }
     } else if (prevCallActive && !currentCallActive) {
@@ -262,6 +365,9 @@ void IntegrationManager::checkForStateChanges() {
       if (_callWasActive) {
         unsigned long duration = (millis() - _callStartTime) / 1000;
         handleCallEnded(duration);
+        auto &svc = IntegrationService::shared(_config, _stats, _state);
+        svc.clearCurrentCallStartTs();
+        svc.setCurrentCallDirection(false);
         _callWasActive = false;
         _callStartTime = 0;
         _prevCallStateNumber = ""; // Reset to allow same number to call again
@@ -282,12 +388,14 @@ void IntegrationManager::checkForStateChanges() {
     bool isIncoming = (_state.newAppState == AppState::IncomingCall ||
                        _state.newAppState == AppState::IncomingCallRing);
 
-    // Check if incoming call should be blocked
-    if (isIncoming && shouldBlockCall(_prevCallNumber)) {
-      // Handle the blocked call automatically
-      handleCallBlocked(_prevCallNumber);
+    // Classify number (blocked / priority) once here; no hidden side-effects.
+    auto cls = _config.classifyNumber(_prevCallNumber);
+    // Set priority flag (non-blocking paths). Blocked takes precedence if both somehow true.
+    _state.callState.isPriority = (!cls.isBlocked && cls.isPriority);
 
-      // Notify main.cpp via callback so it can take action (hangup, etc.)
+    if (isIncoming && cls.isBlocked) {
+      handleCallBlocked(_prevCallNumber);
+      IntegrationService::shared(_config, _stats, _state).setCurrentCallDirection(true);
       if (_callBlockedCallback) {
         _callBlockedCallback(_prevCallNumber);
       }
@@ -298,6 +406,8 @@ void IntegrationManager::checkForStateChanges() {
 
       // If we just got call info during an active call, report call start
       if (_callWasActive && _callStartTime > 0) {
+        auto &svc = IntegrationService::shared(_config, _stats, _state);
+        svc.setCurrentCallDirection(isIncoming);
         handleCallStarted(_prevCallNumber, isIncoming);
       }
     }
@@ -325,8 +435,8 @@ void IntegrationManager::checkForStateChanges() {
   bool currentMaintenanceMode = _state.isMaintenanceMode;
   if (currentMaintenanceMode != _prevMaintenanceMode) {
     _prevMaintenanceMode = currentMaintenanceMode;
-    Logger::infoln(F("IntegrationManager: Maintenance mode changed to %s"),
-                   currentMaintenanceMode ? "enabled" : "disabled");
+    INT_LOG_INFO(
+        "CORE", "Maintenance mode changed to %s", currentMaintenanceMode ? "enabled" : "disabled");
     // Notify all integrations that system status has changed
     updatePhoneState(_state.newAppState, _state.prevAppState);
   }
@@ -343,82 +453,212 @@ void IntegrationManager::checkForStateChanges() {
 }
 
 void IntegrationManager::handleCallBlocked(const String &number) {
-  Logger::infoln(F("IntegrationManager: Handling blocked call from %s"), number.c_str());
+  INT_LOG_WARN("CORE", "Blocked call from %s", number.c_str());
 
   // Notify StatsManager and integrations
   _statsManager.onCallBlocked(number);
   reportBlockedCall(number);
 }
 
-bool IntegrationManager::shouldBlockCall(const String &number) const {
-  if (number.isEmpty()) {
-    return false;
-  }
-
-  bool shouldBlock = _config.isIncomingCallBlocked(number);
-  if (shouldBlock) {
-    Logger::infoln(F("IntegrationManager: Call from %s should be blocked"), number.c_str());
-  }
-
-  return shouldBlock;
-}
 
 void IntegrationManager::updateMaintenanceMode(bool enabled) {
-  Logger::infoln(F("IntegrationManager: Updating maintenance mode to %s"),
-                 enabled ? "enabled" : "disabled");
+  INT_LOG_INFO("CORE", "Updating maintenance mode to %s", enabled ? "enabled" : "disabled");
 
   // Update the device state
   _state.isMaintenanceMode = enabled;
 }
 
 void IntegrationManager::handleCallStarted(const String &number, bool isIncoming) {
-  Logger::infoln(F("IntegrationManager: Handling call start - %s call to/from %s"),
-                 isIncoming ? F("Incoming") : F("Outgoing"),
-                 number.c_str());
+  INT_LOG_INFO("CORE",
+               "Call start - %s call to/from %s",
+               isIncoming ? "Incoming" : "Outgoing",
+               number.c_str());
 
   // Notify integrations
   reportCallStart(number, isIncoming);
 }
 
 void IntegrationManager::handleCallEnded(unsigned long duration) {
-  Logger::infoln(F("IntegrationManager: Handling call end - duration: %lu seconds"), duration);
+  INT_LOG_INFO("CORE", "Call end - duration: %lu seconds", duration);
 
   // Notify integrations
   reportCallEnd(duration);
 }
 
-void IntegrationManager::triggerWebhook(const String &webhookId) {
+void IntegrationManager::triggerAction(const String &actionId) {
+  INT_LOG_INFO("CORE", "Trigger action %s", actionId.c_str());
   for (auto &integration : _integrations) {
-    if (integration->isEnabled()) {
-      integration->triggerWebhook(webhookId);
+    if (!integration->isEnabled()) {
+      continue;
+    }
+    uint32_t caps = integration->getCapabilities();
+    if (caps & IIntegration::IC_ACTIONS) {
+      integration->triggerAction(actionId);
+    } else {
+      INT_LOG_DEBUG("CORE", "Integration %s lacks ACTIONS capability", integration->getTag());
     }
   }
+}
+
+void IntegrationManager::enableIntegrationDebugLogging(bool enabled) {
+  setIntegrationDebugLogging(enabled);
+  INT_LOG_INFO("CORE", "Integration debug logging %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+void IntegrationManager::enqueueDebugChar(char c) {
+  // Only queue recognized debug commands to keep memory bounded
+  if (c == 'm' || c == 'j' || c == 'k') {
+    _debugCharQueue.push_back(c);
+  }
+}
+
+void IntegrationManager::addActionHandler(IIntegrationActionHandler *handler) {
+  if (!handler) {
+    return;
+  }
+  _actionHandlers.push_back(handler);
+  INT_LOG_INFO(
+      "CORE", "Registered action handler (total=%d)", static_cast<int>(_actionHandlers.size()));
+}
+
+bool IntegrationManager::hasPartialActionMatch(const String &dialed) const {
+  for (auto *h : _actionHandlers) {
+    if (h->isPartialMatch(dialed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool IntegrationManager::isActionCode(const String &dialed) const {
+  for (auto *h : _actionHandlers) {
+    if (h->isFullMatch(dialed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String IntegrationManager::resolveActionId(const String &dialed) const {
+  for (auto *h : _actionHandlers) {
+    if (h->isFullMatch(dialed)) {
+      return h->resolveActionId(dialed);
+    }
+  }
+  return String();
+}
+
+void IntegrationManager::listActionCodes() const {
+  INT_LOG_INFO(
+      "CORE", "Listing action codes (%d handlers)", static_cast<int>(_actionHandlers.size()));
+  for (auto *h : _actionHandlers) {
+    auto codes = h->listFullCodes();
+    for (const auto &c : codes) {
+      INT_LOG_INFO("CORE", "  code=%s", c.c_str());
+    }
+  }
+}
+
+void IntegrationManager::exportMetricsSnapshot() const {
+  const CallStats &cs = _stats.getCallStats();
+  // Neutral dotted key style (T5.3)
+  INT_LOG_INFO("CORE",
+               "METRICS calls.total=%lu calls.in=%lu calls.out=%lu calls.blocked=%lu "
+               "calls.talkTimeSeconds=%lu system.uptimeMs=%lu system.heapFree=%lu system.rssi=%d",
+               (unsigned long)cs.totalCalls,
+               (unsigned long)cs.incomingCalls,
+               (unsigned long)cs.outgoingCalls,
+               (unsigned long)cs.blockedCalls,
+               (unsigned long)cs.totalTalkTimeSeconds,
+               (unsigned long)_stats.getUptime(),
+               (unsigned long)_stats.getFreeHeap(),
+               _stats.getRSSI());
+}
+
+void IntegrationManager::emitStructuredJsonLog(const char *event, const char *detail) const {
+  // Minimal JSON (avoid dynamic allocation) - using Arduino String for convenience
+  String json = F("{\"type\":\"integration_event\",\"seq\":");
+  json += String(_jsonLogSeq++);
+  json += F(",\"ts\":");
+  json += String(millis());
+  json += F(",\"event\":\"");
+  json += event;
+  json += F("\",\"detail\":\"");
+  json += detail;
+  json += F("\",\"integration\":\"core\"}");
+  Logger::infoln(json.c_str());
+}
+
+void IntegrationManager::emitStructuredJsonLogKV(const char *event,
+                                                 const char *k,
+                                                 const char *v) const {
+  String json = F("{\"type\":\"integration_event\",\"seq\":");
+  json += String(_jsonLogSeq++);
+  json += F(",\"ts\":");
+  json += String(millis());
+  json += F(",\"event\":\"");
+  json += event;
+  json += F("\",\"data\":{\"");
+  json += k;
+  json += F("\":\"");
+  json += v;
+  json += F("\"},\"integration\":\"core\"}");
+  Logger::infoln(json.c_str());
 }
 
 // Config change event system implementation
 void IntegrationManager::addConfigChangeCallback(ConfigChangeCallback callback) {
   _configChangeCallbacks.push_back(callback);
-  Logger::infoln(F("Config change callback registered. Total callbacks: %d"), 
-                 static_cast<int>(_configChangeCallbacks.size()));
+  INT_LOG_DEBUG("CORE",
+                "Config change callback registered. Total callbacks: %d",
+                static_cast<int>(_configChangeCallbacks.size()));
 }
 
 void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
-  const char* eventName = "";
-  switch (event) {
-    case ConfigChangeEvent::DND_CONFIG_CHANGED: eventName = "DND_CONFIG_CHANGED"; break;
-    case ConfigChangeEvent::AUDIO_CONFIG_CHANGED: eventName = "AUDIO_CONFIG_CHANGED"; break;
-    case ConfigChangeEvent::QUICK_DIAL_CHANGED: eventName = "QUICK_DIAL_CHANGED"; break;
-    case ConfigChangeEvent::BLOCKED_NUMBER_CHANGED: eventName = "BLOCKED_NUMBER_CHANGED"; break;
-    case ConfigChangeEvent::WEBHOOK_ACTION_CHANGED: eventName = "WEBHOOK_ACTION_CHANGED"; break;
-    case ConfigChangeEvent::HA_URL_CHANGED: eventName = "HA_URL_CHANGED"; break;
-    case ConfigChangeEvent::RING_PATTERN_CHANGED: eventName = "RING_PATTERN_CHANGED"; break;
-  }
+  const char *name = (event == ConfigChangeEvent::DND_CONFIG_CHANGED)     ? "DND_CONFIG_CHANGED"
+                     : (event == ConfigChangeEvent::AUDIO_CONFIG_CHANGED) ? "AUDIO_CONFIG_CHANGED"
+                     : (event == ConfigChangeEvent::QUICK_DIAL_CHANGED)   ? "QUICK_DIAL_CHANGED"
+                     : (event == ConfigChangeEvent::BLOCKED_NUMBER_CHANGED)
+                         ? "BLOCKED_NUMBER_CHANGED"
+                     : (event == ConfigChangeEvent::RING_PATTERN_CHANGED) ? "RING_PATTERN_CHANGED"
+                     : (event == ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED)
+                         ? "INTEGRATION_EXTENSION_CHANGED"
+                         : "UNKNOWN_CONFIG_EVENT";
 
-  Logger::infoln(F("Notifying config change: %s to %d callbacks"), 
-                 eventName, static_cast<int>(_configChangeCallbacks.size()));
+  INT_LOG_DEBUG("CORE",
+                "Config change %s (%d callbacks)",
+                name,
+                static_cast<int>(_configChangeCallbacks.size()));
 
   // Notify all registered callbacks
-  for (const auto& callback : _configChangeCallbacks) {
+  for (const auto &callback : _configChangeCallbacks) {
     callback(event);
   }
 }
+
+void IntegrationManager::setupTsuryPhoneCallbacks(
+    std::function<IntegrationCallbackResult(const String &)> dialCallback,
+    std::function<IntegrationCallbackResult()> answerCallback,
+    std::function<IntegrationCallbackResult()> hangupCallback,
+    std::function<IntegrationCallbackResult(const String &)> ringCallback,
+    std::function<IntegrationCallbackResult()> callWaitingCallback,
+    std::function<void(const String &)> callBlockedCallback,
+    std::function<void(bool)> maintenanceModeCallback,
+    std::function<void(ConfigChangeEvent)> configChangeCallback) {
+
+  INT_LOG_INFO("CORE", "Setting up callbacks");
+
+  // Set up device operation callbacks for all integrations
+  setDialCallback(dialCallback);
+  setAnswerCallback(answerCallback);
+  setHangupCallback(hangupCallback);
+  setRingCallback(ringCallback);
+  setCallWaitingCallback(callWaitingCallback);
+  setCallBlockedCallback(callBlockedCallback);
+  setMaintenanceModeChangedCallback(maintenanceModeCallback);
+  addConfigChangeCallback(configChangeCallback);
+}
+
+// Webhook-specific helper methods removed (replaced by future generic action handler registry)
+
+#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION

@@ -1,0 +1,86 @@
+{
+  "folders": [
+    {
+      "name": "ha-tsuryphone-new-cc",
+      "path": "../ha-tsuryphone-new-cc"
+    },
+    {
+      "name": "ha-tsuryphone-frontend",
+      "path": "../ha-tsuryphone-frontend"
+    },
+    {
+      "name": "ha-tsuryphone-new",
+      "path": "../ha-tsuryphone-new"
+    },
+    {
+      "name": "ha-tsuryphone",
+      "path": "../ha-tsuryphone"
+    },
+    {
+      "name": "TsuryPhone",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "chat.tools.autoApprove": true,
+    "files.associations": {
+      "typeinfo": "cpp",
+      "array": "cpp",
+      "string": "cpp",
+      "string_view": "cpp",
+      "atomic": "cpp",
+      "bitset": "cpp",
+      "cctype": "cpp",
+      "chrono": "cpp",
+      "clocale": "cpp",
+      "cmath": "cpp",
+      "condition_variable": "cpp",
+      "cstdarg": "cpp",
+      "cstddef": "cpp",
+      "cstdint": "cpp",
+      "cstdio": "cpp",
+      "cstdlib": "cpp",
+      "cstring": "cpp",
+      "ctime": "cpp",
+      "cwchar": "cpp",
+      "cwctype": "cpp",
+      "deque": "cpp",
+      "list": "cpp",
+      "unordered_map": "cpp",
+      "unordered_set": "cpp",
+      "vector": "cpp",
+      "exception": "cpp",
+      "algorithm": "cpp",
+      "functional": "cpp",
+      "iterator": "cpp",
+      "map": "cpp",
+      "memory": "cpp",
+      "memory_resource": "cpp",
+      "numeric": "cpp",
+      "optional": "cpp",
+      "random": "cpp",
+      "ratio": "cpp",
+      "regex": "cpp",
+      "system_error": "cpp",
+      "tuple": "cpp",
+      "type_traits": "cpp",
+      "utility": "cpp",
+      "fstream": "cpp",
+      "initializer_list": "cpp",
+      "iomanip": "cpp",
+      "iosfwd": "cpp",
+      "istream": "cpp",
+      "limits": "cpp",
+      "mutex": "cpp",
+      "new": "cpp",
+      "ostream": "cpp",
+      "sstream": "cpp",
+      "stdexcept": "cpp",
+      "streambuf": "cpp",
+      "thread": "cpp",
+      "cinttypes": "cpp",
+      "*.tpp": "cpp"
+    },
+    "editor.formatOnSave": true
+  }
+}

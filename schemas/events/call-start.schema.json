@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/call-start.schema.json",
+  "title": "Call Start Event",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "call" },
+        "event": { "const": "start" },
+        "number": { "type": "string", "minLength": 1 },
+        "isIncoming": { "type": "boolean" },
+        "callStartTs": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["category", "event", "number", "isIncoming", "callStartTs"],
+      "additionalProperties": false
+    }
+  ]
+}

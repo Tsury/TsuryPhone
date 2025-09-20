@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/phone-state.schema.json",
+  "title": "Phone State Event",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "phone_state" },
+        "event": {
+          "type": "string",
+          "enum": ["state", "dialing", "ring", "dnd", "call_info"]
+        },
+        "state": { "type": "integer" },
+        "stateName": { "type": "string" },
+        "previousState": { "type": "integer" },
+        "currentCallNumber": { "type": "string" },
+        "isIncomingCall": { "type": "boolean" },
+        "currentDialingNumber": { "type": "string" },
+        "isRinging": { "type": "boolean" },
+        "dndActive": { "type": "boolean" },
+        "isMaintenanceMode": { "type": "boolean" }
+      },
+      "required": [
+        "category",
+        "event",
+        "state",
+        "stateName",
+        "isMaintenanceMode"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

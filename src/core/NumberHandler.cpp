@@ -34,15 +34,7 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
     return result;
   }
 
-  // Check for exact webhook action match
-  if (_config.hasWebhookAction(String(dialedNumber))) {
-    result.action = NumberAction::WebhookTrigger;
-    result.webhookId = _config.getWebhookId(String(dialedNumber));
-    result.isComplete = true;
-    return result;
-  }
-
-  // Check if this could be a partial match for quick dial or webhook
+  // Check if this could be a partial match for quick dial
   if (isPartialMatch(dialedNumber)) {
     result.action = NumberAction::Pending;
     return result;
@@ -78,13 +70,6 @@ bool NumberHandler::isPartialMatch(const char *dialedNumber) {
   // Check quick dial entries for partial matches
   for (const auto &entry : _config.getQuickDialEntries()) {
     if (entry.code.startsWith(dialedStr)) {
-      return true;
-    }
-  }
-
-  // Check webhook actions for partial matches
-  for (const auto &action : _config.getWebhookActions()) {
-    if (action.code.startsWith(dialedStr)) {
       return true;
     }
   }

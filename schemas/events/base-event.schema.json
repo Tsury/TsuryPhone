@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/base-event.schema.json",
+  "title": "Base Integration Event",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 2 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "ts": { "type": "integer", "minimum": 0, "description": "Unix epoch ms" },
+    "integration": { "type": "string", "minLength": 1 },
+    "deviceId": { "type": "string", "minLength": 1 },
+    "category": { "type": "string" },
+    "event": { "type": "string" }
+  },
+  "required": [
+    "schemaVersion",
+    "seq",
+    "ts",
+    "integration",
+    "deviceId",
+    "category",
+    "event"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "callTotals": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "incoming": { "type": "integer", "minimum": 0 },
+        "outgoing": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "talkTimeSeconds": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "total",
+        "incoming",
+        "outgoing",
+        "blocked",
+        "talkTimeSeconds"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,8 +1,11 @@
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "DeviceStats.h"
-#include "../common/logger.h"
+#include "../../common/logger.h"
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
+#include <esp_timer.h>
 
 const char *DeviceStats::kStatsFilePath = "/stats.json";
 
@@ -57,6 +60,8 @@ bool DeviceStats::save() {
   }
 
   file.close();
+  _revision++;
+
   return true;
 }
 
@@ -148,7 +153,7 @@ void DeviceStats::updateTalkTime() {
 }
 
 uint32_t DeviceStats::getUptime() const {
-  return (millis() - _systemStartTime) / 1000;
+  return (esp_timer_get_time() - _systemStartTime) / 1000000;
 }
 
 uint32_t DeviceStats::getFreeHeap() const {
@@ -160,10 +165,12 @@ int DeviceStats::getRSSI() const {
 }
 
 void DeviceStats::recordSystemStart() {
-  _systemStartTime = millis();
+  _systemStartTime = esp_timer_get_time();
 }
 
 void DeviceStats::incrementResetCount() {
   _resetCount++;
   save();
 }
+
+#endif // HOME_ASSISTANT_INTEGRATION

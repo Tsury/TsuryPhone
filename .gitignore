@@ -4,4 +4,6 @@ mp3/mp3/*.*
 mp3/generated/*.*
 src/generated/*.*
 phoneBook/pb.txt
+phoneBook/priority.txt
+phoneBook/blocked.txt
 mp3/numbers.txt

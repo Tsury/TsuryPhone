@@ -5,20 +5,11 @@
 
 class DeviceConfig;
 
-enum class NumberAction {
-  Invalid,
-  Pending,
-  QuickDial,
-  WebhookTrigger,
-  DirectDial,
-  Blocked,
-  SystemAction
-};
+enum class NumberAction { Invalid, Pending, DirectDial, QuickDial, SystemAction };
 
 struct NumberValidationResult {
   NumberAction action;
   String targetNumber; // For QuickDial and DirectDial
-  String webhookId;    // For WebhookTrigger
   bool isComplete;     // Whether dialing is complete for this number
 };
 

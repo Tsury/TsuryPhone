@@ -1,6 +1,8 @@
 #pragma once
 
-#include "../common/state.h"
+#ifdef HOME_ASSISTANT_INTEGRATION
+
+#include "../../common/state.h"
 #include "DeviceStats.h"
 #include <Arduino.h>
 
@@ -44,3 +46,5 @@ private:
   bool isCallActiveState(AppState state) const;
   bool isDialingState(AppState state) const;
 };
+
+#endif // HOME_ASSISTANT_INTEGRATION

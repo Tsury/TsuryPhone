@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/call-end.schema.json",
+  "title": "Call End Event",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "call" },
+        "event": { "const": "end" },
+        "number": { "type": "string", "minLength": 1 },
+        "isIncoming": { "type": "boolean" },
+        "callStartTs": { "type": "integer", "minimum": 0 },
+        "durationMs": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "category",
+        "event",
+        "number",
+        "isIncoming",
+        "callStartTs",
+        "durationMs"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/system-stats.schema.json",
+  "title": "System Stats Event",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "system" },
+        "event": { "const": "stats" },
+        "uptimeMs": { "type": "integer", "minimum": 0 },
+        "freeHeap": { "type": "integer", "minimum": 0 },
+        "rssi": { "type": "integer" },
+        "calls": { "$ref": "base-event.schema.json#/$defs/callTotals" }
+      },
+      "required": ["category", "event", "calls"],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/call-blocked.schema.json",
+  "title": "Call Blocked Event",
+  "allOf": [
+    { "$ref": "base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "category": { "const": "call" },
+        "event": { "const": "blocked" },
+        "number": { "type": "string", "minLength": 1 },
+        "isIncoming": { "type": "boolean" },
+        "callStartTs": { "type": "integer", "minimum": 0 },
+        "blockedReason": { "type": "string" }
+      },
+      "required": ["category", "event", "number", "isIncoming"],
+      "additionalProperties": false
+    }
+  ]
+}

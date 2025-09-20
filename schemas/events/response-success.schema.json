@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/response-success.schema.json",
+  "title": "Success Response",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 2 },
+    "success": { "const": true },
+    "ts": { "type": "integer", "minimum": 0 },
+    "data": { "type": "object" }
+  },
+  "required": ["schemaVersion", "success", "ts"],
+  "additionalProperties": true
+}

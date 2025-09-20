@@ -6,7 +6,10 @@
 #include "../../common/timeManager.h"
 #include "../../config.h"
 #include "../../core/DeviceConfig.h"
-#include "../../core/DeviceStats.h"
+#include "../IntegrationService.h" // For INTEGRATION_EVENT_SCHEMA_VERSION
+#include "../Validation.h"
+#include "../core/DeviceStats.h"
+#include "../core/Diagnostics.h" // Generic diagnostics builder
 #include <ESPmDNS.h>
 
 const char *HAWebServer::kWebSocketPath = "/ws";
@@ -23,26 +26,18 @@ bool HAWebServer::init() {
 
   setupRoutes();
   setupWebSocket();
+  setupMDNS();
 
   _server.begin();
 
-  // Setup mDNS for auto-discovery
-  if (MDNS.begin(_config.getDeviceId().c_str())) {
-    MDNS.addService("http", "tcp", kServerPort);
-    MDNS.addServiceTxt("http", "tcp", "device", "tsuryphone");
-    MDNS.addServiceTxt("http", "tcp", "version", "1.0");
-    Logger::infoln(F("mDNS responder started: %s.local"), _config.getDeviceId().c_str());
-  } else {
-    Logger::errorln(F("Error setting up mDNS responder"));
-  }
-
   Logger::infoln(F("HA Web Server started successfully"));
+
   return true;
 }
 
 void HAWebServer::process() {
-  // Only cleanup WebSocket clients every 60 seconds to reduce overhead
   unsigned long now = millis();
+
   if (now - _lastCleanupTime >= kWebSocketCleanupInterval) {
     _webSocket.cleanupClients();
     _lastCleanupTime = now;
@@ -50,22 +45,17 @@ void HAWebServer::process() {
 }
 
 void HAWebServer::stop() {
-  // Close all WebSocket connections gracefully
   _webSocket.closeAll();
-
-  // Stop the web server
   _server.end();
   MDNS.end();
 }
 
 void HAWebServer::setupRoutes() {
-  // Enable CORS for all routes
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods",
                                        "GET, POST, PUT, DELETE, OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Handle preflight OPTIONS requests
   _server.onNotFound([](AsyncWebServerRequest *request) {
     if (request->method() == HTTP_OPTIONS) {
       request->send(200);
@@ -74,7 +64,7 @@ void HAWebServer::setupRoutes() {
     }
   });
 
-  // Data endpoints
+  // GET routes
   _server.on("/api/config/tsuryphone", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleGetTsuryPhoneConfig(request);
   });
@@ -83,25 +73,11 @@ void HAWebServer::setupRoutes() {
     handleRefetchAll(request);
   });
 
-  // Call control endpoints
-  _server.on(
-      "/api/call/dial",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // POST handler will be called after body parsing
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleDialNumber(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
+  _server.on("/api/diagnostics", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleDiagnostics(request);
+  });
 
+  // Simple POST routes (no JSON body)
   _server.on("/api/call/answer", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleAnswerCall(request);
   });
@@ -114,245 +90,120 @@ void HAWebServer::setupRoutes() {
     handleToggleCallWaiting(request);
   });
 
-  _server.on(
-      "/api/call/dial_quick_dial",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleDialQuickDial(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  // Configuration endpoints
-  _server.on(
-      "/api/config/dnd",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetDND(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/maintenance",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetMaintenanceMode(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/audio",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetAudioConfig(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/ring_pattern",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleSetRingPattern(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/quick_dial_add",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleAddQuickDial(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/quick_dial_remove",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleRemoveQuickDial(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/webhook_add",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleAddWebhookAction(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/webhook_remove",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleRemoveWebhookAction(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/blocked_number_add",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleAddBlockedNumber(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  _server.on(
-      "/api/config/blocked_number_remove",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleRemoveBlockedNumber(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
-  // System control endpoints
-  _server.on(
-      "/api/system/ring",
-      HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
-      NULL,
-      [this](
-          AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        JsonDocument doc;
-        if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
-          JsonVariant variant = doc.as<JsonVariant>();
-          handleRingOperation(request, variant);
-        } else {
-          sendErrorResponse(request, "Invalid JSON");
-        }
-      });
-
   _server.on("/api/system/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetDevice(request);
   });
 
+  // JSON POST routes using helper function
+  addJsonPostRoute("/api/call/dial", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleDialNumber(req, json);
+  });
+
+  addJsonPostRoute(
+      "/api/call/dial_quick_dial",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleDialQuickDial(req, json); });
+
+  addJsonPostRoute("/api/config/dnd", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSetDND(req, json);
+  });
+
+  addJsonPostRoute("/api/config/maintenance",
+                   [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                     handleSetMaintenanceMode(req, json);
+                   });
+
+  addJsonPostRoute("/api/config/audio", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSetAudioConfig(req, json);
+  });
+
+  addJsonPostRoute(
+      "/api/config/ring_pattern",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleSetRingPattern(req, json); });
+
+  addJsonPostRoute(
+      "/api/config/quick_dial_add",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddQuickDial(req, json); });
+
+  addJsonPostRoute(
+      "/api/config/quick_dial_remove",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleRemoveQuickDial(req, json); });
+
+  addJsonPostRoute(
+      "/api/config/webhook_add",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddWebhookAction(req, json); });
+
+  addJsonPostRoute("/api/config/webhook_remove",
+                   [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                     handleRemoveWebhookAction(req, json);
+                   });
+
+  addJsonPostRoute(
+      "/api/config/blocked_number_add",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddBlockedNumber(req, json); });
+
+  addJsonPostRoute("/api/config/blocked_number_remove",
+                   [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                     handleRemoveBlockedNumber(req, json);
+                   });
+
+  addJsonPostRoute("/api/system/ring", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleRingOperation(req, json);
+  });
+
+  // Priority callers
+  addJsonPostRoute(
+      "/api/config/priority_add",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddPriorityCaller(req, json); });
+  addJsonPostRoute(
+      "/api/config/priority_remove",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleRemovePriorityCaller(req, json); });
+
+  addJsonPostRoute("/api/config/ha_url", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSetHAUrl(req, json);
+  });
+}
+
+void HAWebServer::addJsonPostRoute(
+    const String &path, std::function<void(AsyncWebServerRequest *, JsonVariant &)> handler) {
   _server.on(
-      "/api/config/ha_url",
+      path.c_str(),
       HTTP_POST,
-      [this](AsyncWebServerRequest *request) {
-        // Will be handled in body callback
-      },
+      [this](AsyncWebServerRequest *request) {},
       NULL,
-      [this](
+      [this, handler](
           AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
         JsonDocument doc;
+
         if (deserializeJson(doc, data, len) == DeserializationError::Ok) {
           JsonVariant variant = doc.as<JsonVariant>();
-          handleSetHAUrl(request, variant);
+          handler(request, variant);
         } else {
-          sendErrorResponse(request, "Invalid JSON");
+          sendErrorResponse(request, "Invalid JSON", 400, "WEB_INVALID_JSON");
         }
       });
+}
+
+void HAWebServer::executeCommand(AsyncWebServerRequest *request,
+                                 const String &command,
+                                 const JsonVariant &data) {
+  if (_stateUpdateCallback) {
+    HAOperationResult result = _stateUpdateCallback(command, data);
+
+    IntegrationService &svc = IntegrationService::shared(_config, _stats, _state);
+    if (result.success) {
+      JsonDocument doc = svc.buildSuccessResponse(result.data);
+      sendJsonResponse(request, doc);
+    } else {
+      JsonDocument err = result.errorCode.isEmpty()
+                             ? svc.buildErrorResponse(result.errorMessage)
+                             : svc.buildErrorResponse(result.errorMessage, result.errorCode);
+      sendJsonResponse(request, err, 400);
+    }
+  } else {
+    IntegrationService &svc = IntegrationService::shared(_config, _stats, _state);
+    JsonDocument err = svc.buildErrorResponse("Service not available", "WEB_SERVICE_UNAVAILABLE");
+    sendJsonResponse(request, err, 503);
+  }
 }
 
 void HAWebServer::setupWebSocket() {
@@ -367,244 +218,182 @@ void HAWebServer::setupWebSocket() {
   _server.addHandler(&_webSocket);
 }
 
+void HAWebServer::setupMDNS() {
+  if (MDNS.begin(_config.getDeviceId().c_str())) {
+    MDNS.addService("http", "tcp", kServerPort);
+    MDNS.addServiceTxt("http", "tcp", "device", "tsuryphone");
+    MDNS.addServiceTxt("http", "tcp", "version", "1.0");
+    Logger::infoln(F("mDNS responder started: %s.local"), _config.getDeviceId().c_str());
+  } else {
+    Logger::errorln(F("Error setting up mDNS responder"));
+  }
+}
+
 void HAWebServer::handleGetTsuryPhoneConfig(AsyncWebServerRequest *request) {
-  JsonDocument doc;
-  doc["success"] = true;
-  JsonObject data = doc["data"].to<JsonObject>();
-  data["deviceId"] = _config.getDeviceId();
-  sendJsonResponse(request, doc);
+  Logger::infoln(F("HA API: Get TsuryPhone config requested"));
+
+  JsonDocument commandData;
+  executeCommand(request, "tsuryphone_config", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Refetch all data requested"));
 
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    HAOperationResult result = _stateUpdateCallback("refetch_all", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-
-      // If the integration returned data, use it; otherwise build our own
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      } else {
-        JsonObject data = doc["data"].to<JsonObject>();
-        // Add all hierarchical data using helper functions
-        addStatus(data);
-        addConfig(data);
-        addStats(data);
-        addPhone(data);
-      }
-
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    // Fallback to original behavior if callback not available
-    _config.load();
-    _stats.load();
-
-    JsonDocument doc;
-    doc["success"] = true;
-
-    JsonObject data = doc["data"].to<JsonObject>();
-
-    // Add all hierarchical data using helper functions
-    addStatus(data);
-    addConfig(data);
-    addStats(data);
-    addPhone(data);
-
-    sendJsonResponse(request, doc);
-  }
+  JsonDocument commandData;
+  executeCommand(request, "refetch_all", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleDialNumber(AsyncWebServerRequest *request, JsonVariant &json) {
   if (!json["number"]) {
-    sendErrorResponse(request, "Missing 'number' parameter");
+    sendErrorResponse(request, "Missing 'number' parameter", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
     return;
   }
 
-  String number = json["number"].as<String>();
-  Logger::infoln(F("HA API: Dial request for %s"), number.c_str());
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    commandData["number"] = number;
-    HAOperationResult result = _stateUpdateCallback("dial", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  Logger::infoln(F("HA API: Dial request"));
+  executeCommand(request, "dial", json);
 }
 
 void HAWebServer::handleAnswerCall(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Answer call request"));
 
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    HAOperationResult result = _stateUpdateCallback("answer", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  JsonDocument commandData;
+  executeCommand(request, "answer", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleHangupCall(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Hangup call request"));
 
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    HAOperationResult result = _stateUpdateCallback("hangup", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  JsonDocument commandData;
+  executeCommand(request, "hangup", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: DND configuration request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("dnd", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  bool hasParam = false;
+
+  // enabled (optional)
+  if (!json["enabled"].isNull()) {
+    if (!json["enabled"].is<bool>()) {
+      sendErrorResponse(
+          request, "Invalid 'enabled' parameter (must be boolean)", 400, "WEB_INVALID_ENABLED");
+      return;
+    }
+    hasParam = true;
+  }
+
+  auto validateIntInRange = [&](const char *key, int minVal, int maxVal, const char *errorCode) {
+    JsonVariant v = json[key];
+    if (v.isNull()) {
+      return false; // not provided
+    }
+    if (!v.is<int>()) {
+      sendErrorResponse(
+          request, String("Invalid '") + key + "' parameter (must be integer)", 400, errorCode);
+      return true; // indicates we handled (error)
+    }
+    int iv = v.as<int>();
+    if (iv < minVal || iv > maxVal) {
+      sendErrorResponse(request,
+                        String("' ") + key + "' out of range (" + minVal + "-" + maxVal + ")",
+                        400,
+                        errorCode);
+      return true; // handled (error)
+    }
+    hasParam = true;
+    return false; // no error
+  };
+
+  // Optional schedule fields (startHour/endHour 0-23, startMinute/endMinute 0-59)
+  if (validateIntInRange("startHour", 0, 23, "WEB_INVALID_START_HOUR")) {
+    return;
+  }
+  if (validateIntInRange("endHour", 0, 23, "WEB_INVALID_END_HOUR")) {
+    return;
+  }
+  if (validateIntInRange("startMinute", 0, 59, "WEB_INVALID_START_MINUTE")) {
+    return;
+  }
+  if (validateIntInRange("endMinute", 0, 59, "WEB_INVALID_END_MINUTE")) {
+    return;
+  }
+
+  if (!hasParam) {
+    sendErrorResponse(
+        request,
+        "At least one DND parameter required (enabled, startHour, endHour, startMinute, endMinute)",
+        400,
+        "WEB_DND_PARAM_REQUIRED");
+    return;
+  }
+
+  Logger::infoln(F("HA API: DND configuration (partial update) request"));
+  executeCommand(request, "dnd", json);
 }
 
 void HAWebServer::handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Maintenance mode request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("maintenance_mode", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json["enabled"].is<bool>()) {
+    sendErrorResponse(request,
+                      "Missing or invalid 'enabled' parameter (must be boolean)",
+                      400,
+                      "WEB_MISSING_ENABLED");
+    return;
   }
+
+  Logger::infoln(F("HA API: Maintenance mode request"));
+  executeCommand(request, "maintenance_mode", json);
 }
 
 void HAWebServer::handleRingOperation(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Ring operation request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("ring", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
+  if (json["pattern"]) {
+    String p = json["pattern"].as<String>();
+    if (!IntegrationValidation::isValidPattern(p)) {
+      sendErrorResponse(request, "Invalid ring pattern format", 400, "WEB_INVALID_PATTERN");
+      return;
     }
-  } else {
-    sendErrorResponse(request, "Service not available");
   }
+
+  Logger::infoln(F("HA API: Ring operation request"));
+  executeCommand(request, "ring", json);
 }
 
 void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Device reset requested"));
 
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    HAOperationResult result = _stateUpdateCallback("reset", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  JsonDocument commandData;
+  executeCommand(request, "reset", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Audio configuration request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("audio_config", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  bool hasValidParam = false;
+  if (json["earpieceVolume"].is<int>() || json["earpieceGain"].is<int>() ||
+      json["speakerVolume"].is<int>() || json["speakerGain"].is<int>()) {
+    hasValidParam = true;
+  }
+
+  if (!hasValidParam) {
+    sendErrorResponse(request,
+                      "At least one audio parameter must be provided: earpieceVolume, "
+                      "earpieceGain, speakerVolume, or speakerGain",
+                      400,
+                      "WEB_AUDIO_PARAM_REQUIRED");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Audio configuration request"));
+  executeCommand(request, "audio_config", json);
 }
 
 void HAWebServer::broadcastStateUpdate(const JsonDocument &stateData) {
@@ -623,49 +412,24 @@ void HAWebServer::setStatusCallback(std::function<void(JsonObject &)> callback) 
 }
 
 void HAWebServer::handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Quick dial request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("dial_quick_dial", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json["code"]) {
+    sendErrorResponse(request, "Missing 'code' parameter", 400, "WEB_MISSING_CODE");
+    return;
   }
+  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Quick dial request"));
+  executeCommand(request, "dial_quick_dial", json);
 }
 
 void HAWebServer::handleToggleCallWaiting(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Toggle call waiting request"));
 
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    JsonDocument commandData;
-    HAOperationResult result =
-        _stateUpdateCallback("switch_call_waiting", commandData.as<JsonVariant>());
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  JsonDocument commandData;
+  executeCommand(request, "switch_call_waiting", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::onWebSocketEvent(AsyncWebSocket *server,
@@ -720,291 +484,223 @@ void HAWebServer::sendJsonResponse(AsyncWebServerRequest *request,
 
 void HAWebServer::sendErrorResponse(AsyncWebServerRequest *request,
                                     const String &error,
-                                    int statusCode) {
-  JsonDocument doc;
-  doc["success"] = false;
-  doc["message"] = error;
-  sendJsonResponse(request, doc, statusCode);
+                                    int statusCode,
+                                    const String &errorCode) {
+  IntegrationService &svc = IntegrationService::shared(_config, _stats, _state);
+  JsonDocument err = errorCode.isEmpty() ? svc.buildErrorResponse(error)
+                                         : svc.buildErrorResponse(error, errorCode);
+  sendJsonResponse(request, err, statusCode);
 }
 
 void HAWebServer::handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Add quick dial request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("quick_dial_add", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["code"] || !json["number"]) {
+    sendErrorResponse(
+        request, "Missing required parameters: 'code' and 'number'", 400, "WEB_MISSING_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Add quick dial request"));
+  executeCommand(request, "quick_dial_add", json);
 }
 
 void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Remove quick dial request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("quick_dial_remove", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["code"]) {
+    sendErrorResponse(request, "Missing required parameter: 'code'", 400, "WEB_MISSING_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Remove quick dial request"));
+  executeCommand(request, "quick_dial_remove", json);
 }
 
 void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Add webhook action request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("webhook_add", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["code"] || !json["id"]) {
+    sendErrorResponse(
+        request, "Missing required parameters: 'code' and 'id'", 400, "WEB_MISSING_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidCode(json["id"].as<String>())) { // reuse same pattern for id
+    sendErrorResponse(request, "Invalid id format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Add webhook action request"));
+  executeCommand(request, "webhook_add", json);
 }
 
 void HAWebServer::handleRemoveWebhookAction(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Remove webhook action request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("webhook_remove", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["code"]) {
+    sendErrorResponse(request, "Missing required parameter: 'code'", 400, "WEB_MISSING_CODE");
+    return;
+  }
+  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Remove webhook action request"));
+  executeCommand(request, "webhook_remove", json);
 }
 
 void HAWebServer::handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Add blocked number request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("blocked_number_add", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["number"]) {
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Add blocked number request"));
+  executeCommand(request, "blocked_number_add", json);
+}
+
+void HAWebServer::handleAddPriorityCaller(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
+  }
+  if (!json["number"]) {
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+  Logger::infoln(F("HA API: Add priority caller request"));
+  executeCommand(request, "priority_add", json);
+}
+
+void HAWebServer::handleRemovePriorityCaller(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
+  }
+  if (!json["number"]) {
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+  Logger::infoln(F("HA API: Remove priority caller request"));
+  executeCommand(request, "priority_remove", json);
 }
 
 void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Remove blocked number request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("blocked_number_remove", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (!json["number"]) {
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Remove blocked number request"));
+  executeCommand(request, "blocked_number_remove", json);
 }
 
 void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json) {
-  Logger::infoln(F("HA API: Set ring pattern request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("ring_pattern", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
+  if (!json["pattern"]) {
+    sendErrorResponse(request, "Missing required parameter: 'pattern'", 400, "WEB_INVALID_PATTERN");
+    return;
   }
+  if (!IntegrationValidation::isValidPattern(json["pattern"].as<String>())) {
+    sendErrorResponse(request, "Invalid ring pattern format", 400, "WEB_INVALID_PATTERN");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Set ring pattern request"));
+  executeCommand(request, "ring_pattern", json);
 }
 
 void HAWebServer::handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
+  }
+
+  if (!json["url"]) {
+    sendErrorResponse(request, "Missing required parameter: 'url'", 400, "WEB_INVALID_URL");
+    return;
+  }
+  if (!IntegrationValidation::isValidUrl(json["url"].as<String>())) {
+    sendErrorResponse(request, "Invalid URL format", 400, "WEB_INVALID_URL");
+    return;
+  }
+
   Logger::infoln(F("HA API: Set HA URL request"));
-
-  // Delegate to integration business logic
-  if (_stateUpdateCallback) {
-    HAOperationResult result = _stateUpdateCallback("ha_url", json);
-
-    if (result.success) {
-      JsonDocument doc;
-      doc["success"] = true;
-      if (!result.data.isNull()) {
-        doc["data"] = result.data;
-      }
-      sendJsonResponse(request, doc);
-    } else {
-      sendErrorResponse(request, result.errorMessage);
-    }
-  } else {
-    sendErrorResponse(request, "Service not available");
-  }
+  executeCommand(request, "ha_url", json);
 }
 
-// Helper functions for building structured data responses
-void HAWebServer::addStatus(JsonObject &doc) {
-  JsonObject status = doc["status"].to<JsonObject>();
+void HAWebServer::handleDiagnostics(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Diagnostics requested"));
+  JsonDocument doc;
+  JsonObject root = doc.to<JsonObject>();
+  // Generic baseline
+  populateCoreDiagnostics(root, _config, _stats);
 
-  // System status
-  JsonObject systemStatus = status["system"].to<JsonObject>();
-  systemStatus["uptime"] = _stats.getUptime();
-  systemStatus["freeHeap"] = _stats.getFreeHeap();
-  systemStatus["rssi"] = _stats.getRSSI();
+  // HA-specific capability decorations (kept minimal & additive)
+  JsonArray caps = root["capabilities"].to<JsonArray>();
+  caps.add("actions");
+  caps.add("number_code_handler");
 
-  // Phone status
-  JsonObject phoneStatus = status["phone"].to<JsonObject>();
-  phoneStatus["maintenanceMode"] = _state.isMaintenanceMode;
-  phoneStatus["dndActive"] = _state.isDnd;
+  // Action codes if obtainable via command interface (reuse existing command path):
+  // We trigger a synthetic command 'tsuryphone_config' then mine action codes if present.
+  // For now, we just mark presence; full enumeration lives in structured log on startup.
+  root["actionCodesExposedInLogs"] = true;
 
-  // Get state from callback if available
-  if (_statusCallback) {
-    JsonDocument tempDoc;
-    JsonObject tempObj = tempDoc.to<JsonObject>();
-    _statusCallback(tempObj);
-    if (tempObj["state"]) {
-      phoneStatus["state"] = tempObj["state"];
-    }
-  } else {
-    phoneStatus["state"] = "unknown";
-  }
+  sendJsonResponse(request, doc);
 }
 
-void HAWebServer::addConfig(JsonObject &doc) {
-  JsonObject config = doc["config"].to<JsonObject>();
-
-  // Audio config
-  const AudioConfig &audioConfig = _config.getAudioConfig();
-  JsonObject audio = config["audio"].to<JsonObject>();
-  audio["earpieceVolume"] = audioConfig.earpieceVolume;
-  audio["earpieceGain"] = audioConfig.earpieceGain;
-  audio["speakerVolume"] = audioConfig.speakerVolume;
-  audio["speakerGain"] = audioConfig.speakerGain;
-
-  // DND config
-  const DndConfig &dndConfig = _config.getDndConfig();
-  JsonObject dnd = config["dnd"].to<JsonObject>();
-  dnd["force"] = dndConfig.force;
-  dnd["schedule"] = dndConfig.scheduled;
-  dnd["startMinute"] = dndConfig.startMinute;
-  dnd["endMinute"] = dndConfig.endMinute;
-  dnd["startHour"] = dndConfig.startHour;
-  dnd["endHour"] = dndConfig.endHour;
-
-  // Phone config
-  JsonObject phone = config["phone"].to<JsonObject>();
-  phone["ringPattern"] = _config.getRingPattern();
-}
-
-void HAWebServer::addStats(JsonObject &doc) {
-  const CallStats &callStats = _stats.getCallStats();
-  JsonObject stats = doc["stats"].to<JsonObject>();
-
-  JsonObject calls = stats["calls"].to<JsonObject>();
-  JsonObject totals = calls["totals"].to<JsonObject>();
-  totals["calls"] = callStats.totalCalls;
-  totals["incoming"] = callStats.incomingCalls;
-  totals["outgoing"] = callStats.outgoingCalls;
-  totals["blocked"] = callStats.blockedCalls;
-  totals["talkTime"] = callStats.totalTalkTimeSeconds;
-
-  JsonObject lastCall = calls["lastCall"].to<JsonObject>();
-  lastCall["number"] = callStats.lastCall.number;
-  lastCall["type"] = callStats.lastCall.type;
-
-  JsonObject systemStats = stats["system"].to<JsonObject>();
-  systemStats["resets"] = _stats.getResetCount();
-}
-
-void HAWebServer::addPhone(JsonObject &doc) {
-  JsonObject phone = doc["phone"].to<JsonObject>();
-
-  // Quick dial entries
-  JsonArray quickDial = phone["quickDial"].to<JsonArray>();
-  for (const auto &entry : _config.getQuickDialEntries()) {
-    JsonObject entryObj = quickDial.add<JsonObject>();
-    entryObj["code"] = entry.code;
-    entryObj["number"] = entry.number;
-    entryObj["name"] = entry.name;
-  }
-
-  // Blocked numbers
-  JsonArray blocked = phone["blocked"].to<JsonArray>();
-  for (const auto &entry : _config.getBlockedNumbers()) {
-    JsonObject entryObj = blocked.add<JsonObject>();
-    entryObj["number"] = entry.number;
-    entryObj["reason"] = entry.reason;
-  }
-
-  // Webhook actions
-  JsonArray webhooks = phone["webhooks"].to<JsonArray>();
-  for (const auto &entry : _config.getWebhookActions()) {
-    JsonObject entryObj = webhooks.add<JsonObject>();
-    entryObj["code"] = entry.code;
-    entryObj["id"] = entry.id;
-    entryObj["actionName"] = entry.actionName;
-  }
-}
-
-#endif // HOME_ASSISTANT_INTEGRATION
+#endif

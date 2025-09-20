@@ -1,38 +1,27 @@
 #pragma once
 
+#if !defined(HOME_ASSISTANT_INTEGRATION) && !defined(ANDROID_INTEGRATION)
+#error                                                                                             \
+    "IntegrationManager included but no integration macro defined. Define at least one integration (HOME_ASSISTANT_INTEGRATION / ANDROID_INTEGRATION)."
+#endif
+
+#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+
 #include "../common/state.h"
 #include "../core/DeviceConfig.h"
-#include "../core/DeviceStats.h"
-#include "../core/StatsManager.h"
+#include "ActionHandler.h"
 #include "IIntegration.h"
+#include "IntegrationTypes.h"
+#include "core/DeviceStats.h"
+#include "core/StatsManager.h"
 #include <ArduinoJson.h>
 #include <functional>
 #include <memory>
 #include <vector>
 
-// Config change event types
-enum class ConfigChangeEvent {
-  DND_CONFIG_CHANGED,
-  AUDIO_CONFIG_CHANGED,
-  QUICK_DIAL_CHANGED,
-  BLOCKED_NUMBER_CHANGED,
-  WEBHOOK_ACTION_CHANGED,
-  HA_URL_CHANGED,
-  RING_PATTERN_CHANGED
-};
-
-// Result structure for integration callbacks
-struct IntegrationCallbackResult {
-  bool success = false;
-  String errorMessage;
-  
-  IntegrationCallbackResult() = default;
-  IntegrationCallbackResult(bool success) : success(success) {}
-  IntegrationCallbackResult(bool success, const String& error) : success(success), errorMessage(error) {}
-};
-
-// Callback function type for config changes
-using ConfigChangeCallback = std::function<void(ConfigChangeEvent event)>;
+// Forward declaration
+class TsuryPhone;
+struct IntegrationCallbackResult;
 
 /**
  * Manager for all device integrations
@@ -41,13 +30,24 @@ using ConfigChangeCallback = std::function<void(ConfigChangeEvent event)>;
  */
 class IntegrationManager {
 public:
-  IntegrationManager(DeviceConfig &config, DeviceStats &stats, State &state);
+  IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &config, State &state);
   ~IntegrationManager();
 
   // Lifecycle management
   bool init();
   void process();
   void stop();
+
+  // Setup callbacks - to be called after construction to avoid circular dependencies
+  void
+  setupTsuryPhoneCallbacks(std::function<IntegrationCallbackResult(const String &)> dialCallback,
+                           std::function<IntegrationCallbackResult()> answerCallback,
+                           std::function<IntegrationCallbackResult()> hangupCallback,
+                           std::function<IntegrationCallbackResult(const String &)> ringCallback,
+                           std::function<IntegrationCallbackResult()> callWaitingCallback,
+                           std::function<void(const String &)> callBlockedCallback,
+                           std::function<void(bool)> maintenanceModeCallback,
+                           std::function<void(ConfigChangeEvent)> configChangeCallback);
 
   // State synchronization - calls all registered integrations
   void updatePhoneState(AppState newState, AppState previousState);
@@ -72,7 +72,19 @@ public:
   void reportCallEnd(unsigned long duration);
   void reportBlockedCall(const String &number);
   void reportError(const String &error);
-  void triggerWebhook(const String &webhookId);
+  void triggerAction(const String &actionId);
+  // Action handler registry
+  void addActionHandler(IIntegrationActionHandler *handler);
+  bool hasPartialActionMatch(const String &dialed) const;
+  bool isActionCode(const String &dialed) const;
+  String resolveActionId(const String &dialed) const;
+  // Debug helper: dump all action codes (if handlers enumerate them)
+  void listActionCodes() const;
+  // N2: Export metrics snapshot (logs concise stats summary)
+  void exportMetricsSnapshot() const;
+  // N3: Emit a structured JSON log sample (minimal) for external tooling experimentation
+  void emitStructuredJsonLog(const char *event, const char *detail) const;
+  void emitStructuredJsonLogKV(const char *event, const char *k, const char *v) const;
 
   // Configuration synchronization - notifies all integrations
   void onConfigurationChanged();
@@ -85,23 +97,38 @@ public:
   bool hasEnabledIntegrations() const;
   void listIntegrations() const;
 
+  // DeviceStats access
+  DeviceStats &getDeviceStats() {
+    return _stats;
+  }
+  const DeviceStats &getDeviceStats() const {
+    return _stats;
+  }
+
   // Additional state tracking for automatic detection
   void handleCallBlocked(const String &number);
   void handleCallStarted(const String &number, bool isIncoming);
   void handleCallEnded(unsigned long duration);
 
-  // Call blocking support
-  bool shouldBlockCall(const String &number) const;
 
   // Device config updates - for local changes that should notify integrations
   void updateMaintenanceMode(bool enabled);
+
+  // Runtime logging control for integration debug messages
+  void enableIntegrationDebugLogging(bool enabled);
+
+  // Enqueue a debug character from serial input; handled during process()
+  void enqueueDebugChar(char c);
+
+  // All transport/protocol specifics are handled in concrete integration classes.
 
 private:
   void updateRingState(bool isRinging);
   void checkForStateChanges(); // New method to track state changes
 
+  TsuryPhone &_tsuryPhone;
   DeviceConfig &_config;
-  DeviceStats &_stats;
+  DeviceStats _stats; // Now owned by IntegrationManager
   State &_state;
   StatsManager _statsManager; // Automatic stats tracking
 
@@ -123,6 +150,13 @@ private:
   std::vector<ConfigChangeCallback> _configChangeCallbacks;
 
   std::vector<std::unique_ptr<IIntegration>> _integrations;
+  std::vector<IIntegrationActionHandler *>
+      _actionHandlers; // Non-owning; lifetime managed by integration
 
   void registerIntegrations();
+  mutable uint32_t _jsonLogSeq = 0; // N3 sequence counter
+  // Queue for pending debug serial characters to be processed inside process()
+  std::vector<char> _debugCharQueue;
 };
+
+#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION

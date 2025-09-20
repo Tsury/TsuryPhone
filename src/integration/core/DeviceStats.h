@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include <Arduino.h>
 
 struct LastCallInfo {
@@ -43,6 +45,10 @@ public:
   }
   void incrementResetCount();
 
+  uint32_t getRevision() const {
+    return _revision;
+  }
+
   // Getters
   const CallStats &getCallStats() const {
     return _callStats;
@@ -58,9 +64,12 @@ private:
   void updateTalkTime();
 
   CallStats _callStats;
-  uint32_t _systemStartTime;
+  uint64_t _systemStartTime;
   uint32_t _callStartTime;
   int _resetCount = 0;
+  uint32_t _revision = 0;
 
   static const char *kStatsFilePath;
 };
+
+#endif // HOME_ASSISTANT_INTEGRATION

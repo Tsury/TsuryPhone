@@ -4,19 +4,18 @@
 
 #include "../../common/state.h"
 #include "../../core/DeviceConfig.h"
-#include "../../core/DeviceStats.h"
 #include "../IIntegration.h"
+#include "../IntegrationService.h"
+#include "../IntegrationTypes.h"
+#include "../core/DeviceStats.h"
+#include "HAConfig.h"
+#include "HANumberHandler.h"
 #include "HAWebServer.h"
 #include <functional>
 
-// Forward declaration
-enum class ConfigChangeEvent;
-using ConfigChangeCallback = std::function<void(ConfigChangeEvent event)>;
-
 /**
  * Home Assistant integration implementation
- * Manages all HA-related functionality including web server, state synchronization,
- * and communication with the main application
+ * Thin wrapper around IntegrationService that handles HA-specific protocol concerns
  */
 class HAIntegration : public IIntegration {
 public:
@@ -48,15 +47,12 @@ public:
   void reportCallEnd(unsigned long duration) override;
   void reportBlockedCall(const String &number) override;
   void reportError(const String &error) override;
-  void triggerWebhook(const String &webhookId) override;
+  void triggerAction(const String &actionId) override; // Generic action (HA webhooks)
 
   // Configuration synchronization
   void onConfigurationChanged() override;
 
-  // Config change event system
-  void setConfigChangeCallback(ConfigChangeCallback callback);
-
-  // Business logic methods for web server
+  // HA-specific command handlers (thin wrappers around business logic)
   HAOperationResult handleDialRequest(const String &number);
   HAOperationResult handleAnswerRequest();
   HAOperationResult handleHangupRequest();
@@ -72,9 +68,12 @@ public:
   HAOperationResult handleToggleCallWaiting();
   HAOperationResult handleAddBlockedNumber(const JsonVariant &data);
   HAOperationResult handleRemoveBlockedNumber(const JsonVariant &data);
+  HAOperationResult handleAddPriorityCaller(const JsonVariant &data);
+  HAOperationResult handleRemovePriorityCaller(const JsonVariant &data);
   HAOperationResult handleAddWebhookAction(const JsonVariant &data);
   HAOperationResult handleRemoveWebhookAction(const JsonVariant &data);
   HAOperationResult handleSetHAUrl(const JsonVariant &data);
+  HAOperationResult handleGetTsuryPhoneConfig();
   HAOperationResult handleRefetchAll();
 
   // IIntegration interface implementation
@@ -84,13 +83,30 @@ public:
   bool isEnabled() const override {
     return true;
   }
-
-  // Status information for web server
-  void getFullStatus(JsonObject &obj);
+  const char *getTag() const override {
+    return "HA";
+  }
+  uint32_t getCapabilities() const override {
+    return IC_ACTIONS; // HA supports action triggering (webhooks mapped to actions)
+  }
+  void registerActionHandlers(IntegrationManager &manager) override;
 
   // Home Assistant configuration
   String getHomeAssistantUrl() const {
-    return _config.getHomeAssistantUrl();
+    return _haConfig.getHomeAssistantUrl();
+  }
+
+  // HA-specific number validation
+  bool isWebhookTrigger(const String &number) const {
+    return _haNumberHandler.isWebhookTrigger(number);
+  }
+
+  String getWebhookId(const String &code) const {
+    return _haNumberHandler.getWebhookId(code);
+  }
+
+  bool isPartialWebhookMatch(const String &dialedNumber) const {
+    return _haNumberHandler.isPartialWebhookMatch(dialedNumber);
   }
 
 private:
@@ -98,54 +114,29 @@ private:
   DeviceStats &_stats;
   State &_state;
   HAWebServer _webServer;
-
-  // Remove duplicated state tracking - use _state reference instead
-  // Keep only essential additional information not available in main State
-  struct CallInfo {
-    String number;
-    bool isIncoming = false;
-    unsigned long startTime = 0;
-  } _currentCall;
-
-  String _currentDialingNumber; // Keep for dialing progress
-
-  // Callback functions for device operations
-  std::function<IntegrationCallbackResult(const String &)> _dialCallback;
-  std::function<IntegrationCallbackResult()> _answerCallback;
-  std::function<IntegrationCallbackResult()> _hangupCallback;
-  std::function<IntegrationCallbackResult(const String &)> _ringCallback;
-  std::function<IntegrationCallbackResult()> _callWaitingCallback;
-  std::function<void(bool)> _maintenanceModeChangedCallback;
-
-  // Config change callback
-  ConfigChangeCallback _configChangeCallback;
+  // IntegrationService instance (can be shared in future via singleton if memory pressure)
+  IntegrationService &_integrationService; // (N1) shared singleton instance
+  HAConfig _haConfig;
+  HANumberHandler _haNumberHandler;
 
   // Internal methods
   void setupWebServerCallbacks();
   void broadcastFullState();
   void broadcastStateChange(const String &key, const JsonVariant &value);
-  void handleWebServerCommand(const String &command, const JsonVariant &data);
-
-  // JSON helpers
-  void addBasicDeviceInfo(JsonObject &obj);
-  void addPhoneStateInfo(JsonObject &obj);
-  void addCallInfo(JsonObject &obj);
-  void addSystemInfo(JsonObject &obj);
-  void addStatsInfo(JsonObject &obj);
-  JsonObject createEventObject(JsonDocument &doc, const String &event, const String &type);
+  // Overloads for primitive convenience (wrap into temporary JsonDocument)
+  void broadcastStateChange(const String &key, const String &value);
+  void broadcastStateChange(const String &key, bool value);
+  void broadcastStateChange(const String &key, int value);
 
   // Last update tracking for efficiency
   unsigned long _lastStatsUpdate = 0;
   unsigned long _lastSystemUpdate = 0;
   static const unsigned long kStatsUpdateInterval = 60000;  // 60 seconds
   static const unsigned long kSystemUpdateInterval = 60000; // 60 seconds
+  uint32_t _lastStatsHash = 0; // I1: cache of last emitted stats fingerprint
 
-  // Webhook HTTP functionality
-  void triggerWebhookHttp(const String &webhookId);
-  
-  // Reset management
-  bool _resetRequested = false;
-  unsigned long _resetScheduledTime = 0;
+  // Helper to convert IntegrationCallbackResult to HAOperationResult
+  HAOperationResult convertResult(const IntegrationCallbackResult &result);
 };
 
 #endif // HOME_ASSISTANT_INTEGRATION

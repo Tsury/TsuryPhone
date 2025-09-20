@@ -124,6 +124,7 @@ private:
   uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
   uint32_t _watchdogResetCounter = 0;
+  uint8_t _keepAliveRetryCount = 0;
 
   DeviceConfig &_config;
 };

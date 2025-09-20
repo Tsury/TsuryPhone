@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/events/response-error.schema.json",
+  "title": "Error Response",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 2 },
+    "success": { "const": false },
+    "ts": { "type": "integer", "minimum": 0 },
+    "errorCode": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 }
+  },
+  "required": ["schemaVersion", "success", "ts", "errorCode", "message"],
+  "additionalProperties": true
+}

@@ -8,20 +8,28 @@
 #include "components\ringer.h"
 #include "components\rotaryDial.h"
 #include "core\DeviceConfig.h"
-#include "core\DeviceStats.h"
 #include "core\NumberHandler.h"
-#include "integration\IntegrationManager.h"
 #include <Arduino.h>
+#include <memory>
 
-// Forward declaration
-struct IntegrationCallbackResult;
+#include "integration/IntegrationShim.h"
 
-class PhoneApp {
+class TsuryPhone {
 public:
-  PhoneApp();
+  TsuryPhone();
 
   void setup();
   void loop();
+
+  // Integration callbacks (no-op when integration disabled via stub)
+  IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
+  IntegrationCallbackResult handleIntegrationAnswerRequest();
+  IntegrationCallbackResult handleIntegrationHangupRequest();
+  IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern);
+  IntegrationCallbackResult handleIntegrationCallWaitingRequest();
+  void handleIntegrationCallBlocked(const String &number);
+  void handleIntegrationMaintenanceModeChanged(const bool enabled);
+  void handleIntegrationConfigChanged(ConfigChangeEvent event);
 
 private:
   void setState(const AppState newState);
@@ -46,24 +54,12 @@ private:
 
   void stopEverything();
 
-  // Configuration change handlers
-  void handleConfigChange(ConfigChangeType changeType);
+  // Configuration change handlers (safe no-op via stub when integration off)
   void onAudioConfigChanged();
   void onMaintenanceModeChanged(const bool enabled);
 
-  // Integration operation callbacks
-  IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
-  IntegrationCallbackResult handleIntegrationAnswerRequest();
-  IntegrationCallbackResult handleIntegrationHangupRequest();
-  IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern);
-  IntegrationCallbackResult handleIntegrationCallWaitingRequest();
-
-  // Call blocking callback
-  void handleCallBlocked(const String &number);
-
   DeviceConfig _deviceConfig;
-  DeviceStats _deviceStats;
-  State _state; // Will be initialized by constructor
+  State _state;
 
   Modem _modem;
   Ringer _ringer;
@@ -72,8 +68,14 @@ private:
   Wifi _wifi;
   TimeManager _timeManager;
   NumberHandler _numberHandler;
-  IntegrationManager _integrationManager;
+
+  std::unique_ptr<IntegrationManager> _integrationManager;
 
   uint32_t _stateTime = 0UL;
   bool _firstTimeSystemReady = false;
+
+  uint32_t _lastRinger = 0UL;
+  uint32_t _lastTimeMgr = 0UL;
+  uint32_t _lastWifi = 0UL;
+  uint32_t _lastIntegration = 0UL;
 };

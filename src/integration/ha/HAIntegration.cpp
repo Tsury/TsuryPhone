@@ -2,42 +2,31 @@
 
 #include "HAIntegration.h"
 #include "../../common/logger.h"
-#include "../IntegrationManager.h" // For ConfigChangeEvent enum
-// #include "../../common/timeManager.h"
+#include "../IntegrationLog.h"
+#include "../IntegrationManager.h"
+#include "../core/ConfigDiff.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
 
-// Helper function to get state name
-const char *getStateName(AppState state) {
-  switch (state) {
-  case AppState::Startup:
-    return "Startup";
-  case AppState::CheckHardware:
-    return "CheckHardware";
-  case AppState::CheckLine:
-    return "CheckLine";
-  case AppState::Idle:
-    return "Idle";
-  case AppState::InvalidNumber:
-    return "InvalidNumber";
-  case AppState::IncomingCall:
-    return "IncomingCall";
-  case AppState::IncomingCallRing:
-    return "IncomingCallRing";
-  case AppState::InCall:
-    return "InCall";
-  case AppState::Dialing:
-    return "Dialing";
-  default:
-    return "Unknown";
-  }
-}
-
 HAIntegration::HAIntegration(DeviceConfig &config, DeviceStats &stats, State &state)
-    : _config(config), _stats(stats), _state(state), _webServer(config, stats, state) {}
+    : _config(config),
+      _stats(stats),
+      _state(state),
+      _webServer(config, stats, state),
+      _integrationService(IntegrationService::shared(config, stats, state)),
+      _haConfig(config),
+      _haNumberHandler(_haConfig) {}
 
 bool HAIntegration::init() {
-  Logger::infoln(F("Initializing Home Assistant integration..."));
+  INTL_INFO("Initializing integration...");
+
+  // Ensure shared service knows our integration tag for event root fields
+  _integrationService.setIntegrationTag("ha");
+
+  if (!_haConfig.init()) {
+    Logger::errorln(F("Failed to initialize HA config"));
+    return false;
+  }
 
   setupWebServerCallbacks();
 
@@ -46,45 +35,41 @@ bool HAIntegration::init() {
     return false;
   }
 
-  // Broadcast initial state
   broadcastFullState();
 
-  Logger::infoln(F("Home Assistant integration initialized successfully"));
+  INTL_INFO("Initialized successfully");
+
+  // Action handlers are registered via IntegrationManager::registerIntegrations() flow.
   return true;
+}
+
+void HAIntegration::registerActionHandlers(IntegrationManager &manager) {
+  manager.addActionHandler(&_haNumberHandler);
 }
 
 void HAIntegration::process() {
   _webServer.process();
 
-  // Handle scheduled reset
-  if (_resetRequested && millis() >= _resetScheduledTime) {
-    Logger::infoln(F("HA: Executing scheduled device reset"));
-
-    // Close WebSocket connections gracefully
-    // Note: We need to access the WebSocket through the web server
-    // The web server will handle its own cleanup
-    _webServer.stop();
-
-    // Additional delay to ensure cleanup
-    delay(500);
-
-    // Restart the device
-    ESP.restart();
+  if (_integrationService.processScheduledReset()) {
+    stop();
   }
 
-  // Periodic updates
   unsigned long now = millis();
-
-  // Update statistics periodically
   if (now - _lastStatsUpdate >= kStatsUpdateInterval) {
+    const uint32_t fp = _integrationService.getStatsFingerprint();
+
+    if (fp != _lastStatsHash) {
+      JsonDocument doc = _integrationService.buildSystemEvent("stats");
+      _webServer.broadcastStateUpdate(doc);
+      _lastStatsHash = fp;
+      INTL_DEBUG("Stats broadcast (changed) fp=%lu", fp);
+    } else {
+      INTL_DEBUG("Stats suppressed (unchanged)");
+    }
+
     _lastStatsUpdate = now;
-    JsonDocument doc;
-    JsonObject obj = createEventObject(doc, "system", "stats");
-    addStatsInfo(obj);
-    _webServer.broadcastStateUpdate(doc);
   }
 
-  // Update system status periodically
   if (now - _lastSystemUpdate >= kSystemUpdateInterval) {
     _lastSystemUpdate = now;
     updateSystemStatus();
@@ -93,160 +78,115 @@ void HAIntegration::process() {
 
 void HAIntegration::stop() {
   _webServer.stop();
-  Logger::infoln(F("Home Assistant integration stopped"));
+  INTL_INFO("Stopped");
 }
 
 void HAIntegration::updatePhoneState(AppState newState, AppState previousState) {
-  Logger::infoln(F("HA: Phone state changed from %s to %s"),
-                 getStateName(previousState),
-                 getStateName(newState));
+  INTL_INFO("State %s -> %s", appStateToString(previousState), appStateToString(newState));
 
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "phone_state", "state");
-  obj["state"] = static_cast<int>(newState);
-  obj["previousState"] = static_cast<int>(previousState);
-  obj["stateName"] = getStateName(newState);
-
-  addPhoneStateInfo(obj);
+  JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("state");
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateCallInfo(const String &number, bool isIncoming, unsigned long startTime) {
-  _currentCall.number = number;
-  _currentCall.isIncoming = isIncoming;
-  _currentCall.startTime = startTime > 0 ? startTime : millis();
+  INTL_DEBUG("Call info %s %s", isIncoming ? "Incoming" : "Outgoing", number.c_str());
 
-  Logger::infoln(F("HA: Call info updated - %s call to/from %s"),
-                 isIncoming ? F("Incoming") : F("Outgoing"),
-                 number.c_str());
-
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "phone_state", "call_info");
-  addCallInfo(obj);
+  JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("call_info");
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateDialingProgress(const String &currentNumber) {
-  if (_currentDialingNumber != currentNumber) {
-    _currentDialingNumber = currentNumber;
+  INTL_DEBUG("Dialing %s", currentNumber.c_str());
 
-    Logger::infoln(F("HA: Dialing progress - current number: %s"), currentNumber.c_str());
-
-    JsonDocument doc;
-    JsonObject obj = createEventObject(doc, "phone_state", "dialing");
-    obj["currentNumber"] = currentNumber;
-    _webServer.broadcastStateUpdate(doc);
-  }
+  JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("dialing");
+  _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateRingState(bool isRinging) {
-  Logger::infoln(F("HA: Ring state changed - %s"), isRinging ? F("ringing") : F("not ringing"));
+  INTL_INFO("Ring %s", isRinging ? "on" : "off");
 
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "phone_state", "ring");
+  JsonDocument doc = _integrationService.buildPhoneStateEvent("ring");
+  JsonObject obj = doc.as<JsonObject>();
   obj["isRinging"] = isRinging;
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateDndState(bool isDndActive) {
-  Logger::infoln(F("HA: DND state updated - %s"), isDndActive ? F("active") : F("inactive"));
+  INTL_INFO("DND %s", isDndActive ? "active" : "inactive");
 
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "phone_state", "dnd");
-  obj["dndActive"] = isDndActive;
+  JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("dnd");
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::updateSystemStatus() {
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "system", "status");
-  addSystemInfo(obj);
+  JsonDocument doc = _integrationService.buildSystemEvent("status");
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::setDialCallback(
     std::function<IntegrationCallbackResult(const String &)> callback) {
-  _dialCallback = callback;
+  _integrationService.setDialCallback(callback);
 }
 
 void HAIntegration::setAnswerCallback(std::function<IntegrationCallbackResult()> callback) {
-  _answerCallback = callback;
+  _integrationService.setAnswerCallback(callback);
 }
 
 void HAIntegration::setHangupCallback(std::function<IntegrationCallbackResult()> callback) {
-  _hangupCallback = callback;
+  _integrationService.setHangupCallback(callback);
 }
 
 void HAIntegration::setRingCallback(
     std::function<IntegrationCallbackResult(const String &)> callback) {
-  _ringCallback = callback;
+  _integrationService.setRingCallback(callback);
 }
 
 void HAIntegration::setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) {
-  _callWaitingCallback = callback;
+  _integrationService.setCallWaitingCallback(callback);
 }
 
 void HAIntegration::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
-  _maintenanceModeChangedCallback = callback;
+  _integrationService.setMaintenanceModeChangedCallback(callback);
 }
 
 void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
-  // Note: Stats recording is now handled by StatsManager automatically
-  // This method only needs to update call info and broadcast to HA
   updateCallInfo(number, isIncoming);
-
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "call", "start");
-  obj["number"] = number;
-  obj["isIncoming"] = isIncoming;
+  // Preserve direction and omit fabricated start time in generic builder
+  JsonDocument doc = _integrationService.buildCallEvent("start", number, isIncoming, 0);
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::reportCallEnd(unsigned long duration) {
-  // Note: Stats recording is now handled by StatsManager automatically
-  // This method only needs to broadcast to HA
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "call", "end");
-  obj["duration"] = duration;
+  // Use last known call number from state
+  String number = String(_state.callState.callNumber);
+  JsonDocument doc = _integrationService.buildCallEvent("end", number, false, duration);
   _webServer.broadcastStateUpdate(doc);
-
-  // Clear call info
-  _currentCall.number = "";
-  _currentCall.isIncoming = false;
-  _currentCall.startTime = 0;
 }
 
 void HAIntegration::reportBlockedCall(const String &number) {
-  // Note: Stats recording is now handled by StatsManager automatically
-  // This method only needs to broadcast to HA
-  Logger::infoln(F("HA: Blocked call from %s"), number.c_str());
-
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "call", "blocked");
-  obj["number"] = number;
+  INTL_WARN("Blocked call %s", number.c_str());
+  JsonDocument doc = _integrationService.buildCallEvent("blocked", number, true, 0);
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::reportError(const String &error) {
-  Logger::errorln(F("HA: Error reported - %s"), error.c_str());
+  INTL_ERROR("Error %s", error.c_str());
 
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "system", "error");
-  obj["error"] = error;
+  JsonDocument doc = _integrationService.buildErrorEvent(error);
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::onConfigurationChanged() {
-  Logger::infoln(F("HA: Configuration changed, broadcasting update"));
+  INTL_INFO("Config changed broadcast");
   broadcastFullState();
 }
 
 void HAIntegration::setupWebServerCallbacks() {
-  _webServer.setStatusCallback([this](JsonObject &obj) { getFullStatus(obj); });
+  _webServer.setStatusCallback([this](JsonObject &obj) { _integrationService.getFullStatus(obj); });
 
   _webServer.setStateUpdateCallback(
       [this](const String &command, const JsonVariant &data) -> HAOperationResult {
-        Logger::infoln(F("HA: Received command: %s"), command.c_str());
+        INTL_DEBUG("Cmd %s", command.c_str());
 
         if (command == "dial") {
           return handleDialRequest(data["number"].as<String>());
@@ -278,602 +218,318 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleAddBlockedNumber(data);
         } else if (command == "blocked_number_remove") {
           return handleRemoveBlockedNumber(data);
+        } else if (command == "priority_add") {
+          return handleAddPriorityCaller(data);
+        } else if (command == "priority_remove") {
+          return handleRemovePriorityCaller(data);
         } else if (command == "webhook_add") {
           return handleAddWebhookAction(data);
         } else if (command == "webhook_remove") {
           return handleRemoveWebhookAction(data);
         } else if (command == "ha_url") {
-          return handleSetHAUrl(data);
+          HAOperationResult r = handleSetHAUrl(data);
+          if (r.success && data["url"]) {
+            broadcastStateChange("ha.url", data["url"].as<String>());
+          }
+          return r;
+        } else if (command == "tsuryphone_config") {
+          return handleGetTsuryPhoneConfig();
         } else if (command == "refetch_all") {
           return handleRefetchAll();
         } else if (command == "refresh") {
           broadcastFullState();
           return HAOperationResult(true);
         } else {
-          Logger::warnln(F("HA: Unknown command: %s"), command.c_str());
+          INTL_WARN("Unknown cmd %s", command.c_str());
           return HAOperationResult(false, "Unknown command: " + command);
         }
       });
 }
 
 void HAIntegration::broadcastFullState() {
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "full_state", "");
-  addBasicDeviceInfo(obj);
-  addPhoneStateInfo(obj);
-  addCallInfo(obj);
-  addSystemInfo(obj);
-  addStatsInfo(obj);
+  JsonDocument doc = _integrationService.buildCurrentFullStateEvent();
+
+  // Add HA-specific data (webhook actions)
+  if (doc["phone"]) {
+    JsonObject phone = doc["phone"];
+    JsonArray webhooks = phone["webhooks"].to<JsonArray>();
+    for (const auto &entry : _haConfig.getWebhookActions()) {
+      JsonObject entryObj = webhooks.add<JsonObject>();
+      entryObj["code"] = entry.code;
+      entryObj["id"] = entry.id;
+      entryObj["actionName"] = entry.actionName;
+    }
+
+    // Add HA URL
+    phone["homeAssistantUrl"] = _haConfig.getHomeAssistantUrl();
+  }
 
   _webServer.broadcastStateUpdate(doc);
 }
 
 void HAIntegration::broadcastStateChange(const String &key, const JsonVariant &value) {
-  JsonDocument doc;
-  JsonObject obj = createEventObject(doc, "system", "config");
-  obj[key] = value;
+  // Old value not tracked for simple key notifications
+  JsonDocument doc = _integrationService.buildSystemConfigEvent(key, value, JsonVariantConst());
   _webServer.broadcastStateUpdate(doc);
 }
 
-void HAIntegration::addBasicDeviceInfo(JsonObject &obj) {
-  obj["deviceId"] = _config.getDeviceId();
+void HAIntegration::broadcastStateChange(const String &key, const String &value) {
+  JsonDocument tmp;
+  tmp.set(value);
+  broadcastStateChange(key, tmp.as<JsonVariant>());
 }
 
-void HAIntegration::addPhoneStateInfo(JsonObject &obj) {
-  obj["state"] = static_cast<int>(_state.newAppState);
-  obj["stateName"] = getStateName(_state.newAppState);
-  obj["dndActive"] = _state.isDnd;
-  obj["maintenanceMode"] = _state.isMaintenanceMode;
-
-  // Add call state information
-  if (_state.callState.callNumber[0] != '\0') {
-    obj["currentDialingNumber"] = _state.callState.callNumber;
-  }
+void HAIntegration::broadcastStateChange(const String &key, bool value) {
+  JsonDocument tmp;
+  tmp.set(value);
+  broadcastStateChange(key, tmp.as<JsonVariant>());
 }
 
-void HAIntegration::addCallInfo(JsonObject &obj) {
-  if (!_currentCall.number.isEmpty()) {
-    obj["currentCallNumber"] = _currentCall.number;
-    obj["currentCallIsIncoming"] = _currentCall.isIncoming;
-    obj["currentCallStartTime"] = _currentCall.startTime;
-
-    if (_currentCall.startTime > 0) {
-      obj["currentCallDuration"] = (millis() - _currentCall.startTime) / 1000;
-    }
-  }
+void HAIntegration::broadcastStateChange(const String &key, int value) {
+  JsonDocument tmp;
+  tmp.set(value);
+  broadcastStateChange(key, tmp.as<JsonVariant>());
 }
 
-void HAIntegration::addSystemInfo(JsonObject &obj) {
-  obj["freeHeap"] = _stats.getFreeHeap();
-  obj["rssi"] = _stats.getRSSI();
-  obj["timestamp"] = millis(); // Use millis() instead of getUnixTime()
-  obj["uptime"] = _stats.getUptime();
-}
+void HAIntegration::triggerAction(const String &actionId) {
+  // In HA context, actionId is a webhook id
+  INTL_INFO("Trigger action %s", actionId.c_str());
 
-void HAIntegration::addStatsInfo(JsonObject &obj) {
-  const CallStats &callStats = _stats.getCallStats();
-  obj["totalCalls"] = callStats.totalCalls;
-  obj["incomingCalls"] = callStats.incomingCalls;
-  obj["outgoingCalls"] = callStats.outgoingCalls;
-  obj["blockedCalls"] = callStats.blockedCalls;
-  obj["totalTalkTimeSeconds"] = callStats.totalTalkTimeSeconds;
-}
-
-void HAIntegration::getFullStatus(JsonObject &obj) {
-  // Status object with hierarchical structure
-  JsonObject status = obj["status"].to<JsonObject>();
-
-  // System status
-  JsonObject systemStatus = status["system"].to<JsonObject>();
-  systemStatus["uptime"] = _stats.getUptime();
-  systemStatus["freeHeap"] = _stats.getFreeHeap();
-  systemStatus["rssi"] = _stats.getRSSI();
-
-  // Phone status
-  JsonObject phoneStatus = status["phone"].to<JsonObject>();
-  phoneStatus["maintenanceMode"] = _state.isMaintenanceMode;
-  phoneStatus["state"] = static_cast<int>(_state.newAppState);
-  phoneStatus["dndActive"] = _state.isDnd;
-}
-
-// Helper function to create WebSocket event objects
-JsonObject
-HAIntegration::createEventObject(JsonDocument &doc, const String &event, const String &type) {
-  JsonObject obj = doc.to<JsonObject>();
-  obj["event"] = event;
-  obj["type"] = type;
-  obj["timestamp"] = millis();
-  return obj;
-}
-
-void HAIntegration::triggerWebhookHttp(const String &webhookId) {
   // Only trigger if WiFi is connected
   if (WiFi.status() != WL_CONNECTED) {
-    Logger::warnln(F("HA: Webhook trigger skipped - WiFi not connected"));
+    INTL_WARN("Action skipped (WiFi down)");
     return;
   }
 
-  // Construct webhook URL
-  String webhookUrl = _config.getHomeAssistantUrl() + "/api/webhook/" + webhookId;
-
-  Logger::infoln(F("HA: Triggering webhook HTTP call: %s"), webhookUrl.c_str());
-
+  String webhookUrl = _haConfig.getHomeAssistantUrl() + "/api/webhook/" + actionId;
   HTTPClient http;
   http.begin(webhookUrl);
-  http.setTimeout(5000); // 5 second timeout
-
-  // Make POST request (webhooks typically expect POST)
+  http.setTimeout(5000);
   int httpResponseCode = http.POST("");
-
   if (httpResponseCode > 0) {
-    Logger::infoln(F("HA: Webhook HTTP response: %d"), httpResponseCode);
-    if (httpResponseCode == 200) {
-      Logger::infoln(F("HA: Webhook triggered successfully"));
-    }
+    INTL_DEBUG("Webhook HTTP %d", httpResponseCode);
   } else {
-    Logger::errorln(F("HA: Webhook HTTP error: %s"), http.errorToString(httpResponseCode).c_str());
+    INTL_ERROR("Webhook HTTP err %s", http.errorToString(httpResponseCode).c_str());
   }
-
   http.end();
 }
 
-void HAIntegration::triggerWebhook(const String &webhookId) {
-  Logger::infoln(F("HA: Triggering webhook - %s"), webhookId.c_str());
-
-  // Trigger the actual HTTP webhook call to Home Assistant
-  triggerWebhookHttp(webhookId);
+HAOperationResult HAIntegration::convertResult(const IntegrationCallbackResult &result) {
+  HAOperationResult haResult(result.success, result.errorMessage);
+  haResult.errorCode = result.errorCode;
+  if (result.success && !result.data.isNull()) {
+    haResult.data = result.data;
+  }
+  return haResult;
 }
 
-// Business logic methods for web server
 HAOperationResult HAIntegration::handleDialRequest(const String &number) {
-  if (!_dialCallback) {
-    return HAOperationResult(false, "Dial callback not available");
-  }
-
-  if (number.isEmpty()) {
-    return HAOperationResult(false, "Number cannot be empty");
-  }
-
-  IntegrationCallbackResult result = _dialCallback(number);
+  IntegrationCallbackResult result = _integrationService.handleDialRequest(number);
   if (result.success) {
-    Logger::infoln(F("HA: Dial command successful for %s"), number.c_str());
-    return HAOperationResult(true);
-  } else {
-    Logger::errorln(
-        F("HA: Dial command failed for %s: %s"), number.c_str(), result.errorMessage.c_str());
-    return HAOperationResult(false, result.errorMessage);
+    INTL_INFO("Dial success %s", number.c_str());
   }
+  return convertResult(result);
 }
 
 HAOperationResult HAIntegration::handleAnswerRequest() {
-  if (!_answerCallback) {
-    return HAOperationResult(false, "Answer callback not available");
-  }
-
-  IntegrationCallbackResult result = _answerCallback();
+  IntegrationCallbackResult result = _integrationService.handleAnswerRequest();
   if (result.success) {
-    Logger::infoln(F("HA: Answer command successful"));
-    return HAOperationResult(true);
-  } else {
-    Logger::errorln(F("HA: Answer command failed: %s"), result.errorMessage.c_str());
-    return HAOperationResult(false, result.errorMessage);
+    INTL_INFO("Answer success");
   }
+  return convertResult(result);
 }
 
 HAOperationResult HAIntegration::handleHangupRequest() {
-  if (!_hangupCallback) {
-    return HAOperationResult(false, "Hangup callback not available");
-  }
-
-  IntegrationCallbackResult result = _hangupCallback();
+  IntegrationCallbackResult result = _integrationService.handleHangupRequest();
   if (result.success) {
-    Logger::infoln(F("HA: Hangup command successful"));
-    return HAOperationResult(true);
-  } else {
-    Logger::errorln(F("HA: Hangup command failed: %s"), result.errorMessage.c_str());
-    return HAOperationResult(false, result.errorMessage);
+    INTL_INFO("Hangup success");
   }
+  return convertResult(result);
 }
 
 HAOperationResult HAIntegration::handleSetDND(const JsonVariant &json) {
-  DndConfig dndConfig = _config.getDndConfig();
-  bool changed = false;
-
-  if (json["force"].is<bool>()) {
-    dndConfig.force = json["force"];
-    changed = true;
-  }
-
-  if (json["scheduled"].is<bool>()) {
-    dndConfig.scheduled = json["scheduled"];
-    changed = true;
-  }
-
-  if (json["startHour"].is<int>()) {
-    dndConfig.startHour = json["startHour"];
-    changed = true;
-  }
-
-  if (json["startMinute"].is<int>()) {
-    dndConfig.startMinute = json["startMinute"];
-    changed = true;
-  }
-
-  if (json["endHour"].is<int>()) {
-    dndConfig.endHour = json["endHour"];
-    changed = true;
-  }
-
-  if (json["endMinute"].is<int>()) {
-    dndConfig.endMinute = json["endMinute"];
-    changed = true;
-  }
-
-  if (changed) {
-    _config.setDndConfig(dndConfig);
-    Logger::infoln(F("HA: DND configuration updated"));
-
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::DND_CONFIG_CHANGED);
+  // Snapshot previous config
+  DndConfig prev = _config.getDndConfig();
+  IntegrationCallbackResult result = _integrationService.handleSetDND(json);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    DndConfig curr = _config.getDndConfig();
+    JsonDocument agg;
+    if (buildDndConfigDelta(_integrationService, prev, curr, agg)) {
+      _webServer.broadcastStateUpdate(agg);
     }
   }
-
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
-  data["dndActive"] = _state.isDnd;
-  return result;
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleSetMaintenanceMode(const JsonVariant &json) {
-  if (!json["enabled"].is<bool>()) {
-    return HAOperationResult(false, "Missing 'enabled' parameter");
-  }
-
   bool enabled = json["enabled"];
-  _state.isMaintenanceMode = enabled;
-
-  Logger::infoln(F("HA: Maintenance mode %s"), enabled ? F("enabled") : F("disabled"));
-
-  if (_maintenanceModeChangedCallback) {
-    _maintenanceModeChangedCallback(enabled);
+  IntegrationCallbackResult result = _integrationService.handleSetMaintenanceMode(enabled);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("maintenance.enabled", enabled);
   }
-
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
-  data["maintenanceMode"] = enabled;
-  return result;
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleSetAudioConfig(const JsonVariant &json) {
-  AudioConfig audioConfig = _config.getAudioConfig();
-  bool changed = false;
-
-  if (json["earpieceVolume"].is<int>()) {
-    int volume = json["earpieceVolume"];
-    if (volume >= 1 && volume <= 7) {
-      audioConfig.earpieceVolume = volume;
-      changed = true;
-    } else {
-      return HAOperationResult(false, "Earpiece volume must be between 1 and 7");
+  AudioConfig before = _config.getAudioConfig();
+  IntegrationCallbackResult result = _integrationService.handleSetAudioConfig(json);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    AudioConfig after = _config.getAudioConfig();
+    JsonDocument agg;
+    if (buildAudioConfigDelta(_integrationService, before, after, agg)) {
+      _webServer.broadcastStateUpdate(agg);
     }
   }
-
-  if (json["earpieceGain"].is<int>()) {
-    int gain = json["earpieceGain"];
-    if (gain >= 1 && gain <= 7) {
-      audioConfig.earpieceGain = gain;
-      changed = true;
-    } else {
-      return HAOperationResult(false, "Earpiece gain must be between 1 and 7");
-    }
-  }
-
-  if (json["speakerVolume"].is<int>()) {
-    int volume = json["speakerVolume"];
-    if (volume >= 1 && volume <= 7) {
-      audioConfig.speakerVolume = volume;
-      changed = true;
-    } else {
-      return HAOperationResult(false, "Speaker volume must be between 1 and 7");
-    }
-  }
-
-  if (json["speakerGain"].is<int>()) {
-    int gain = json["speakerGain"];
-    if (gain >= 1 && gain <= 7) {
-      audioConfig.speakerGain = gain;
-      changed = true;
-    } else {
-      return HAOperationResult(false, "Speaker gain must be between 1 and 7");
-    }
-  }
-
-  if (changed) {
-    _config.setAudioConfig(audioConfig);
-    Logger::infoln(F("HA: Audio configuration updated"));
-
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::AUDIO_CONFIG_CHANGED);
-    }
-  }
-
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
-  JsonObject config = data["config"].to<JsonObject>();
-  JsonObject audio = config["audio"].to<JsonObject>();
-  audio["earpieceVolume"] = audioConfig.earpieceVolume;
-  audio["earpieceGain"] = audioConfig.earpieceGain;
-  audio["speakerVolume"] = audioConfig.speakerVolume;
-  audio["speakerGain"] = audioConfig.speakerGain;
-  return result;
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleSetRingPattern(const JsonVariant &json) {
   String pattern = json["pattern"].as<String>();
 
-  if (pattern.isEmpty()) {
-    return HAOperationResult(false, "Ring pattern cannot be empty");
+  IntegrationCallbackResult result = _integrationService.handleSetRingPattern(pattern);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("ring.pattern", pattern);
   }
-
-  _config.setRingPattern(pattern);
-  Logger::infoln(F("HA: Ring pattern set to: %s"), pattern.c_str());
-
-  // Publish config change event
-  if (_configChangeCallback) {
-    _configChangeCallback(ConfigChangeEvent::RING_PATTERN_CHANGED);
-  }
-
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
-  data["ringPattern"] = pattern;
-  return result;
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleRingOperation(const JsonVariant &json) {
-  if (!json["pattern"]) {
-    return HAOperationResult(false, "Missing 'pattern' parameter");
+  String pattern = "";
+  if (json["pattern"]) {
+    pattern = json["pattern"].as<String>();
   }
 
-  String pattern = json["pattern"].as<String>();
-  Logger::infoln(F("HA: Ring operation with pattern: %s"), pattern.c_str());
+  INTL_INFO("Ring op pattern %s", pattern.isEmpty() ? "[default]" : pattern.c_str());
 
-  if (!_ringCallback) {
-    return HAOperationResult(false, "Ring callback not available");
-  }
-
-  IntegrationCallbackResult result = _ringCallback(pattern);
+  IntegrationCallbackResult result = _integrationService.handleRingOperation(pattern);
   if (result.success) {
-    Logger::infoln(F("HA: Ring command successful with pattern %s"), pattern.c_str());
+    INTL_INFO("Ring success pattern %s", pattern.isEmpty() ? "[default]" : pattern.c_str());
     return HAOperationResult(true);
   } else {
-    Logger::errorln(F("HA: Ring command failed: %s"), result.errorMessage.c_str());
+    INTL_ERROR("Ring failed %s", result.errorMessage.c_str());
     return HAOperationResult(false, result.errorMessage);
   }
 }
 
 HAOperationResult HAIntegration::handleResetDevice() {
-  Logger::infoln(F("HA: Device reset requested"));
+  INTL_INFO("Device reset request");
 
-  // Send graceful shutdown notification via WebSocket
-  JsonDocument shutdownDoc;
-  JsonObject shutdownObj = shutdownDoc.to<JsonObject>();
-  shutdownObj["event"] = "system";
-  shutdownObj["type"] = "shutdown";
-  shutdownObj["timestamp"] = millis();
-  shutdownObj["reason"] = "reset_requested";
-  shutdownObj["message"] = "Device is shutting down for reset";
-
+  JsonDocument shutdownDoc = _integrationService.buildShutdownEvent("reset_requested");
   _webServer.broadcastStateUpdate(shutdownDoc);
 
-  // Return success immediately - the reset will happen after response is sent
-  HAOperationResult result(true);
-
-  // Use a simple timer approach to delay the reset
-  // This allows the HTTP response to be sent first
-  static unsigned long resetTime = millis() + 2500; // 2.5 seconds delay
-
-  // Schedule the reset in the integration's process() method
-  // by setting a flag that process() will check
-  _resetRequested = true;
-  _resetScheduledTime = resetTime;
-
-  return result;
+  IntegrationCallbackResult result = _integrationService.handleResetDevice();
+  return convertResult(result);
 }
 
 HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["code"] || !jsonObj["number"]) {
-    return HAOperationResult(false, "Missing required parameters: code, number");
-  }
 
   String code = jsonObj["code"].as<String>();
   String number = jsonObj["number"].as<String>();
   String name = jsonObj["name"].as<String>(); // Optional
 
-  if (code.isEmpty() || number.isEmpty()) {
-    return HAOperationResult(false, "Code and number cannot be empty");
+  IntegrationCallbackResult result = _integrationService.handleAddQuickDial(code, number, name);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("quick_dial.add", code);
   }
-
-  if (_config.hasQuickDialEntry(code) || _config.hasWebhookAction(code)) {
-    return HAOperationResult(false, "Code already exists in quick dial or webhook actions");
-  }
-
-  if (_config.addQuickDialEntry(code, number, name)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::QUICK_DIAL_CHANGED);
-    }
-
-    HAOperationResult result(true);
-    JsonObject data = result.data.to<JsonObject>();
-    JsonObject entry = data["entry"].to<JsonObject>();
-    entry["code"] = code;
-    entry["number"] = number;
-    entry["name"] = name;
-    return result;
-  } else {
-    return HAOperationResult(false, "Failed to add quick dial entry");
-  }
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["code"]) {
-    return HAOperationResult(false, "Missing required parameter: code");
-  }
-
   String code = jsonObj["code"].as<String>();
 
-  if (code.isEmpty()) {
-    return HAOperationResult(false, "Code cannot be empty");
+  IntegrationCallbackResult result = _integrationService.handleRemoveQuickDial(code);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("quick_dial.remove", code);
   }
-
-  if (_config.removeQuickDialEntry(code)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::QUICK_DIAL_CHANGED);
-    }
-
-    return HAOperationResult(true);
-  } else {
-    return HAOperationResult(false, "Failed to remove quick dial entry or entry not found");
-  }
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleDialQuickDial(const JsonVariant &json) {
-  if (!json["code"]) {
-    return HAOperationResult(false, "Missing 'code' parameter");
-  }
-
   String code = json["code"].as<String>();
 
-  // Look up the quick dial entry
-  const auto &quickDialEntries = _config.getQuickDialEntries();
-  auto it = std::find_if(quickDialEntries.begin(),
-                         quickDialEntries.end(),
-                         [&code](const QuickDialEntry &entry) { return entry.code == code; });
+  IntegrationCallbackResult result = _integrationService.handleDialQuickDial(code);
 
-  if (it == quickDialEntries.end()) {
-    return HAOperationResult(false, "Quick dial code not found");
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    INTL_INFO("Quick dial success");
   }
 
-  String number = it->number;
-
-  // Trigger the actual dial operation
-  HAOperationResult dialResult = handleDialRequest(number);
-  if (dialResult.success) {
-    Logger::infoln(F("HA: Quick dial %s -> %s"), code.c_str(), number.c_str());
-  }
-
-  return dialResult;
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleToggleCallWaiting() {
-  Logger::infoln(F("HA: Call waiting toggle requested"));
+  INTL_INFO("Call waiting toggle req");
 
-  if (!_callWaitingCallback) {
-    return HAOperationResult(false, "Call waiting callback not available");
-  }
-
-  IntegrationCallbackResult result = _callWaitingCallback();
+  IntegrationCallbackResult result = _integrationService.handleToggleCallWaiting();
   if (result.success) {
-    Logger::infoln(F("HA: Call waiting switch successful"));
+    INTL_INFO("Call waiting switch success");
     return HAOperationResult(true);
   } else {
-    Logger::errorln(F("HA: Call waiting switch failed: %s"), result.errorMessage.c_str());
+    INTL_ERROR("Call waiting switch failed %s", result.errorMessage.c_str());
     return HAOperationResult(false, result.errorMessage);
   }
 }
 
 HAOperationResult HAIntegration::handleAddBlockedNumber(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["number"]) {
-    return HAOperationResult(false, "Missing required parameter: number");
-  }
 
   String number = jsonObj["number"].as<String>();
   String reason = jsonObj["reason"].as<String>(); // Optional
 
-  if (number.isEmpty()) {
-    return HAOperationResult(false, "Number cannot be empty");
+  IntegrationCallbackResult result = _integrationService.handleAddBlockedNumber(number, reason);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("blocked_number.add", number);
   }
+  return haResult;
+}
 
-  if (_config.addBlockedNumber(number, reason)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::BLOCKED_NUMBER_CHANGED);
-    }
+HAOperationResult HAIntegration::handleAddPriorityCaller(const JsonVariant &json) {
+  JsonObject jsonObj = json.as<JsonObject>();
+  String number = jsonObj["number"].as<String>();
 
-    HAOperationResult result(true);
-    JsonObject data = result.data.to<JsonObject>();
-    JsonObject entry = data["entry"].to<JsonObject>();
-    entry["number"] = number;
-    entry["reason"] = reason;
-    return result;
-  } else {
-    return HAOperationResult(false, "Failed to add blocked number (may already exist)");
+  IntegrationCallbackResult result = _integrationService.handleAddPriorityCaller(number);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("priority_caller.add", number);
   }
+  return haResult;
+}
+
+HAOperationResult HAIntegration::handleRemovePriorityCaller(const JsonVariant &json) {
+  JsonObject jsonObj = json.as<JsonObject>();
+  String number = jsonObj["number"].as<String>();
+
+  IntegrationCallbackResult result = _integrationService.handleRemovePriorityCaller(number);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("priority_caller.remove", number);
+  }
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleRemoveBlockedNumber(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["number"]) {
-    return HAOperationResult(false, "Missing required parameter: number");
-  }
-
   String number = jsonObj["number"].as<String>();
 
-  if (number.isEmpty()) {
-    return HAOperationResult(false, "Number cannot be empty");
+  IntegrationCallbackResult result = _integrationService.handleRemoveBlockedNumber(number);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    broadcastStateChange("blocked_number.remove", number);
   }
-
-  if (_config.removeBlockedNumber(number)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::BLOCKED_NUMBER_CHANGED);
-    }
-
-    HAOperationResult result(true);
-    JsonObject data = result.data.to<JsonObject>();
-    data["number"] = number;
-    return result;
-  } else {
-    return HAOperationResult(false, "Blocked number not found");
-  }
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["code"] || !jsonObj["id"]) {
-    return HAOperationResult(false, "Missing required parameters: code, id");
-  }
 
   String code = jsonObj["code"].as<String>();
   String webhookId = jsonObj["id"].as<String>();
@@ -883,114 +539,97 @@ HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json)
     return HAOperationResult(false, "Code and webhook ID cannot be empty");
   }
 
-  if (_config.hasQuickDialEntry(code) || _config.hasWebhookAction(code)) {
+  if (_haConfig.isCodeConflict(code)) {
     return HAOperationResult(false, "Code already exists in quick dial or webhook actions");
   }
 
-  if (_config.addWebhookAction(code, webhookId, actionName)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::WEBHOOK_ACTION_CHANGED);
-    }
-
-    HAOperationResult result(true);
-    JsonObject data = result.data.to<JsonObject>();
+  if (_haConfig.addWebhookAction(code, webhookId, actionName)) {
+    JsonDocument resultData;
+    JsonObject data = resultData.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
     entry["code"] = code;
     entry["id"] = webhookId;
     entry["actionName"] = actionName;
+
+    // Emit config delta (presence only; full listing still via full state request)
+    broadcastStateChange("webhook.add", code);
+
+    HAOperationResult result(true);
+    result.data = resultData;
     return result;
-  } else {
-    return HAOperationResult(false, "Failed to add webhook action");
   }
+  return HAOperationResult(false, "Failed to add webhook action");
 }
 
 HAOperationResult HAIntegration::handleRemoveWebhookAction(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["code"]) {
-    return HAOperationResult(false, "Missing required parameter: code");
-  }
-
   String code = jsonObj["code"].as<String>();
 
   if (code.isEmpty()) {
     return HAOperationResult(false, "Code cannot be empty");
   }
 
-  if (_config.removeWebhookAction(code)) {
-    // Publish config change event
-    if (_configChangeCallback) {
-      _configChangeCallback(ConfigChangeEvent::WEBHOOK_ACTION_CHANGED);
-    }
-
-    HAOperationResult result(true);
-    JsonObject data = result.data.to<JsonObject>();
-    data["code"] = code;
-    return result;
-  } else {
-    return HAOperationResult(false, "Webhook action not found");
+  if (_haConfig.removeWebhookAction(code)) {
+    broadcastStateChange("webhook.remove", code);
+    return HAOperationResult(true);
   }
+  return HAOperationResult(false, "Webhook action not found");
 }
 
 HAOperationResult HAIntegration::handleSetHAUrl(const JsonVariant &json) {
-  if (!json.is<JsonObject>()) {
-    return HAOperationResult(false, "Invalid JSON");
-  }
-
   JsonObject jsonObj = json.as<JsonObject>();
-
-  if (!jsonObj["url"]) {
-    return HAOperationResult(false, "Missing required parameter: url");
-  }
-
   String url = jsonObj["url"].as<String>();
 
   if (url.isEmpty()) {
     return HAOperationResult(false, "URL cannot be empty");
   }
 
-  // Set the HA URL in device config for persistence
-  _config.setHomeAssistantUrl(url);
-  Logger::infoln(F("HA: Home Assistant URL set to: %s"), url.c_str());
+  _haConfig.setHomeAssistantUrl(url);
 
-  // Publish config change event
-  if (_configChangeCallback) {
-    _configChangeCallback(ConfigChangeEvent::HA_URL_CHANGED);
+  // Broadcast state change
+  broadcastFullState(); // Use full state broadcast to include updated URL
+
+  return HAOperationResult(true);
+}
+
+HAOperationResult HAIntegration::handleGetTsuryPhoneConfig() {
+  INTL_INFO("Get config req");
+
+  // Build config data including HA-specific webhook actions
+  JsonDocument configData = _integrationService.buildDeviceConfig();
+
+  // Add HA-specific data
+  if (configData["phone"]) {
+    JsonObject phone = configData["phone"];
+    JsonArray webhooks = phone["webhooks"].to<JsonArray>();
+    for (const auto &entry : _haConfig.getWebhookActions()) {
+      JsonObject entryObj = webhooks.add<JsonObject>();
+      entryObj["code"] = entry.code;
+      entryObj["id"] = entry.id;
+      entryObj["actionName"] = entry.actionName;
+    }
+
+    // Add HA URL
+    phone["homeAssistantUrl"] = _haConfig.getHomeAssistantUrl();
   }
 
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
-  data["url"] = url;
-  return result;
+  HAOperationResult haResult(true);
+  haResult.data = configData;
+
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleRefetchAll() {
-  Logger::infoln(F("HA: Refetch all data requested"));
+  INTL_INFO("Refetch all req");
 
-  // Reload configuration from SPIFFS
-  _config.load();
-  _stats.load();
+  IntegrationCallbackResult result = _integrationService.handleRefetchAll();
 
-  HAOperationResult result(true);
-  JsonObject data = result.data.to<JsonObject>();
+  HAOperationResult haResult = convertResult(result);
+  if (result.success) {
+    haResult.data = _integrationService.buildAllData();
+  }
 
-  // Add basic device information to the result
-  addBasicDeviceInfo(data);
-  addPhoneStateInfo(data);
-  addSystemInfo(data);
-  addStatsInfo(data);
-
-  return result;
+  return haResult;
 }
 
-void HAIntegration::setConfigChangeCallback(ConfigChangeCallback callback) {
-  _configChangeCallback = callback;
-  Logger::infoln(F("HA: Config change callback set"));
-}
-
-#endif // HOME_ASSISTANT_INTEGRATION
+#endif

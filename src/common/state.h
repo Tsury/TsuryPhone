@@ -23,6 +23,7 @@ struct CallState {
   bool playedCallWaitingTone = false;
   bool rangAtLeastOnce = false;
   bool otherPartyDropped = false;
+  bool isPriority = false;
   char callNumber[kSmallBufferSize];
 
   CallState()
@@ -32,7 +33,8 @@ struct CallState {
         introducedCaller(false),
         playedCallWaitingTone(false),
         rangAtLeastOnce(false),
-        otherPartyDropped(false) {
+        otherPartyDropped(false),
+        isPriority(false) {
     callNumber[0] = '\0';
   }
 

@@ -1,7 +1,7 @@
 #include "main.h"
 
-PhoneApp &getApp() {
-  static PhoneApp app;
+TsuryPhone &getApp() {
+  static TsuryPhone app;
   return app;
 }
 
