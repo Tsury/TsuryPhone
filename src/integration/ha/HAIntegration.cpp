@@ -214,9 +214,9 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleAddQuickDial(data);
         } else if (command == "quick_dial_remove") {
           return handleRemoveQuickDial(data);
-        } else if (command == "blocked_number_add") {
+        } else if (command == "blocked_add") {
           return handleAddBlockedNumber(data);
-        } else if (command == "blocked_number_remove") {
+        } else if (command == "blocked_remove") {
           return handleRemoveBlockedNumber(data);
         } else if (command == "priority_add") {
           return handleAddPriorityCaller(data);
@@ -435,7 +435,16 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
   IntegrationCallbackResult result = _integrationService.handleAddQuickDial(code, number, name);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("quick_dial.add", code);
+    // Broadcast structured payload for future extensibility
+    JsonDocument payload;
+    JsonObject obj = payload.to<JsonObject>();
+    obj["code"] = code;
+    obj["number"] = number;
+    if (!name.isEmpty()) {
+      obj["name"] = name;
+    }
+    // Wrap object to JsonVariant for correct overload resolution
+    broadcastStateChange("quick_dial.add", payload.as<JsonVariant>());
   }
   return haResult;
 }
@@ -487,7 +496,13 @@ HAOperationResult HAIntegration::handleAddBlockedNumber(const JsonVariant &json)
   IntegrationCallbackResult result = _integrationService.handleAddBlockedNumber(number, reason);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("blocked_number.add", number);
+    JsonDocument payload;
+    JsonObject obj = payload.to<JsonObject>();
+    obj["number"] = number;
+    if (!reason.isEmpty()) {
+      obj["reason"] = reason;
+    }
+    broadcastStateChange("blocked.add", payload.as<JsonVariant>());
   }
   return haResult;
 }
@@ -499,7 +514,10 @@ HAOperationResult HAIntegration::handleAddPriorityCaller(const JsonVariant &json
   IntegrationCallbackResult result = _integrationService.handleAddPriorityCaller(number);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("priority_caller.add", number);
+    JsonDocument payload;
+    JsonObject obj = payload.to<JsonObject>();
+    obj["number"] = number;
+    broadcastStateChange("priority.add", payload.as<JsonVariant>());
   }
   return haResult;
 }
@@ -511,7 +529,7 @@ HAOperationResult HAIntegration::handleRemovePriorityCaller(const JsonVariant &j
   IntegrationCallbackResult result = _integrationService.handleRemovePriorityCaller(number);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("priority_caller.remove", number);
+    broadcastStateChange("priority.remove", number);
   }
   return haResult;
 }
@@ -523,7 +541,7 @@ HAOperationResult HAIntegration::handleRemoveBlockedNumber(const JsonVariant &js
   IntegrationCallbackResult result = _integrationService.handleRemoveBlockedNumber(number);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("blocked_number.remove", number);
+    broadcastStateChange("blocked.remove", number);
   }
   return haResult;
 }
@@ -551,8 +569,15 @@ HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json)
     entry["id"] = webhookId;
     entry["actionName"] = actionName;
 
-    // Emit config delta (presence only; full listing still via full state request)
-    broadcastStateChange("webhook.add", code);
+    // Emit structured config delta for webhook addition
+    JsonDocument payload;
+    JsonObject w = payload.to<JsonObject>();
+    w["code"] = code;
+    w["id"] = webhookId;
+    if (!actionName.isEmpty()) {
+      w["actionName"] = actionName;
+    }
+    broadcastStateChange("webhook.add", payload.as<JsonVariant>());
 
     HAOperationResult result(true);
     result.data = resultData;

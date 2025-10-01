@@ -138,10 +138,10 @@ void HAWebServer::setupRoutes() {
                    });
 
   addJsonPostRoute(
-      "/api/config/blocked_number_add",
+      "/api/config/blocked_add",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleAddBlockedNumber(req, json); });
 
-  addJsonPostRoute("/api/config/blocked_number_remove",
+  addJsonPostRoute("/api/config/blocked_remove",
                    [this](AsyncWebServerRequest *req, JsonVariant &json) {
                      handleRemoveBlockedNumber(req, json);
                    });
@@ -596,7 +596,7 @@ void HAWebServer::handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVar
   }
 
   Logger::infoln(F("HA API: Add blocked number request"));
-  executeCommand(request, "blocked_number_add", json);
+  executeCommand(request, "blocked_add", json);
 }
 
 void HAWebServer::handleAddPriorityCaller(AsyncWebServerRequest *request, JsonVariant &json) {
@@ -649,7 +649,7 @@ void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, Json
   }
 
   Logger::infoln(F("HA API: Remove blocked number request"));
-  executeCommand(request, "blocked_number_remove", json);
+  executeCommand(request, "blocked_remove", json);
 }
 
 void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json) {
