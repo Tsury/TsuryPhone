@@ -37,6 +37,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
+  void setFactoryResetCallback(std::function<void()> callback);
 
   // Core business logic methods - these contain the actual logic
   IntegrationCallbackResult handleDialRequest(const String &number);
@@ -71,6 +72,7 @@ public:
 
   // Device control
   IntegrationCallbackResult handleResetDevice();
+  IntegrationCallbackResult handleFactoryReset();
   bool processScheduledReset();
 
   // All legacy webhook-specific triggering removed from generic layer; integrations map
@@ -174,10 +176,12 @@ private:
   std::function<IntegrationCallbackResult(const String &)> _ringCallback;
   std::function<IntegrationCallbackResult()> _callWaitingCallback;
   std::function<void(bool)> _maintenanceModeChangedCallback;
+  std::function<void()> _factoryResetCallback;
   // Removed per C2: config change events now routed exclusively via IntegrationManager
 
   // Reset scheduling
   bool _resetRequested = false;
+  bool _factoryResetRequested = false;
   unsigned long _resetScheduledTime = 0;
 
   // Helper methods (none currently for generic actions)

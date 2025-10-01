@@ -67,6 +67,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &)>) override {}
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()>) override {}
   void setMaintenanceModeChangedCallback(std::function<void(bool)>) override {}
+  void setFactoryResetCallback(std::function<void()>) override {}
 
   void reportCallStart(const String &number, bool isIncoming) override {
     _callEvents.add(String("start:") + (isIncoming ? "IN:" : "OUT:") + number);

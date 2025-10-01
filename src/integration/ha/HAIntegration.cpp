@@ -149,6 +149,9 @@ void HAIntegration::setMaintenanceModeChangedCallback(std::function<void(bool)> 
   _integrationService.setMaintenanceModeChangedCallback(callback);
 }
 
+void HAIntegration::setFactoryResetCallback(std::function<void()> callback) {
+  _integrationService.setFactoryResetCallback(callback);
+}
 void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
   updateCallInfo(number, isIncoming);
   // Preserve direction and omit fabricated start time in generic builder
@@ -210,6 +213,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleRingOperation(data);
         } else if (command == "reset") {
           return handleResetDevice();
+        } else if (command == "factory_reset") {
+          return handleFactoryReset();
         } else if (command == "quick_dial_add") {
           return handleAddQuickDial(data);
         } else if (command == "quick_dial_remove") {
@@ -416,12 +421,23 @@ HAOperationResult HAIntegration::handleRingOperation(const JsonVariant &json) {
 }
 
 HAOperationResult HAIntegration::handleResetDevice() {
-  INTL_INFO("Device reset request");
-
-  JsonDocument shutdownDoc = _integrationService.buildShutdownEvent("reset_requested");
-  _webServer.broadcastStateUpdate(shutdownDoc);
-
   IntegrationCallbackResult result = _integrationService.handleResetDevice();
+  if (result.success) {
+    INTL_INFO("Device reset scheduled");
+    JsonDocument shutdownDoc = _integrationService.buildShutdownEvent("reset_requested");
+    _webServer.broadcastStateUpdate(shutdownDoc);
+  }
+  return convertResult(result);
+}
+
+HAOperationResult HAIntegration::handleFactoryReset() {
+  IntegrationCallbackResult result = _integrationService.handleFactoryReset();
+  if (result.success) {
+    INTL_WARN("Factory reset scheduled");
+    JsonDocument shutdownDoc =
+        _integrationService.buildShutdownEvent("factory_reset_requested");
+    _webServer.broadcastStateUpdate(shutdownDoc);
+  }
   return convertResult(result);
 }
 

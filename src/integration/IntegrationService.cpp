@@ -47,6 +47,10 @@ void IntegrationService::setMaintenanceModeChangedCallback(std::function<void(bo
   _maintenanceModeChangedCallback = callback;
 }
 
+void IntegrationService::setFactoryResetCallback(std::function<void()> callback) {
+  _factoryResetCallback = callback;
+}
+
 IntegrationCallbackResult IntegrationService::handleDialRequest(const String &number) {
   if (!_dialCallback) {
     return IntegrationCallbackResult(false, "Dial callback not available");
@@ -466,20 +470,40 @@ IntegrationCallbackResult IntegrationService::handleResetDevice() {
 
   // Schedule the reset with a delay to allow response to be sent
   _resetRequested = true;
+  _factoryResetRequested = false;
   _resetScheduledTime = millis() + 2500; // 2.5 seconds delay
+
+  return IntegrationCallbackResult(true);
+}
+
+IntegrationCallbackResult IntegrationService::handleFactoryReset() {
+  INT_LOG_WARN("CORE", "Factory reset requested");
+
+  if (!_factoryResetCallback) {
+    INT_LOG_ERROR("CORE", "Factory reset callback not available");
+    return IntegrationCallbackResult(false, "Factory reset not supported");
+  }
+
+  _resetRequested = true;
+  _factoryResetRequested = true;
+  _resetScheduledTime = millis() + 2500; // match standard reset delay for response flush
 
   return IntegrationCallbackResult(true);
 }
 
 bool IntegrationService::processScheduledReset() {
   if (_resetRequested && millis() >= _resetScheduledTime) {
-    INT_LOG_WARN("CORE", "Executing scheduled device reset");
+    INT_LOG_WARN("CORE", "Executing scheduled device %s",
+                 _factoryResetRequested ? "factory reset" : "reset");
 
     // Additional delay to ensure cleanup
     delay(500);
 
-    // Restart the device
-    ESP.restart();
+    if (_factoryResetRequested && _factoryResetCallback) {
+      _factoryResetCallback();
+    } else {
+      ESP.restart();
+    }
 
     return true; // This line won't be reached, but for completeness
   }

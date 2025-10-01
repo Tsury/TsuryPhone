@@ -94,6 +94,10 @@ void HAWebServer::setupRoutes() {
     handleResetDevice(request);
   });
 
+  _server.on("/api/system/factory_reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleFactoryReset(request);
+  });
+
   // JSON POST routes using helper function
   addJsonPostRoute("/api/call/dial", [this](AsyncWebServerRequest *req, JsonVariant &json) {
     handleDialNumber(req, json);
@@ -371,6 +375,13 @@ void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
 
   JsonDocument commandData;
   executeCommand(request, "reset", commandData.as<JsonVariant>());
+}
+
+void HAWebServer::handleFactoryReset(AsyncWebServerRequest *request) {
+  Logger::warnln(F("HA API: Device factory reset requested"));
+
+  JsonDocument commandData;
+  executeCommand(request, "factory_reset", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json) {

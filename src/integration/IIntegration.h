@@ -56,6 +56,7 @@ public:
   setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
   virtual void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) = 0;
+    virtual void setFactoryResetCallback(std::function<void()> callback) = 0;
 
   // Statistics and monitoring
   virtual void reportCallStart(const String &number, bool isIncoming) = 0;

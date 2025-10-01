@@ -60,6 +60,7 @@ private:
 
   void handleRingOperation(AsyncWebServerRequest *request, JsonVariant &json);
   void handleResetDevice(AsyncWebServerRequest *request);
+  void handleFactoryReset(AsyncWebServerRequest *request);
 
   void handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
   void handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVariant &json);

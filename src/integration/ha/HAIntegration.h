@@ -41,6 +41,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) override;
+  void setFactoryResetCallback(std::function<void()> callback) override;
 
   // Statistics and monitoring
   void reportCallStart(const String &number, bool isIncoming) override;
@@ -62,6 +63,7 @@ public:
   HAOperationResult handleSetRingPattern(const JsonVariant &data);
   HAOperationResult handleRingOperation(const JsonVariant &data);
   HAOperationResult handleResetDevice();
+  HAOperationResult handleFactoryReset();
   HAOperationResult handleAddQuickDial(const JsonVariant &data);
   HAOperationResult handleRemoveQuickDial(const JsonVariant &data);
   HAOperationResult handleDialQuickDial(const JsonVariant &data);

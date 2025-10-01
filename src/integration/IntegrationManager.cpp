@@ -206,6 +206,12 @@ void IntegrationManager::setMaintenanceModeChangedCallback(std::function<void(bo
   }
 }
 
+void IntegrationManager::setFactoryResetCallback(std::function<void()> callback) {
+  for (auto &integration : _integrations) {
+    integration->setFactoryResetCallback(callback);
+  }
+}
+
 void IntegrationManager::reportCallStart(const String &number, bool isIncoming) {
   for (auto &integration : _integrations) {
     integration->reportCallStart(number, isIncoming);
@@ -659,6 +665,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult()> callWaitingCallback,
     std::function<void(const String &)> callBlockedCallback,
     std::function<void(bool)> maintenanceModeCallback,
+  std::function<void()> factoryResetCallback,
     std::function<void(ConfigChangeEvent)> configChangeCallback) {
 
   INT_LOG_INFO("CORE", "Setting up callbacks");
@@ -671,6 +678,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
   setCallWaitingCallback(callWaitingCallback);
   setCallBlockedCallback(callBlockedCallback);
   setMaintenanceModeChangedCallback(maintenanceModeCallback);
+  setFactoryResetCallback(factoryResetCallback);
   addConfigChangeCallback(configChangeCallback);
 }
 

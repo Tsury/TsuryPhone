@@ -28,7 +28,8 @@ public:
                                 std::function<IntegrationCallbackResult(const String &)>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<void(const String &)>,
-                                std::function<void(bool)>,
+                                std::function<void(bool)> ,
+                                std::function<void()> ,
                                 std::function<void(ConfigChangeEvent)>) {}
   void enqueueDebugChar(char) {}
   void onFactoryResetInitiated() {}

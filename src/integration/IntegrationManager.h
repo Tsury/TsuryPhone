@@ -47,6 +47,7 @@ public:
                            std::function<IntegrationCallbackResult()> callWaitingCallback,
                            std::function<void(const String &)> callBlockedCallback,
                            std::function<void(bool)> maintenanceModeCallback,
+                           std::function<void()> factoryResetCallback,
                            std::function<void(ConfigChangeEvent)> configChangeCallback);
 
   // State synchronization - calls all registered integrations
@@ -67,6 +68,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
+  void setFactoryResetCallback(std::function<void()> callback);
 
   // Call blocking callback - notifies when a call should be blocked
   void setCallBlockedCallback(std::function<void(const String &)> callback);

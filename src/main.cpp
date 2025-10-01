@@ -68,6 +68,7 @@ void TsuryPhone::setup() {
       [this]() -> IntegrationCallbackResult { return handleIntegrationCallWaitingRequest(); },
       [this](const String &number) { handleIntegrationCallBlocked(number); },
       [this](bool enabled) { handleIntegrationMaintenanceModeChanged(enabled); },
+      [this]() { performFactoryReset(); },
       [this](ConfigChangeEvent event) { handleIntegrationConfigChanged(event); });
   _wifi.setPortalTimeoutCallback([this]() {
     if (_state.isMaintenanceMode) {
