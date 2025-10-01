@@ -56,6 +56,7 @@ struct State {
   bool messageHandled;
   bool isDnd;
   bool isMaintenanceMode;
+  bool isHookOff;
   char currentDialingNumber[kSmallBufferSize]; // Current number being dialed
 
   State()
@@ -64,7 +65,8 @@ struct State {
         callState(),
         messageHandled(false),
         isDnd(false),
-        isMaintenanceMode(false) {
+        isMaintenanceMode(false),
+        isHookOff(false) {
     lastModemMessage[0] = '\0';
     currentDialingNumber[0] = '\0';
   }

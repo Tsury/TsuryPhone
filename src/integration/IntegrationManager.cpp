@@ -27,6 +27,7 @@ IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &con
       _statsManager(_stats, state),
       _prevDndState(false),
       _prevMaintenanceMode(false),
+  _prevHookOff(false),
       _prevAppState(AppState::Startup),
       _prevRingingState(false) {}
 
@@ -429,6 +430,12 @@ void IntegrationManager::checkForStateChanges() {
   if (_state.isDnd != _prevDndState) {
     _prevDndState = _state.isDnd;
     updateDndState(_state.isDnd);
+  }
+
+  if (_state.isHookOff != _prevHookOff) {
+    _prevHookOff = _state.isHookOff;
+    INT_LOG_INFO("CORE", "Hook state changed: %s", _state.isHookOff ? "off" : "on");
+    updatePhoneState(_state.newAppState, _prevAppState);
   }
 
   // Check for maintenance mode changes

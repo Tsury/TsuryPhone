@@ -15,9 +15,9 @@
 
 // Central event schema version constant (T6.2 prework)
 #ifndef INTEGRATION_EVENT_SCHEMA_VERSION
-#define INTEGRATION_EVENT_SCHEMA_VERSION 2
+#define INTEGRATION_EVENT_SCHEMA_VERSION 3
 #endif
-static_assert(INTEGRATION_EVENT_SCHEMA_VERSION == 2, "Unexpected schema version change");
+static_assert(INTEGRATION_EVENT_SCHEMA_VERSION == 3, "Unexpected schema version change");
 
 /**
  * Contains all the common business logic for device integrations

@@ -134,6 +134,7 @@ private:
   // State change tracking
   bool _prevDndState = false;
   bool _prevMaintenanceMode = false;
+  bool _prevHookOff = false;
   AppState _prevAppState = AppState::Startup;
   bool _prevRingingState = false;
   String _prevCallNumber = "";

@@ -49,6 +49,7 @@ void TsuryPhone::setup() {
   _ringer.init();
   _rotaryDial.init();
   _hookSwitch.init();
+  _state.isHookOff = _hookSwitch.isOffHook();
   _timeManager.init();
   _integrationManager.reset(new IntegrationManager(*this, _deviceConfig, _state));
 
@@ -102,6 +103,7 @@ void TsuryPhone::loop() {
   const uint32_t now = millis();
   _modem.process(_state);
   _hookSwitch.process();
+  _state.isHookOff = _hookSwitch.isOffHook();
   _rotaryDial.process(_state);
   if (due(_lastRinger, kRingerIntervalMs, now)) {
     _ringer.process(_state);

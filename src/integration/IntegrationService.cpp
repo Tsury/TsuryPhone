@@ -533,6 +533,8 @@ JsonDocument IntegrationService::buildDeviceConfig() {
   JsonDocument doc;
   JsonObject data = doc.to<JsonObject>();
   data["deviceId"] = _config.getDeviceId();
+  addConfig(data);
+  addPhone(data);
   return doc;
 }
 
@@ -594,6 +596,9 @@ void IntegrationService::addStats(JsonObject &doc) {
 void IntegrationService::addPhone(JsonObject &doc) {
   JsonObject phone = doc["phone"].to<JsonObject>();
 
+  // Include current phone state snapshot alongside configuration lists (HA parity)
+  addPhoneStateInfo(phone);
+
   // Quick dial entries
   JsonArray quickDial = phone["quickDial"].to<JsonArray>();
   for (const auto &entry : _config.getQuickDialEntries()) {
@@ -626,8 +631,11 @@ void IntegrationService::addBasicDeviceInfo(JsonObject &obj) {
 void IntegrationService::addPhoneStateInfo(JsonObject &obj) {
   obj["state"] = static_cast<int>(_state.newAppState);
   obj["stateName"] = appStateToString(_state.newAppState);
+  obj["previousState"] = static_cast<int>(_state.prevAppState);
+  obj["previousStateName"] = appStateToString(_state.prevAppState);
   obj["dndActive"] = _state.isDnd;
   obj["isMaintenanceMode"] = _state.isMaintenanceMode; // DS9 boolean normalization
+  obj["isHookOff"] = _state.isHookOff;
 
   // Add active call number if present
   if (_state.callState.callNumber[0] != '\0') {

@@ -4,7 +4,7 @@
   "title": "Base Integration Event",
   "type": "object",
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 2 },
+  "schemaVersion": { "type": "integer", "const": 3 },
     "seq": { "type": "integer", "minimum": 0 },
     "ts": { "type": "integer", "minimum": 0, "description": "Unix epoch ms" },
     "integration": { "type": "string", "minLength": 1 },

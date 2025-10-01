@@ -1,4 +1,4 @@
-# Event & Response JSON Schemas (schemaVersion 2)
+# Event & Response JSON Schemas (schemaVersion 3)
 
 Purpose: Machine-readable contracts for all outbound events and HTTP responses.
 
