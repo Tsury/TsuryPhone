@@ -58,6 +58,8 @@ public:
   bool save();
   bool load();
 
+  bool resetToFactoryDefaults();
+
   // Device identification
 
   String getDeviceId() const {

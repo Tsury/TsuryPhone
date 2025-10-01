@@ -15,6 +15,8 @@ public:
   void closeConfigPortal();
   bool isConfigPortalActive();
 
+  void resetCredentials();
+
   // Set callback for when config portal times out (to exit maintenance mode)
   void setPortalTimeoutCallback(std::function<void()> callback) {
     _portalTimeoutCallback = callback;

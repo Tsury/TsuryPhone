@@ -28,6 +28,7 @@ public:
   bool init();
   bool save();
   bool load();
+  void reset();
 
   // Call statistics
   void recordIncomingCall(const String &number);

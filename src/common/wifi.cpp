@@ -155,6 +155,12 @@ bool Wifi::isConfigPortalActive() {
   return _configPortalActive;
 }
 
+void Wifi::resetCredentials() {
+  Logger::warnln(F("Clearing stored WiFi credentials"));
+  _wifiManager.resetSettings();
+  WiFi.disconnect(true, true);
+}
+
 void Wifi::onConfigPortalTimeout() {
   // When portal times out, notify to exit maintenance mode
   if (_portalTimeoutCallback) {

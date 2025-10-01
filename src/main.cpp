@@ -243,6 +243,29 @@ void TsuryPhone::stopEverything() {
   _state.currentDialingNumber[0] = '\0';
 }
 
+void TsuryPhone::performFactoryReset() {
+  Logger::warnln(F("Factory reset initiated via system number"));
+
+  stopEverything();
+
+  if (_integrationManager) {
+    _integrationManager->onFactoryResetInitiated();
+  }
+
+  _wifi.resetCredentials();
+
+  if (!_deviceConfig.resetToFactoryDefaults()) {
+    Logger::errorln(F("Factory reset may be incomplete: configuration file removal failed"));
+  }
+
+  if (_integrationManager) {
+    _integrationManager->onFactoryResetBeforeRestart();
+  }
+
+  delay(kResetToneDuration + 500);
+  ESP.restart();
+}
+
 void TsuryPhone::onStateInCall() {
   stopEverything();
   _modem.setEarpieceVolume();
@@ -308,16 +331,17 @@ void TsuryPhone::processStateIdle() {
       _modem.enqueueMp3(dialedDigitsToMp3s[dialedDigit]);
 
       bool handledAsAction = false;
-#ifdef HOME_ASSISTANT_INTEGRATION
-      if (_integrationManager && _integrationManager->isActionCode(String(dialedNumber))) {
-        String actionId = _integrationManager->resolveActionId(String(dialedNumber));
-        if (actionId.length() > 0) {
-          Logger::infoln(F("Action trigger %s"), actionId.c_str());
-          _integrationManager->triggerAction(actionId);
-          handledAsAction = true;
+      if (_integrationManager) {
+        String dialedString(dialedNumber);
+        if (_integrationManager->isActionCode(dialedString)) {
+          String actionId = _integrationManager->resolveActionId(dialedString);
+          if (actionId.length() > 0) {
+            Logger::infoln(F("Action trigger %s"), actionId.c_str());
+            _integrationManager->triggerAction(actionId);
+            handledAsAction = true;
+          }
         }
       }
-#endif
 
       if (!handledAsAction) {
         const NumberValidationResult numberValidation = _numberHandler.validateNumber(dialedNumber);
@@ -328,6 +352,9 @@ void TsuryPhone::processStateIdle() {
             if (strEqual(dialedNumber, kResetNumber)) {
               _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
               ESP.restart();
+            } else if (strEqual(dialedNumber, kFactoryResetNumber)) {
+              _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kResetToneDuration);
+              performFactoryReset();
             } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
               _state.isMaintenanceMode = !_state.isMaintenanceMode;
               onMaintenanceModeChanged(_state.isMaintenanceMode);

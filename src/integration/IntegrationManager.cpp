@@ -154,6 +154,15 @@ void IntegrationManager::updateDndState(bool isDndActive) {
   }
 }
 
+void IntegrationManager::onFactoryResetInitiated() {
+  emitStructuredJsonLog("factory_reset", "initiated");
+}
+
+void IntegrationManager::onFactoryResetBeforeRestart() {
+  _stats.reset();
+  emitStructuredJsonLog("factory_reset", "restarting");
+}
+
 void IntegrationManager::setDialCallback(
     std::function<IntegrationCallbackResult(const String &)> callback) {
   for (auto &integration : _integrations) {

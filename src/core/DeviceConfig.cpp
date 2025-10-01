@@ -220,6 +220,31 @@ bool DeviceConfig::load() {
   return true;
 }
 
+bool DeviceConfig::resetToFactoryDefaults() {
+  Logger::warnln(F("DeviceConfig: factory reset requested"));
+
+  bool removed = true;
+  if (SPIFFS.exists(kConfigFilePath)) {
+    if (!SPIFFS.remove(kConfigFilePath)) {
+      Logger::errorln(F("Failed to remove config file during factory reset"));
+      removed = false;
+    }
+  }
+
+  _quickDialEntries.clear();
+  _blockedNumbers.clear();
+  _priorityCallers.clear();
+
+  _audioConfig = AudioConfig();
+  _dndConfig = DndConfig();
+  _ringPattern = "";
+  _homeAssistantUrl = "";
+
+  initializeDefaults();
+
+  return removed;
+}
+
 void DeviceConfig::initializeDefaults() {
   // Initialize with generated phoneBook entries dynamically
   size_t numEntries = sizeof(phoneBookEntries) / sizeof(phoneBookEntries[0]);

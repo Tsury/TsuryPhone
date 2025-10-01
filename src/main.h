@@ -53,6 +53,7 @@ private:
   void processStateInvalidNumber();
 
   void stopEverything();
+  void performFactoryReset();
 
   // Configuration change handlers (safe no-op via stub when integration off)
   void onAudioConfigChanged();

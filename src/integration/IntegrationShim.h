@@ -31,6 +31,8 @@ public:
                                 std::function<void(bool)>,
                                 std::function<void(ConfigChangeEvent)>) {}
   void enqueueDebugChar(char) {}
+  void onFactoryResetInitiated() {}
+  void onFactoryResetBeforeRestart() {}
   bool isActionCode(const String &) const {
     return false;
   }

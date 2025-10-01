@@ -56,6 +56,10 @@ public:
   void updateSystemStatus();
   void updateDndState(bool isDndActive);
 
+  // Device lifecycle hooks
+  void onFactoryResetInitiated();
+  void onFactoryResetBeforeRestart();
+
   // Device operation callbacks - sets callbacks for all integrations
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);

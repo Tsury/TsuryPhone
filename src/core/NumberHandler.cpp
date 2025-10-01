@@ -18,7 +18,7 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
     return result;
   }
 
-  // Check for system numbers (reset, wifi portal)
+  // Check for system numbers (reset, wifi portal, factory reset)
   if (isSystemNumber(dialedNumber)) {
     result.action = NumberAction::SystemAction;
     result.targetNumber = String(dialedNumber);

@@ -112,6 +112,20 @@ bool DeviceStats::load() {
   return true;
 }
 
+void DeviceStats::reset() {
+  Logger::warnln(F("DeviceStats: clearing persisted statistics"));
+
+  _callStats = CallStats();
+  _callStartTime = 0;
+  _resetCount = 0;
+  _revision = 0;
+  _systemStartTime = esp_timer_get_time();
+
+  if (SPIFFS.exists(kStatsFilePath) && !SPIFFS.remove(kStatsFilePath)) {
+    Logger::errorln(F("Failed to remove stats file during factory reset"));
+  }
+}
+
 void DeviceStats::recordIncomingCall(const String &number) {
   _callStats.incomingCalls++;
   _callStats.totalCalls++;
