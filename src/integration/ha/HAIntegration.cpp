@@ -7,6 +7,7 @@
 #include "../core/ConfigDiff.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <algorithm>
 
 HAIntegration::HAIntegration(DeviceConfig &config, DeviceStats &stats, State &state)
     : _config(config),
@@ -74,6 +75,8 @@ void HAIntegration::process() {
     _lastSystemUpdate = now;
     updateSystemStatus();
   }
+
+  processPendingWebhooks();
 }
 
 void HAIntegration::stop() {
@@ -297,26 +300,115 @@ void HAIntegration::broadcastStateChange(const String &key, int value) {
 }
 
 void HAIntegration::triggerAction(const String &actionId) {
-  // In HA context, actionId is a webhook id
-  INTL_INFO("Trigger action %s", actionId.c_str());
-
-  // Only trigger if WiFi is connected
-  if (WiFi.status() != WL_CONNECTED) {
-    INTL_WARN("Action skipped (WiFi down)");
+  if (actionId.isEmpty()) {
+    INTL_WARN("Trigger action rejected: empty id");
     return;
   }
 
-  String webhookUrl = _haConfig.getHomeAssistantUrl() + "/api/webhook/" + actionId;
+  INTL_INFO("Trigger action %s", actionId.c_str());
+
+  if (deliverWebhook(actionId, 0)) {
+    return;
+  }
+
+  enqueueWebhookRetry(actionId, 1, kWebhookRetryBaseMs);
+}
+
+bool HAIntegration::deliverWebhook(const String &actionId, uint8_t attempt) {
+  if (WiFi.status() != WL_CONNECTED) {
+    INTL_DEBUG("Webhook %s attempt %u deferred (WiFi down)", actionId.c_str(), attempt);
+    return false;
+  }
+
+  String baseUrl = _haConfig.getHomeAssistantUrl();
+  if (baseUrl.isEmpty()) {
+    INTL_WARN("Webhook %s skipped: Home Assistant URL not configured", actionId.c_str());
+    return false;
+  }
+
+  if (baseUrl.endsWith("/")) {
+    baseUrl.remove(baseUrl.length() - 1);
+  }
+
+  String webhookUrl = baseUrl + "/api/webhook/" + actionId;
   HTTPClient http;
-  http.begin(webhookUrl);
+  if (!http.begin(webhookUrl)) {
+    INTL_ERROR("Webhook %s begin() failed", actionId.c_str());
+    return false;
+  }
+
   http.setTimeout(5000);
   int httpResponseCode = http.POST("");
-  if (httpResponseCode > 0) {
-    INTL_DEBUG("Webhook HTTP %d", httpResponseCode);
-  } else {
-    INTL_ERROR("Webhook HTTP err %s", http.errorToString(httpResponseCode).c_str());
+  if (httpResponseCode >= 200 && httpResponseCode < 300) {
+    INTL_DEBUG("Webhook %s delivered (HTTP %d)", actionId.c_str(), httpResponseCode);
+    http.end();
+    return true;
   }
+
+  INTL_ERROR("Webhook %s attempt %u failed (HTTP %d)",
+             actionId.c_str(),
+             attempt,
+             httpResponseCode);
   http.end();
+  return false;
+}
+
+void HAIntegration::enqueueWebhookRetry(const String &actionId,
+                                        uint8_t attempt,
+                                        unsigned long delayMs) {
+  if (attempt >= kMaxWebhookAttempts) {
+    INTL_ERROR("Dropping webhook %s after %u attempts", actionId.c_str(), attempt);
+    return;
+  }
+
+  if (_pendingWebhooks.size() >= kMaxPendingWebhooks) {
+    INTL_WARN("Pending webhook queue full, dropping oldest entry");
+    _pendingWebhooks.pop_front();
+  }
+
+  unsigned long clampedDelay = std::min(delayMs, kWebhookRetryMaxDelayMs);
+  PendingWebhook pending{actionId, attempt, millis() + clampedDelay};
+  _pendingWebhooks.push_back(pending);
+  INTL_DEBUG("Queued webhook %s retry attempt %u in %lu ms",
+             actionId.c_str(),
+             attempt,
+             clampedDelay);
+}
+
+void HAIntegration::processPendingWebhooks() {
+  if (_pendingWebhooks.empty()) {
+    return;
+  }
+
+  unsigned long now = millis();
+  if (now - _lastWebhookProcess < 200) {
+    return;
+  }
+  _lastWebhookProcess = now;
+
+  PendingWebhook pending = _pendingWebhooks.front();
+  if (now < pending.nextAttempt) {
+    return;
+  }
+
+  bool delivered = deliverWebhook(pending.actionId, pending.attempt);
+  _pendingWebhooks.pop_front();
+
+  if (delivered) {
+    return;
+  }
+
+  uint8_t nextAttempt = pending.attempt + 1;
+  if (nextAttempt >= kMaxWebhookAttempts) {
+    INTL_ERROR("Dropping webhook %s after %u attempts", pending.actionId.c_str(), nextAttempt);
+    return;
+  }
+
+  unsigned long backoff = kWebhookRetryBaseMs << pending.attempt;
+  if (backoff > kWebhookRetryMaxDelayMs) {
+    backoff = kWebhookRetryMaxDelayMs;
+  }
+  enqueueWebhookRetry(pending.actionId, nextAttempt, backoff);
 }
 
 HAOperationResult HAIntegration::convertResult(const IntegrationCallbackResult &result) {

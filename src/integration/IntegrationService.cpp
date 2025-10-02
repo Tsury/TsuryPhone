@@ -802,6 +802,7 @@ JsonDocument IntegrationService::buildCallEvent(const String &eventType,
   } else if (eventType == "blocked") {
     obj["isIncoming"] = true; // blocked implies incoming
   }
+  addPhoneStateInfo(obj);
   return doc;
 }
 
@@ -818,13 +819,17 @@ JsonDocument IntegrationService::buildPhoneStateEvent(const String &eventType,
     obj["stateName"] = appStateToString(newState);
     addPhoneStateInfo(obj);
   } else if (eventType == "call_info") {
+    addPhoneStateInfo(obj);
     // Snapshot only (no fabricated start time here)
     addCallInfo(obj, currentNumber, false, 0);
   } else if (eventType == "dialing") {
+    addPhoneStateInfo(obj);
     obj["currentDialingNumber"] = currentNumber;
   } else if (eventType == "ring") {
+    addPhoneStateInfo(obj);
     obj["isRinging"] = true; // Assuming true when creating ring event
   } else if (eventType == "dnd") {
+    addPhoneStateInfo(obj);
     obj["dndActive"] = _state.isDnd;
   }
 

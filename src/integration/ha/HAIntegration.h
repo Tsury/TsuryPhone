@@ -12,6 +12,7 @@
 #include "HANumberHandler.h"
 #include "HAWebServer.h"
 #include <functional>
+#include <deque>
 
 /**
  * Home Assistant integration implementation
@@ -129,6 +130,9 @@ private:
   void broadcastStateChange(const String &key, const String &value);
   void broadcastStateChange(const String &key, bool value);
   void broadcastStateChange(const String &key, int value);
+  bool deliverWebhook(const String &actionId, uint8_t attempt);
+  void enqueueWebhookRetry(const String &actionId, uint8_t attempt, unsigned long delayMs);
+  void processPendingWebhooks();
 
   // Last update tracking for efficiency
   unsigned long _lastStatsUpdate = 0;
@@ -136,6 +140,20 @@ private:
   static const unsigned long kStatsUpdateInterval = 60000;  // 60 seconds
   static const unsigned long kSystemUpdateInterval = 60000; // 60 seconds
   uint32_t _lastStatsHash = 0; // I1: cache of last emitted stats fingerprint
+
+  struct PendingWebhook {
+    String actionId;
+    uint8_t attempt;
+    unsigned long nextAttempt;
+  };
+
+  static constexpr uint8_t kMaxWebhookAttempts = 6;
+  static constexpr unsigned long kWebhookRetryBaseMs = 5000;
+  static constexpr unsigned long kWebhookRetryMaxDelayMs = 60000;
+  static constexpr size_t kMaxPendingWebhooks = 10;
+
+  std::deque<PendingWebhook> _pendingWebhooks;
+  unsigned long _lastWebhookProcess = 0;
 
   // Helper to convert IntegrationCallbackResult to HAOperationResult
   HAOperationResult convertResult(const IntegrationCallbackResult &result);
