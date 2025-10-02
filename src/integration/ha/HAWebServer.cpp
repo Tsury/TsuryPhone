@@ -285,11 +285,15 @@ void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json
 
   bool hasParam = false;
 
-  // enabled (optional)
-  if (!json["enabled"].isNull()) {
-    if (!json["enabled"].is<bool>()) {
-      sendErrorResponse(
-          request, "Invalid 'enabled' parameter (must be boolean)", 400, "WEB_INVALID_ENABLED");
+  JsonObject obj = json.as<JsonObject>();
+
+  // scheduled (optional, primary flag for schedule enablement)
+  if (!obj["scheduled"].isNull()) {
+    if (!obj["scheduled"].is<bool>()) {
+      sendErrorResponse(request,
+                        "Invalid 'scheduled' parameter (must be boolean)",
+                        400,
+                        "WEB_INVALID_SCHEDULED");
       return;
     }
     hasParam = true;
@@ -334,7 +338,7 @@ void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json
   if (!hasParam) {
     sendErrorResponse(
         request,
-        "At least one DND parameter required (enabled, startHour, endHour, startMinute, endMinute)",
+        "At least one DND parameter required (scheduled, startHour, endHour, startMinute, endMinute)",
         400,
         "WEB_DND_PARAM_REQUIRED");
     return;
