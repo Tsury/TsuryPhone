@@ -27,11 +27,48 @@ IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &con
       _statsManager(_stats, state),
       _prevDndState(false),
       _prevMaintenanceMode(false),
-  _prevHookOff(false),
+      _prevHookOff(false),
       _prevAppState(AppState::Startup),
-      _prevRingingState(false) {}
+      _prevRingingState(false) {
+  _config.setConfigChangeCallback([this](ConfigChangeType changeType) {
+    ConfigChangeEvent event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
+    bool notify = true;
+
+    switch (changeType) {
+    case ConfigChangeType::Audio:
+      event = ConfigChangeEvent::AUDIO_CONFIG_CHANGED;
+      break;
+    case ConfigChangeType::DND:
+      event = ConfigChangeEvent::DND_CONFIG_CHANGED;
+      break;
+    case ConfigChangeType::QuickDial:
+      event = ConfigChangeEvent::QUICK_DIAL_CHANGED;
+      break;
+    case ConfigChangeType::BlockedNumbers:
+      event = ConfigChangeEvent::BLOCKED_NUMBER_CHANGED;
+      break;
+    case ConfigChangeType::RingPattern:
+      event = ConfigChangeEvent::RING_PATTERN_CHANGED;
+      break;
+    case ConfigChangeType::PriorityCallers:
+      event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
+      break;
+    case ConfigChangeType::DeviceName:
+      event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
+      break;
+    default:
+      notify = false;
+      break;
+    }
+
+    if (notify) {
+      notifyConfigChange(event);
+    }
+  });
+}
 
 IntegrationManager::~IntegrationManager() {
+  _config.setConfigChangeCallback(nullptr);
   stop();
 }
 
