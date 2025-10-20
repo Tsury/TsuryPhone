@@ -26,6 +26,8 @@ private:
   void onWifiConnected();
   void onConfigPortalTimeout();
   void processConfigPortal();
+  void startConfigPortalSession(uint32_t timeoutMs);
+  void onConfigPortalClosed();
 
 #ifdef WEB_SERIAL
   void initWebSerial();
@@ -45,5 +47,6 @@ private:
 
 #ifdef WEB_SERIAL
   uint32_t _lastWebSerialPrint = 0UL;
+  bool _webSerialActive = false;
 #endif
 };

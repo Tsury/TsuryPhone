@@ -10,6 +10,7 @@
         "category": { "const": "call" },
         "event": { "const": "end" },
         "number": { "type": "string", "minLength": 1 },
+        "currentCallName": { "type": "string" },
         "isIncoming": { "type": "boolean" },
         "callStartTs": { "type": "integer", "minimum": 0 },
         "durationMs": { "type": "integer", "minimum": 0 }

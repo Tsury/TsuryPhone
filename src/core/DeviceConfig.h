@@ -13,7 +13,8 @@ enum class ConfigChangeType {
   PriorityCallers,
   BlockedNumbers,
   RingPattern,
-  DeviceName
+  DeviceName,
+  DefaultDialingCode
 };
 
 struct AudioConfig {
@@ -35,19 +36,70 @@ struct DndConfig {
 struct QuickDialEntry {
   String code;
   String number;
+  String normalizedNumber;
   String name;
 
   QuickDialEntry() = default;
-  QuickDialEntry(const String &c, const String &n, const String &nm = "")
-      : code(c), number(n), name(nm) {}
+  QuickDialEntry(const String &c,
+                 const String &n,
+                 const String &nm = "",
+                 const String &normalized = "")
+      : code(c), number(n), normalizedNumber(normalized), name(nm) {}
+
+  bool hasNormalized() const {
+    return !normalizedNumber.isEmpty();
+  }
+
+  const String &effectiveNumber() const {
+    return normalizedNumber.isEmpty() ? number : normalizedNumber;
+  }
+
+  bool matchesNormalized(const String &candidate) const {
+    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
+  }
 };
 
 struct BlockedNumberEntry {
   String number;
-  String reason;
+  String normalizedNumber;
+  String name;
 
   BlockedNumberEntry() = default;
-  BlockedNumberEntry(const String &n, const String &r = "") : number(n), reason(r) {}
+  BlockedNumberEntry(const String &n, const String &nm = "", const String &normalized = "")
+      : number(n), normalizedNumber(normalized), name(nm) {}
+
+  bool hasNormalized() const {
+    return !normalizedNumber.isEmpty();
+  }
+
+  const String &effectiveNumber() const {
+    return normalizedNumber.isEmpty() ? number : normalizedNumber;
+  }
+
+  bool matchesNormalized(const String &candidate) const {
+    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
+  }
+};
+
+struct PriorityCallerEntry {
+  String number;
+  String normalizedNumber;
+
+  PriorityCallerEntry() = default;
+  PriorityCallerEntry(const String &n, const String &normalized = "")
+      : number(n), normalizedNumber(normalized) {}
+
+  bool hasNormalized() const {
+    return !normalizedNumber.isEmpty();
+  }
+
+  const String &effectiveNumber() const {
+    return normalizedNumber.isEmpty() ? number : normalizedNumber;
+  }
+
+  bool matchesNormalized(const String &candidate) const {
+    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
+  }
 };
 
 class DeviceConfig {
@@ -95,29 +147,34 @@ public:
   const std::vector<BlockedNumberEntry> &getBlockedNumbers() const {
     return _blockedNumbers;
   }
-  bool addBlockedNumber(const String &number, const String &reason = "");
+  bool addBlockedNumber(const String &number, const String &name = "");
   bool removeBlockedNumber(const String &number);
   bool isIncomingCallBlocked(const String &number) const;
 
   // Priority callers
-  const std::vector<String> &getPriorityCallers() const {
+  const std::vector<PriorityCallerEntry> &getPriorityCallers() const {
     return _priorityCallers;
   }
   bool addPriorityCaller(const String &number);
   bool removePriorityCaller(const String &number);
   bool isPriorityCaller(const String &number) const;
 
-  struct NumberClassification {
-    bool isBlocked = false;
-    bool isPriority = false;
-  };
-  NumberClassification classifyNumber(const String &number) const;
+  // Default dialing code
+  String getDefaultDialingCode() const {
+    return _defaultDialingCode;
+  }
+  void setDefaultDialingCode(const String &code);
+  String normalizeNumber(const String &number) const;
 
   // Ring pattern
   String getRingPattern() const {
     return _ringPattern;
   }
   void setRingPattern(const String &pattern);
+
+  static const char *getDefaultRingPattern() {
+    return kDefaultRingPattern;
+  }
 
   // Home Assistant URL
   String getHomeAssistantUrl() const {
@@ -135,18 +192,24 @@ private:
   bool isCodeConflict(const String &code) const;
   void notifyConfigChanged(ConfigChangeType changeType);
   void saveAndNotify(ConfigChangeType changeType);
+  void refreshNormalizedNumbers();
+  bool updateNormalizedNumber(String &number, String &normalized) const;
+  static String sanitizeDefaultDialingCodeSeed(const String &seed);
+  static String sanitizeDefaultDialingCodeSeed(const char *seed);
 
   String _deviceId;
   AudioConfig _audioConfig;
   DndConfig _dndConfig;
   std::vector<QuickDialEntry> _quickDialEntries;
   std::vector<BlockedNumberEntry> _blockedNumbers;
-  std::vector<String> _priorityCallers; // numbers that bypass DND / special handling
+  std::vector<PriorityCallerEntry> _priorityCallers; // numbers that bypass DND / special handling
   String _ringPattern;
   String _homeAssistantUrl;
+  String _defaultDialingCode;
 
   std::function<void(ConfigChangeType)> _configChangeCallback;
 
   static const char *kConfigFilePath;
   static const char *kDefaultRingPattern;
+  static const char *kDefaultDialingCodeValue;
 };

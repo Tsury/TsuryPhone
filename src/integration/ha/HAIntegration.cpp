@@ -4,10 +4,16 @@
 #include "../../common/logger.h"
 #include "../IntegrationLog.h"
 #include "../IntegrationManager.h"
+#include "../IntegrationLookup.h"
 #include "../core/ConfigDiff.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <algorithm>
+
+constexpr uint8_t HAIntegration::kMaxWebhookAttempts;
+constexpr unsigned long HAIntegration::kWebhookRetryBaseMs;
+constexpr unsigned long HAIntegration::kWebhookRetryMaxDelayMs;
+constexpr size_t HAIntegration::kMaxPendingWebhooks;
 
 HAIntegration::HAIntegration(DeviceConfig &config, DeviceStats &stats, State &state)
     : _config(config),
@@ -91,8 +97,16 @@ void HAIntegration::updatePhoneState(AppState newState, AppState previousState) 
   _webServer.broadcastStateUpdate(doc);
 }
 
-void HAIntegration::updateCallInfo(const String &number, bool isIncoming, unsigned long startTime) {
-  INTL_DEBUG("Call info %s %s", isIncoming ? "Incoming" : "Outgoing", number.c_str());
+void HAIntegration::updateCallInfo(const String &number,
+                                   bool isIncoming,
+                                   unsigned long startTime,
+                                   bool isPriority,
+                                   const String &name) {
+  INTL_DEBUG("Call info %s %s (priority=%s name=%s)",
+             isIncoming ? "Incoming" : "Outgoing",
+             number.c_str(),
+             isPriority ? "true" : "false",
+             name.c_str());
 
   JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("call_info");
   _webServer.broadcastStateUpdate(doc);
@@ -121,6 +135,16 @@ void HAIntegration::updateDndState(bool isDndActive) {
   _webServer.broadcastStateUpdate(doc);
 }
 
+void HAIntegration::updateVolumeMode(VolumeMode mode) {
+  INTL_INFO("Volume mode %s", mode == VolumeMode::Speaker ? "speaker" : "earpiece");
+
+  JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("volume_mode");
+  JsonObject obj = doc.as<JsonObject>();
+  obj["volumeMode"] = String(volumeModeToString(mode));
+  obj["volumeModeCode"] = static_cast<int>(mode);
+  _webServer.broadcastStateUpdate(doc);
+}
+
 void HAIntegration::updateSystemStatus() {
   JsonDocument doc = _integrationService.buildSystemEvent("status");
   _webServer.broadcastStateUpdate(doc);
@@ -129,6 +153,11 @@ void HAIntegration::updateSystemStatus() {
 void HAIntegration::setDialCallback(
     std::function<IntegrationCallbackResult(const String &)> callback) {
   _integrationService.setDialCallback(callback);
+}
+
+void HAIntegration::setDialDigitCallback(
+    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+  _integrationService.setDialDigitCallback(callback);
 }
 
 void HAIntegration::setAnswerCallback(std::function<IntegrationCallbackResult()> callback) {
@@ -140,12 +169,17 @@ void HAIntegration::setHangupCallback(std::function<IntegrationCallbackResult()>
 }
 
 void HAIntegration::setRingCallback(
-    std::function<IntegrationCallbackResult(const String &)> callback) {
+    std::function<IntegrationCallbackResult(const String &, bool)> callback) {
   _integrationService.setRingCallback(callback);
 }
 
 void HAIntegration::setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) {
   _integrationService.setCallWaitingCallback(callback);
+}
+
+void HAIntegration::setVolumeModeCallback(
+    std::function<IntegrationCallbackResult(VolumeMode)> callback) {
+  _integrationService.setVolumeModeCallback(callback);
 }
 
 void HAIntegration::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
@@ -156,7 +190,9 @@ void HAIntegration::setFactoryResetCallback(std::function<void()> callback) {
   _integrationService.setFactoryResetCallback(callback);
 }
 void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
-  updateCallInfo(number, isIncoming);
+  bool isPriority = _state.callState.isPriority;
+  String callerName = IntegrationLookup::lookupCallerName(_config, number);
+  updateCallInfo(number, isIncoming, 0, isPriority, callerName);
   // Preserve direction and omit fabricated start time in generic builder
   JsonDocument doc = _integrationService.buildCallEvent("start", number, isIncoming, 0);
   _webServer.broadcastStateUpdate(doc);
@@ -196,6 +232,8 @@ void HAIntegration::setupWebServerCallbacks() {
 
         if (command == "dial") {
           return handleDialRequest(data["number"].as<String>());
+        } else if (command == "dial_digit") {
+          return handleDialDigitRequest(data);
         } else if (command == "answer") {
           return handleAnswerRequest();
         } else if (command == "hangup") {
@@ -212,6 +250,10 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleSetAudioConfig(data);
         } else if (command == "ring_pattern") {
           return handleSetRingPattern(data);
+        } else if (command == "dialing_config") {
+          return handleSetDialingConfig(data);
+        } else if (command == "volume_mode") {
+          return handleSetVolumeMode(data);
         } else if (command == "ring") {
           return handleRingOperation(data);
         } else if (command == "reset") {
@@ -345,10 +387,7 @@ bool HAIntegration::deliverWebhook(const String &actionId, uint8_t attempt) {
     return true;
   }
 
-  INTL_ERROR("Webhook %s attempt %u failed (HTTP %d)",
-             actionId.c_str(),
-             attempt,
-             httpResponseCode);
+  INTL_ERROR("Webhook %s attempt %u failed (HTTP %d)", actionId.c_str(), attempt, httpResponseCode);
   http.end();
   return false;
 }
@@ -369,10 +408,8 @@ void HAIntegration::enqueueWebhookRetry(const String &actionId,
   unsigned long clampedDelay = std::min(delayMs, kWebhookRetryMaxDelayMs);
   PendingWebhook pending{actionId, attempt, millis() + clampedDelay};
   _pendingWebhooks.push_back(pending);
-  INTL_DEBUG("Queued webhook %s retry attempt %u in %lu ms",
-             actionId.c_str(),
-             attempt,
-             clampedDelay);
+  INTL_DEBUG(
+      "Queued webhook %s retry attempt %u in %lu ms", actionId.c_str(), attempt, clampedDelay);
 }
 
 void HAIntegration::processPendingWebhooks() {
@@ -424,6 +461,34 @@ HAOperationResult HAIntegration::handleDialRequest(const String &number) {
   IntegrationCallbackResult result = _integrationService.handleDialRequest(number);
   if (result.success) {
     INTL_INFO("Dial success %s", number.c_str());
+  }
+  return convertResult(result);
+}
+
+HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data) {
+  if (!data["digit"]) {
+    return HAOperationResult(false, "Missing 'digit' parameter");
+  }
+
+  int digit = -1;
+  if (data["digit"].is<int>()) {
+    digit = data["digit"].as<int>();
+  } else if (data["digit"].is<const char *>()) {
+    String digitStr = data["digit"].as<const char *>();
+    digitStr.trim();
+    if (digitStr.length() == 1 && digitStr[0] >= '0' && digitStr[0] <= '9') {
+      digit = digitStr[0] - '0';
+    }
+  }
+
+  if (digit < 0 || digit > 9) {
+    return HAOperationResult(false, "Digit must be between 0 and 9");
+  }
+
+  IntegrationCallbackResult result =
+      _integrationService.handleDialDigit(static_cast<uint8_t>(digit));
+  if (result.success) {
+    INTL_INFO("Dial digit success %d", digit);
   }
   return convertResult(result);
 }
@@ -494,22 +559,91 @@ HAOperationResult HAIntegration::handleSetRingPattern(const JsonVariant &json) {
   return haResult;
 }
 
+HAOperationResult HAIntegration::handleSetDialingConfig(const JsonVariant &json) {
+  IntegrationCallbackResult result = _integrationService.handleSetDialingConfig(json);
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    const String code = _config.getDefaultDialingCode();
+    broadcastStateChange("dialing.defaultCode", code);
+    String prefix = code.isEmpty() ? String("") : (String("+") + code);
+    broadcastStateChange("dialing.defaultPrefix", prefix);
+  }
+  return haResult;
+}
+
 HAOperationResult HAIntegration::handleRingOperation(const JsonVariant &json) {
   String pattern = "";
   if (json["pattern"]) {
     pattern = json["pattern"].as<String>();
   }
 
-  INTL_INFO("Ring op pattern %s", pattern.isEmpty() ? "[default]" : pattern.c_str());
+  if (json["force"] && !json["force"].is<bool>()) {
+    return HAOperationResult(false, "Invalid 'force' parameter (must be boolean)");
+  }
 
-  IntegrationCallbackResult result = _integrationService.handleRingOperation(pattern);
+  bool force = false;
+  if (json["force"].is<bool>()) {
+    force = json["force"].as<bool>();
+  }
+
+  INTL_INFO("Ring op pattern %s (force=%s)",
+            pattern.isEmpty() ? "[default]" : pattern.c_str(),
+            force ? "true" : "false");
+
+  IntegrationCallbackResult result = _integrationService.handleRingOperation(pattern, force);
   if (result.success) {
-    INTL_INFO("Ring success pattern %s", pattern.isEmpty() ? "[default]" : pattern.c_str());
+    INTL_INFO("Ring success pattern %s (force=%s)",
+              pattern.isEmpty() ? "[default]" : pattern.c_str(),
+              force ? "true" : "false");
     return HAOperationResult(true);
   } else {
-    INTL_ERROR("Ring failed %s", result.errorMessage.c_str());
+    INTL_ERROR("Ring failed %s (force=%s)", result.errorMessage.c_str(), force ? "true" : "false");
     return HAOperationResult(false, result.errorMessage);
   }
+}
+
+HAOperationResult HAIntegration::handleSetVolumeMode(const JsonVariant &json) {
+  VolumeMode targetMode = VolumeMode::Earpiece;
+  bool modeProvided = false;
+
+  if (json["mode"].is<const char *>()) {
+    String modeStr = json["mode"].as<const char *>();
+    modeStr.toLowerCase();
+    if (modeStr == "speaker" || modeStr == "speakerphone") {
+      targetMode = VolumeMode::Speaker;
+      modeProvided = true;
+    } else if (modeStr == "earpiece" || modeStr == "handset") {
+      targetMode = VolumeMode::Earpiece;
+      modeProvided = true;
+    } else {
+      return HAOperationResult(false, "Invalid mode string: " + modeStr, "WEB_INVALID_VOLUME_MODE");
+    }
+  } else if (json["modeCode"].is<int>()) {
+    int code = json["modeCode"].as<int>();
+    if (code == static_cast<int>(VolumeMode::Speaker)) {
+      targetMode = VolumeMode::Speaker;
+      modeProvided = true;
+    } else if (code == static_cast<int>(VolumeMode::Earpiece)) {
+      targetMode = VolumeMode::Earpiece;
+      modeProvided = true;
+    } else {
+      return HAOperationResult(false, "Invalid mode code", "WEB_INVALID_VOLUME_MODE");
+    }
+  }
+
+  if (!modeProvided) {
+    return HAOperationResult(false, "Missing 'mode' string or 'modeCode' integer");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleSetVolumeMode(targetMode);
+  HAOperationResult haResult = convertResult(result);
+
+  if (haResult.success) {
+    JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("volume_mode");
+    haResult.data = doc;
+  }
+
+  return haResult;
 }
 
 HAOperationResult HAIntegration::handleResetDevice() {
@@ -526,8 +660,7 @@ HAOperationResult HAIntegration::handleFactoryReset() {
   IntegrationCallbackResult result = _integrationService.handleFactoryReset();
   if (result.success) {
     INTL_WARN("Factory reset scheduled");
-    JsonDocument shutdownDoc =
-        _integrationService.buildShutdownEvent("factory_reset_requested");
+    JsonDocument shutdownDoc = _integrationService.buildShutdownEvent("factory_reset_requested");
     _webServer.broadcastStateUpdate(shutdownDoc);
   }
   return convertResult(result);
@@ -599,16 +732,16 @@ HAOperationResult HAIntegration::handleAddBlockedNumber(const JsonVariant &json)
   JsonObject jsonObj = json.as<JsonObject>();
 
   String number = jsonObj["number"].as<String>();
-  String reason = jsonObj["reason"].as<String>(); // Optional
+  String name = jsonObj["name"].as<String>(); // Optional
 
-  IntegrationCallbackResult result = _integrationService.handleAddBlockedNumber(number, reason);
+  IntegrationCallbackResult result = _integrationService.handleAddBlockedNumber(number, name);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
     JsonDocument payload;
     JsonObject obj = payload.to<JsonObject>();
     obj["number"] = number;
-    if (!reason.isEmpty()) {
-      obj["reason"] = reason;
+    if (!name.isEmpty()) {
+      obj["name"] = name;
     }
     broadcastStateChange("blocked.add", payload.as<JsonVariant>());
   }
@@ -666,7 +799,8 @@ HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json)
   }
 
   if (_haConfig.isCodeConflict(code)) {
-    return HAOperationResult(false, "Code already exists in quick dial or webhook actions");
+    return HAOperationResult(
+        false, "Code conflicts with existing quick dial or webhook actions", "WEB_CODE_CONFLICT");
   }
 
   if (_haConfig.addWebhookAction(code, webhookId, actionName)) {

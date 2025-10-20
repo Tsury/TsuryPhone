@@ -239,6 +239,27 @@ void Modem::switchToCallWaiting() {
   verifyCallState();
 }
 
+void Modem::rejectCallWaiting(CallState &callState) {
+  if (callState.callWaitingNumber[0] != '\0') {
+    Logger::warnln(F("Rejecting blocked waiting call %s"), callState.callWaitingNumber);
+  } else {
+    Logger::warnln(F("Rejecting blocked waiting call (unknown number)"));
+  }
+
+  sendCommand(F("+CHLD=0"));
+  verifyCallState();
+
+  clearCallWaitingState(callState);
+}
+
+void Modem::clearCallWaitingState(CallState &callState) {
+  callState.callWaitingId = -1;
+  callState.callWaitingIsOnHold = false;
+  callState.callWaitingNumber[0] = '\0';
+  callState.callWaitingIsPriority = false;
+  callState.callWaitingIsBlocked = false;
+}
+
 void Modem::verifyCallState() {
   sendCommand(F("+CPAS"));
 }
@@ -344,17 +365,19 @@ void Modem::deriveStateFromMessage(State &state) {
     case 0:
       // Active
       state.newAppState = AppState::InCall;
-      callState.setcallNumber(callNumber);
-      callState.callId = callId;
       break;
     case 1:
       // Held
-      callState.isCallWaitingOnHold = true;
+      callState.callWaitingIsOnHold = true;
       callState.callWaitingId = callId;
       break;
     case 2:
       // Dialing
       state.newAppState = AppState::Dialing;
+      callState.setcallNumber(callNumber);
+      callState.callId = callId;
+      callState.isPriority = false;
+      callState.isBlocked = false;
       break;
     case 3:
       // Alerting (other party needs to pick up)
@@ -364,10 +387,25 @@ void Modem::deriveStateFromMessage(State &state) {
       state.newAppState = AppState::IncomingCall;
       callState.setcallNumber(callNumber);
       callState.callId = callId;
+      callState.isBlocked = _config.isIncomingCallBlocked(callNumber);
+      if (callState.isBlocked) {
+        Logger::warnln(F("Incoming call %s is blocked"), callNumber);
+        callState.isPriority = false;
+      } else {
+        callState.isPriority = _config.isPriorityCaller(callNumber);
+      }
       break;
     case 5:
       // Waiting
       callState.callWaitingId = callId;
+      callState.callWaitingIsBlocked = _config.isIncomingCallBlocked(callNumber);
+
+      if (callState.callWaitingIsBlocked) {
+        Logger::warnln(F("Waiting call %s is blocked"), callNumber);
+      }
+
+      callState.callWaitingIsPriority = _config.isPriorityCaller(callNumber);
+      snprintf(callState.callWaitingNumber, kSmallBufferSize, "%s", callNumber);
       break;
     case 6:
       // Since at least one party dropped, reset the call waiting tone state.
@@ -379,12 +417,15 @@ void Modem::deriveStateFromMessage(State &state) {
       if (callState.callId == callId) {
         Logger::infoln(F("Current call %d was disconnected by the other party."), callId);
 
-        if (callState.isCallWaitingOnHold) {
+        if (callState.callWaitingIsOnHold) {
           Logger::infoln(F("Switching to call waiting %d..."), callState.callWaitingId);
 
-          callState.isCallWaitingOnHold = false;
+          callState.callWaitingIsOnHold = false;
           callState.callId = callState.callWaitingId;
-          callState.callWaitingId = -1;
+          callState.setcallNumber(callState.callWaitingNumber);
+          callState.isPriority = callState.callWaitingIsPriority;
+          callState.isBlocked = callState.callWaitingIsBlocked;
+          clearCallWaitingState(callState);
           switchToCallWaiting();
         } else {
           state.newAppState = AppState::Idle;
@@ -393,8 +434,7 @@ void Modem::deriveStateFromMessage(State &state) {
         }
       } else if (callState.callWaitingId == callId) {
         Logger::infoln(F("Call waiting %d was disconnected by the other party."), callId);
-        callState.callWaitingId = -1;
-        callState.isCallWaitingOnHold = false;
+        clearCallWaitingState(callState);
       } else {
         state.newAppState = AppState::Idle;
         state.callState = CallState{};
@@ -443,7 +483,9 @@ void Modem::deriveStateFromMessage(State &state) {
   }
 }
 
-void Modem::process(const State &state) {
+void Modem::process(State &state) {
+  state.volumeMode = _volumeMode;
+
   playNextAudioItem();
   callPending();
 

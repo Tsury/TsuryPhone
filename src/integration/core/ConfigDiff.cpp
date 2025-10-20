@@ -1,3 +1,5 @@
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "ConfigDiff.h"
 
 bool buildDndConfigDelta(IntegrationService &svc,
@@ -6,7 +8,7 @@ bool buildDndConfigDelta(IntegrationService &svc,
                          JsonDocument &outDoc) {
   ConfigDeltaAggregator agg(svc);
   agg.addIfChanged("dnd.force", prev.force, curr.force);
-  agg.addIfChanged("dnd.schedule", prev.scheduled, curr.scheduled);
+  agg.addIfChanged("dnd.scheduled", prev.scheduled, curr.scheduled);
   agg.addIfChanged("dnd.startMinute", (int)prev.startMinute, (int)curr.startMinute);
   agg.addIfChanged("dnd.endMinute", (int)prev.endMinute, (int)curr.endMinute);
   agg.addIfChanged("dnd.startHour", (int)prev.startHour, (int)curr.startHour);
@@ -36,3 +38,5 @@ bool buildAudioConfigDelta(IntegrationService &svc,
   }
   return agg.hasChanges;
 }
+
+#endif // HOME_ASSISTANT_INTEGRATION

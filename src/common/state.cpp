@@ -24,3 +24,14 @@ const __FlashStringHelper *appStateToString(const AppState state) {
     return F("Unknown");
   }
 }
+
+const __FlashStringHelper *volumeModeToString(const VolumeMode mode) {
+  switch (mode) {
+  case VolumeMode::Earpiece:
+    return F("earpiece");
+  case VolumeMode::Speaker:
+    return F("speaker");
+  default:
+    return F("unknown");
+  }
+}

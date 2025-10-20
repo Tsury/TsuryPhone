@@ -1,10 +1,6 @@
 #pragma once
 
-#if !defined(HOME_ASSISTANT_INTEGRATION) && !defined(ANDROID_INTEGRATION)
-#error "Diagnostics included but no integration macro defined."
-#endif
-
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 
 #include <ArduinoJson.h>
 
@@ -17,4 +13,4 @@ class DeviceStats;
 // Does NOT add integration-specific capability info.
 void populateCoreDiagnostics(JsonObject root, DeviceConfig &config, DeviceStats &stats);
 
-#endif
+#endif // HOME_ASSISTANT_INTEGRATION

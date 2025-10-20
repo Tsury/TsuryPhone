@@ -48,6 +48,7 @@ private:
   void handleRefetchAll(AsyncWebServerRequest *request);
 
   void handleDialNumber(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleDialDigit(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAnswerCall(AsyncWebServerRequest *request);
   void handleHangupCall(AsyncWebServerRequest *request);
   void handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
@@ -57,8 +58,10 @@ private:
   void handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetAudioConfig(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetRingPattern(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSetDialingConfig(AsyncWebServerRequest *request, JsonVariant &json);
 
   void handleRingOperation(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSetVolumeMode(AsyncWebServerRequest *request, JsonVariant &json);
   void handleResetDevice(AsyncWebServerRequest *request);
   void handleFactoryReset(AsyncWebServerRequest *request);
 

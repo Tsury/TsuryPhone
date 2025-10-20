@@ -2,6 +2,7 @@
 
 #include "HAWebServer.h"
 #include "../../common/logger.h"
+#include "../../common/phoneNormalization.h"
 #include "../../common/state.h"
 #include "../../common/timeManager.h"
 #include "../../config.h"
@@ -103,9 +104,18 @@ void HAWebServer::setupRoutes() {
     handleDialNumber(req, json);
   });
 
+  addJsonPostRoute("/api/call/dial_digit", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleDialDigit(req, json);
+  });
+
   addJsonPostRoute(
       "/api/call/dial_quick_dial",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleDialQuickDial(req, json); });
+
+    addJsonPostRoute("/api/call/volume_mode",
+                     [this](AsyncWebServerRequest *req, JsonVariant &json) {
+                       handleSetVolumeMode(req, json);
+                     });
 
   addJsonPostRoute("/api/config/dnd", [this](AsyncWebServerRequest *req, JsonVariant &json) {
     handleSetDND(req, json);
@@ -123,6 +133,10 @@ void HAWebServer::setupRoutes() {
   addJsonPostRoute(
       "/api/config/ring_pattern",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleSetRingPattern(req, json); });
+
+  addJsonPostRoute("/api/config/dialing", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSetDialingConfig(req, json);
+  });
 
   addJsonPostRoute(
       "/api/config/quick_dial_add",
@@ -263,6 +277,35 @@ void HAWebServer::handleDialNumber(AsyncWebServerRequest *request, JsonVariant &
   executeCommand(request, "dial", json);
 }
 
+void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json["digit"]) {
+    sendErrorResponse(request, "Missing 'digit' parameter", 400, "WEB_MISSING_DIGIT");
+    return;
+  }
+
+  int digit = -1;
+  if (json["digit"].is<int>()) {
+    digit = json["digit"].as<int>();
+  } else if (json["digit"].is<const char *>()) {
+    String digitStr = json["digit"].as<const char *>();
+    digitStr.trim();
+    if (digitStr.length() == 1 && digitStr[0] >= '0' && digitStr[0] <= '9') {
+      digit = digitStr[0] - '0';
+    }
+  }
+
+  if (digit < 0 || digit > 9) {
+    sendErrorResponse(request, "Digit must be between 0 and 9", 400, "WEB_INVALID_DIGIT");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Dial digit request - %d"), digit);
+
+  JsonDocument commandData;
+  commandData["digit"] = digit;
+  executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
+}
+
 void HAWebServer::handleAnswerCall(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Answer call request"));
 
@@ -287,13 +330,21 @@ void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json
 
   JsonObject obj = json.as<JsonObject>();
 
+  // force (optional immediate toggle for DND state)
+  if (!obj["force"].isNull()) {
+    if (!obj["force"].is<bool>()) {
+      sendErrorResponse(
+          request, "Invalid 'force' parameter (must be boolean)", 400, "WEB_INVALID_FORCE");
+      return;
+    }
+    hasParam = true;
+  }
+
   // scheduled (optional, primary flag for schedule enablement)
   if (!obj["scheduled"].isNull()) {
     if (!obj["scheduled"].is<bool>()) {
-      sendErrorResponse(request,
-                        "Invalid 'scheduled' parameter (must be boolean)",
-                        400,
-                        "WEB_INVALID_SCHEDULED");
+      sendErrorResponse(
+          request, "Invalid 'scheduled' parameter (must be boolean)", 400, "WEB_INVALID_SCHEDULED");
       return;
     }
     hasParam = true;
@@ -336,11 +387,11 @@ void HAWebServer::handleSetDND(AsyncWebServerRequest *request, JsonVariant &json
   }
 
   if (!hasParam) {
-    sendErrorResponse(
-        request,
-        "At least one DND parameter required (scheduled, startHour, endHour, startMinute, endMinute)",
-        400,
-        "WEB_DND_PARAM_REQUIRED");
+    sendErrorResponse(request,
+                      "At least one DND parameter required (force, scheduled, startHour, endHour, "
+                      "startMinute, endMinute)",
+                      400,
+                      "WEB_DND_PARAM_REQUIRED");
     return;
   }
 
@@ -370,9 +421,33 @@ void HAWebServer::handleRingOperation(AsyncWebServerRequest *request, JsonVarian
     }
   }
 
+  if (json["force"] && !json["force"].is<bool>()) {
+    sendErrorResponse(
+        request, "Invalid 'force' parameter (must be boolean)", 400, "WEB_INVALID_FORCE_FLAG");
+    return;
+  }
+
   Logger::infoln(F("HA API: Ring operation request"));
   executeCommand(request, "ring", json);
 }
+
+  void HAWebServer::handleSetVolumeMode(AsyncWebServerRequest *request, JsonVariant &json) {
+    if (!json.is<JsonObject>()) {
+      sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+      return;
+    }
+
+    if (json["mode"].isNull() && json["modeCode"].isNull()) {
+      sendErrorResponse(request,
+                        "Missing 'mode' string or 'modeCode' integer",
+                        400,
+                        "WEB_INVALID_VOLUME_MODE");
+      return;
+    }
+
+    Logger::infoln(F("HA API: Volume mode request"));
+    executeCommand(request, "volume_mode", json);
+  }
 
 void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Device reset requested"));
@@ -538,7 +613,6 @@ void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVari
     sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
     return;
   }
-
   if (!json["code"]) {
     sendErrorResponse(request, "Missing required parameter: 'code'", 400, "WEB_MISSING_CODE");
     return;
@@ -567,8 +641,8 @@ void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVar
     sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
     return;
   }
-  if (!IntegrationValidation::isValidCode(json["id"].as<String>())) { // reuse same pattern for id
-    sendErrorResponse(request, "Invalid id format", 400, "WEB_INVALID_CODE");
+  if (!IntegrationValidation::isValidWebhookId(json["id"].as<String>())) {
+    sendErrorResponse(request, "Invalid id format", 400, "WEB_INVALID_ID");
     return;
   }
 
@@ -605,10 +679,22 @@ void HAWebServer::handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVar
     sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
     return;
   }
+  if (!json["name"]) {
+    sendErrorResponse(request, "Missing required parameter: 'name'", 400, "WEB_MISSING_NAME");
+    return;
+  }
   if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
     sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
     return;
   }
+
+  String name = json["name"].as<String>();
+  name.trim();
+  if (name.isEmpty()) {
+    sendErrorResponse(request, "name cannot be empty", 400, "WEB_INVALID_NAME");
+    return;
+  }
+  json["name"] = name;
 
   Logger::infoln(F("HA API: Add blocked number request"));
   executeCommand(request, "blocked_add", json);
@@ -679,6 +765,53 @@ void HAWebServer::handleSetRingPattern(AsyncWebServerRequest *request, JsonVaria
 
   Logger::infoln(F("HA API: Set ring pattern request"));
   executeCommand(request, "ring_pattern", json);
+}
+
+void HAWebServer::handleSetDialingConfig(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
+  }
+
+  JsonObject obj = json.as<JsonObject>();
+  JsonVariant defaultCodeVariant = obj["defaultCode"];
+
+  if (defaultCodeVariant.isNull()) {
+    sendErrorResponse(
+        request, "Missing required parameter: 'defaultCode'", 400, "WEB_MISSING_DEFAULT_CODE");
+    return;
+  }
+
+  if (!(defaultCodeVariant.is<const char *>() || defaultCodeVariant.is<String>())) {
+    sendErrorResponse(
+        request, "Invalid defaultCode value (must be a string)", 400, "WEB_INVALID_DEFAULT_CODE");
+    return;
+  }
+
+  String requestedCode = defaultCodeVariant.as<String>();
+  requestedCode.trim();
+  if (requestedCode.isEmpty()) {
+    sendErrorResponse(request,
+                      "Invalid defaultCode value (must contain digits)",
+                      400,
+                      "WEB_INVALID_DEFAULT_CODE");
+    return;
+  }
+
+  String sanitized = PhoneNormalization::sanitizeDefaultDialingCode(requestedCode);
+  if (sanitized.isEmpty()) {
+    sendErrorResponse(request,
+                      "Invalid defaultCode value (must contain digits)",
+                      400,
+                      "WEB_INVALID_DEFAULT_CODE");
+    return;
+  }
+
+  obj["defaultCode"] = sanitized;
+
+  Logger::infoln(F("HA API: Set dialing configuration request (defaultCode=%s)"),
+                 sanitized.c_str());
+  executeCommand(request, "dialing_config", json);
 }
 
 void HAWebServer::handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &json) {

@@ -11,8 +11,8 @@
 #include "HAConfig.h"
 #include "HANumberHandler.h"
 #include "HAWebServer.h"
-#include <functional>
 #include <deque>
+#include <functional>
 
 /**
  * Home Assistant integration implementation
@@ -29,18 +29,27 @@ public:
 
   // State synchronization
   void updatePhoneState(AppState newState, AppState previousState) override;
-  void updateCallInfo(const String &number, bool isIncoming, unsigned long startTime = 0) override;
+  void updateCallInfo(const String &number,
+                      bool isIncoming,
+                      unsigned long startTime = 0,
+                      bool isPriority = false,
+                      const String &name = "") override;
   void updateDialingProgress(const String &currentNumber) override;
   void updateRingState(bool isRinging) override;
   void updateSystemStatus() override;
   void updateDndState(bool isDndActive);
+  void updateVolumeMode(VolumeMode mode) override;
 
   // Device operation callbacks (to be called by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback) override;
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback) override;
-  void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
+  void
+  setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback) override;
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) override;
+  void
+  setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) override;
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) override;
   void setFactoryResetCallback(std::function<void()> callback) override;
 
@@ -56,13 +65,16 @@ public:
 
   // HA-specific command handlers (thin wrappers around business logic)
   HAOperationResult handleDialRequest(const String &number);
+  HAOperationResult handleDialDigitRequest(const JsonVariant &data);
   HAOperationResult handleAnswerRequest();
   HAOperationResult handleHangupRequest();
   HAOperationResult handleSetDND(const JsonVariant &data);
   HAOperationResult handleSetMaintenanceMode(const JsonVariant &data);
   HAOperationResult handleSetAudioConfig(const JsonVariant &data);
   HAOperationResult handleSetRingPattern(const JsonVariant &data);
+  HAOperationResult handleSetDialingConfig(const JsonVariant &data);
   HAOperationResult handleRingOperation(const JsonVariant &data);
+  HAOperationResult handleSetVolumeMode(const JsonVariant &data);
   HAOperationResult handleResetDevice();
   HAOperationResult handleFactoryReset();
   HAOperationResult handleAddQuickDial(const JsonVariant &data);

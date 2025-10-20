@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "../../core/DeviceConfig.h"
 #include "../IntegrationService.h"
 #include <ArduinoJson.h>
@@ -44,3 +46,5 @@ bool buildAudioConfigDelta(IntegrationService &svc,
                            const AudioConfig &prev,
                            const AudioConfig &curr,
                            JsonDocument &outDoc);
+
+#endif // HOME_ASSISTANT_INTEGRATION

@@ -1,13 +1,14 @@
 #pragma once
 
 #include <Arduino.h>
+#include "common/state.h"
 
 class HookSwitch {
 public:
   HookSwitch();
 
   void init() const;
-  void process();
+  void process(State &state);
 
   bool isOffHook() const;
   bool isOnHook() const;

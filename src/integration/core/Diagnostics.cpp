@@ -1,9 +1,9 @@
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "Diagnostics.h"
 #include "../../core/DeviceConfig.h"
 #include "../../integration/core/DeviceStats.h"
 #include "../IntegrationService.h" // For schema version constant
-
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
 
 void populateCoreDiagnostics(JsonObject root, DeviceConfig &config, DeviceStats &stats) {
   root["schemaVersion"] = INTEGRATION_EVENT_SCHEMA_VERSION;
@@ -23,4 +23,4 @@ void populateCoreDiagnostics(JsonObject root, DeviceConfig &config, DeviceStats 
   metrics["system.rssi"] = stats.getRSSI();
 }
 
-#endif
+#endif // HOME_ASSISTANT_INTEGRATION

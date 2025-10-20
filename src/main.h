@@ -21,15 +21,21 @@ public:
   void setup();
   void loop();
 
-  // Integration callbacks (no-op when integration disabled via stub)
+#ifdef HOME_ASSISTANT_INTEGRATION
+  // Integration callbacks (compiled only when integration is enabled)
   IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
+  IntegrationCallbackResult handleIntegrationDialDigitRequest(uint8_t digit);
   IntegrationCallbackResult handleIntegrationAnswerRequest();
   IntegrationCallbackResult handleIntegrationHangupRequest();
-  IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern);
+  IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern,
+                                                         bool bypassDnd = false);
   IntegrationCallbackResult handleIntegrationCallWaitingRequest();
+  IntegrationCallbackResult handleIntegrationVolumeModeRequest(VolumeMode mode);
   void handleIntegrationCallBlocked(const String &number);
   void handleIntegrationMaintenanceModeChanged(const bool enabled);
   void handleIntegrationConfigChanged(ConfigChangeEvent event);
+  void onAudioConfigChanged();
+#endif
 
 private:
   void setState(const AppState newState);
@@ -52,11 +58,11 @@ private:
   void processStateInCall();
   void processStateInvalidNumber();
 
+  bool handleDialedDigitInput(uint8_t digit, bool appendToState, bool fromIntegration);
+
   void stopEverything();
   void performFactoryReset();
 
-  // Configuration change handlers (safe no-op via stub when integration off)
-  void onAudioConfigChanged();
   void onMaintenanceModeChanged(const bool enabled);
 
   DeviceConfig _deviceConfig;

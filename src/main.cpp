@@ -56,20 +56,29 @@ void TsuryPhone::setup() {
   if (!_integrationManager->init()) {
     Logger::errorln(F("Failed to initialize Integration Manager"));
   }
+
+#ifdef HOME_ASSISTANT_INTEGRATION
   _integrationManager->setupTsuryPhoneCallbacks(
       [this](const String &number) -> IntegrationCallbackResult {
         return handleIntegrationDialRequest(number);
       },
+      [this](uint8_t digit) -> IntegrationCallbackResult {
+        return handleIntegrationDialDigitRequest(digit);
+      },
       [this]() -> IntegrationCallbackResult { return handleIntegrationAnswerRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationHangupRequest(); },
-      [this](const String &pattern) -> IntegrationCallbackResult {
-        return handleIntegrationRingRequest(pattern);
+      [this](const String &pattern, bool bypassDnd) -> IntegrationCallbackResult {
+        return handleIntegrationRingRequest(pattern, bypassDnd);
       },
       [this]() -> IntegrationCallbackResult { return handleIntegrationCallWaitingRequest(); },
+      [this](VolumeMode mode) -> IntegrationCallbackResult {
+        return handleIntegrationVolumeModeRequest(mode);
+      },
       [this](const String &number) { handleIntegrationCallBlocked(number); },
       [this](bool enabled) { handleIntegrationMaintenanceModeChanged(enabled); },
       [this]() { performFactoryReset(); },
       [this](ConfigChangeEvent event) { handleIntegrationConfigChanged(event); });
+#endif
   _wifi.setPortalTimeoutCallback([this]() {
     if (_state.isMaintenanceMode) {
       _state.isMaintenanceMode = false;
@@ -103,8 +112,7 @@ void TsuryPhone::loop() {
   _modem.deriveStateFromMessage(_state);
   const uint32_t now = millis();
   _modem.process(_state);
-  _hookSwitch.process();
-  _state.isHookOff = _hookSwitch.isOffHook();
+  _hookSwitch.process(_state);
   _rotaryDial.process(_state);
   if (due(_lastRinger, kRingerIntervalMs, now)) {
     _ringer.process(_state);
@@ -196,6 +204,13 @@ void TsuryPhone::onStateIncomingCall() {
   CallState &callState = _state.callState;
   char *callNumber = callState.callNumber;
 
+  if (callState.isBlocked) {
+    Logger::warnln(F("Dropping blocked incoming call %s"), callNumber);
+    _ringer.stopRinging();
+    _modem.hangUp();
+    return;
+  }
+
   if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
     callState.introducedCaller = true;
 
@@ -225,7 +240,7 @@ void TsuryPhone::onStateIncomingCall() {
       }
     }
     String ringPattern = _deviceConfig.getRingPattern();
-    _ringer.startRinging(ringPattern);
+    _ringer.startRinging(ringPattern, callState.isPriority);
   }
 }
 
@@ -314,76 +329,113 @@ void TsuryPhone::processStateCheckLine() {
 }
 
 void TsuryPhone::processStateIdle() {
+  if (_hookSwitch.justChangedOffHook()) {
+    Logger::infoln(F("Handset lifted - starting dial tone"));
+    stopEverything();
+    _modem.enqueueTone(Tone::DialTone, kDialToneDuration);
+    _state.currentDialingNumber[0] = '\0';
+    return;
+  }
+
   if (_hookSwitch.justChangedOnHook()) {
     stopEverything();
-  } else if (_hookSwitch.justChangedOffHook()) {
-    _modem.enqueueTone(Tone::DialTone, kDialToneDuration);
+    return;
   }
 
-  if (_hookSwitch.isOffHook()) {
-    int dialedDigit = _rotaryDial.getDialedDigit();
-    char *dialedNumber = _state.currentDialingNumber;
+  if (!_hookSwitch.isOffHook()) {
+    return;
+  }
 
-    if (dialedDigit != kInvalidDialedDigit) {
-      _modem.stopTone();
-      Logger::infoln(F("Dialed digit: %d"), dialedDigit);
-      Logger::infoln(F("Dialed number: %s"), dialedNumber);
+  const int dialedDigit = _rotaryDial.getDialedDigit();
+  if (dialedDigit >= 0) {
+    // RotaryDial already appended the digit to the state buffer; avoid double-appending here.
+    handleDialedDigitInput(static_cast<uint8_t>(dialedDigit), false, false);
+  }
+}
 
-      _modem.enqueueMp3(dialedDigitsToMp3s[dialedDigit]);
+bool TsuryPhone::handleDialedDigitInput(uint8_t digit, bool appendToState, bool fromIntegration) {
+  if (digit > 9) {
+    return false;
+  }
 
-      bool handledAsAction = false;
-      if (_integrationManager) {
-        String dialedString(dialedNumber);
-        if (_integrationManager->isActionCode(dialedString)) {
-          String actionId = _integrationManager->resolveActionId(dialedString);
-          if (actionId.length() > 0) {
-            Logger::infoln(F("Action trigger %s"), actionId.c_str());
-            _integrationManager->triggerAction(actionId);
-            handledAsAction = true;
-          }
-        }
+  if (appendToState) {
+    size_t len = strlen(_state.currentDialingNumber);
+    if (len >= sizeof(_state.currentDialingNumber) - 1) {
+      Logger::warnln(F("Dial buffer full, cannot append digit %u"), static_cast<unsigned>(digit));
+      return false;
+    }
+    _state.currentDialingNumber[len] = static_cast<char>('0' + digit);
+    _state.currentDialingNumber[len + 1] = '\0';
+  }
+
+  _modem.stopTone();
+
+  Logger::infoln(F("%s dialed digit: %u"),
+                 fromIntegration ? "Integration" : "Rotary",
+                 static_cast<unsigned>(digit));
+  Logger::infoln(F("Dialed number: %s"), _state.currentDialingNumber);
+
+  _modem.enqueueMp3(dialedDigitsToMp3s[digit]);
+
+  const String dialedString(_state.currentDialingNumber);
+  bool handledAsAction = false;
+  bool integrationPartialMatch = false;
+  if (_integrationManager) {
+    if (_integrationManager->isActionCode(dialedString)) {
+      const String actionId = _integrationManager->resolveActionId(dialedString);
+      if (!actionId.isEmpty()) {
+        Logger::infoln(F("Action trigger %s"), actionId.c_str());
+        _integrationManager->triggerAction(actionId);
+        handledAsAction = true;
+        _state.currentDialingNumber[0] = '\0';
       }
-
-      if (!handledAsAction) {
-        const NumberValidationResult numberValidation = _numberHandler.validateNumber(dialedNumber);
-
-        if (numberValidation.isComplete) {
-          switch (numberValidation.action) {
-          case NumberAction::SystemAction:
-            if (strEqual(dialedNumber, kResetNumber)) {
-              _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
-              ESP.restart();
-            } else if (strEqual(dialedNumber, kFactoryResetNumber)) {
-              _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kResetToneDuration);
-              performFactoryReset();
-            } else if (strEqual(dialedNumber, kWifiWebPortalNumber)) {
-              _state.isMaintenanceMode = !_state.isMaintenanceMode;
-              onMaintenanceModeChanged(_state.isMaintenanceMode);
-            }
-            break;
-
-          case NumberAction::QuickDial:
-          case NumberAction::DirectDial:
-            _modem.enqueueCall(numberValidation.targetNumber.c_str());
-            break;
-
-          case NumberAction::Invalid:
-            _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
-            setState(AppState::InvalidNumber);
-            break;
-
-          default:
-            break;
-          }
-
-          _state.currentDialingNumber[0] = '\0';
-        } else if (numberValidation.action == NumberAction::Pending) {
-          // TODO: Optional early invalid: if neither local validator nor integration has any
-          // remaining partial match for this prefix, we could give feedback or auto-reset.
-        }
-      }
+    } else if (_integrationManager->hasPartialActionMatch(dialedString)) {
+      integrationPartialMatch = true;
     }
   }
+
+  if (handledAsAction || integrationPartialMatch) {
+    return true;
+  }
+
+  const NumberValidationResult numberValidation =
+      _numberHandler.validateNumber(_state.currentDialingNumber);
+
+  if (numberValidation.isComplete) {
+    switch (numberValidation.action) {
+    case NumberAction::SystemAction:
+      if (strEqual(_state.currentDialingNumber, kResetNumber)) {
+        _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+        ESP.restart();
+      } else if (strEqual(_state.currentDialingNumber, kFactoryResetNumber)) {
+        _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kResetToneDuration);
+        performFactoryReset();
+      } else if (strEqual(_state.currentDialingNumber, kWifiWebPortalNumber)) {
+        _state.isMaintenanceMode = !_state.isMaintenanceMode;
+        onMaintenanceModeChanged(_state.isMaintenanceMode);
+      }
+      break;
+
+    case NumberAction::QuickDial:
+    case NumberAction::DirectDial:
+      _modem.enqueueCall(numberValidation.targetNumber.c_str());
+      break;
+
+    case NumberAction::Invalid:
+      _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+      setState(AppState::InvalidNumber);
+      break;
+
+    default:
+      break;
+    }
+
+    _state.currentDialingNumber[0] = '\0';
+  } else if (numberValidation.action == NumberAction::Pending) {
+    // Waiting for more digits; keep current buffer.
+  }
+
+  return true;
 }
 
 void TsuryPhone::processStateIncomingCall() {
@@ -401,6 +453,10 @@ void TsuryPhone::processStateDialing() {
 void TsuryPhone::processStateInCall() {
   if (_hookSwitch.justChangedOnHook()) {
     _modem.hangUp();
+  }
+
+  if (_state.callState.callWaitingIsBlocked && _state.callState.callWaitingId != -1) {
+    _modem.rejectCallWaiting(_state.callState);
   }
 
   const int dialedDigit = _rotaryDial.getDialedDigit();

@@ -153,8 +153,14 @@ bool HAConfig::isCodeConflict(const String &code) const {
     return true;
   }
 
-  // Check for conflicts with existing webhook actions
-  return hasWebhookAction(code);
+  // Check for conflicts with existing webhook actions (exact or prefix overlaps)
+  for (const auto &entry : _webhookActions) {
+    if (entry.code == code || entry.code.startsWith(code) || code.startsWith(entry.code)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void HAConfig::setHomeAssistantUrl(const String &url) {

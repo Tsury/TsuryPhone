@@ -15,27 +15,40 @@ enum class AppState {
   Dialing,
 };
 
+enum class VolumeMode {
+  Earpiece,
+  Speaker,
+};
+
 struct CallState {
   int callId;
   int callWaitingId;
-  bool isCallWaitingOnHold = false;
+  bool callWaitingIsOnHold = false;
   bool introducedCaller = false;
   bool playedCallWaitingTone = false;
   bool rangAtLeastOnce = false;
   bool otherPartyDropped = false;
   bool isPriority = false;
+  bool isBlocked = false;
+  bool callWaitingIsPriority = false;
+  bool callWaitingIsBlocked = false;
   char callNumber[kSmallBufferSize];
+  char callWaitingNumber[kSmallBufferSize];
 
   CallState()
       : callId(-1),
         callWaitingId(-1),
-        isCallWaitingOnHold(false),
+        callWaitingIsOnHold(false),
         introducedCaller(false),
         playedCallWaitingTone(false),
         rangAtLeastOnce(false),
         otherPartyDropped(false),
-        isPriority(false) {
+        isPriority(false),
+        isBlocked(false),
+        callWaitingIsPriority(false),
+        callWaitingIsBlocked(false) {
     callNumber[0] = '\0';
+    callWaitingNumber[0] = '\0';
   }
 
   void setcallNumber(const char *number) {
@@ -58,6 +71,7 @@ struct State {
   bool isMaintenanceMode;
   bool isHookOff;
   char currentDialingNumber[kSmallBufferSize]; // Current number being dialed
+  VolumeMode volumeMode;
 
   State()
       : newAppState(AppState::Startup),
@@ -66,10 +80,12 @@ struct State {
         messageHandled(false),
         isDnd(false),
         isMaintenanceMode(false),
-        isHookOff(false) {
+        isHookOff(false),
+        volumeMode(VolumeMode::Earpiece) {
     lastModemMessage[0] = '\0';
     currentDialingNumber[0] = '\0';
   }
 };
 
 const __FlashStringHelper *appStateToString(const AppState state);
+const __FlashStringHelper *volumeModeToString(const VolumeMode mode);

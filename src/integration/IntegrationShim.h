@@ -13,7 +13,18 @@ struct IntegrationCallbackResult {
   IntegrationCallbackResult(bool ok = true, const String &err = "") : success(ok), error(err) {}
 };
 
-enum class ConfigChangeEvent { NONE, DND_CONFIG_CHANGED, AUDIO_CONFIG_CHANGED };
+enum class VolumeMode;
+
+enum class ConfigChangeEvent {
+  NONE,
+  DND_CONFIG_CHANGED,
+  AUDIO_CONFIG_CHANGED,
+  QUICK_DIAL_CHANGED,
+  BLOCKED_NUMBER_CHANGED,
+  RING_PATTERN_CHANGED,
+  DEFAULT_DIALING_CODE_CHANGED,
+  INTEGRATION_EXTENSION_CHANGED
+};
 
 class IntegrationManager {
 public:
@@ -23,14 +34,19 @@ public:
   }
   void process() {}
   void setupTsuryPhoneCallbacks(std::function<IntegrationCallbackResult(const String &)>,
+                                std::function<IntegrationCallbackResult(uint8_t)>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
-                                std::function<IntegrationCallbackResult(const String &)>,
+                                std::function<IntegrationCallbackResult(const String &, bool)>,
                                 std::function<IntegrationCallbackResult()>,
+                                std::function<IntegrationCallbackResult(VolumeMode)>,
                                 std::function<void(const String &)>,
-                                std::function<void(bool)> ,
-                                std::function<void()> ,
+                                std::function<void(bool)>,
+                                std::function<void()>,
                                 std::function<void(ConfigChangeEvent)>) {}
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)>) {}
+  void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)>) {}
+  void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)>) {}
   void enqueueDebugChar(char) {}
   void onFactoryResetInitiated() {}
   void onFactoryResetBeforeRestart() {}

@@ -1,8 +1,9 @@
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 
 #include "IntegrationManager.h"
 #include "../common/logger.h"
 #include "IntegrationLog.h"
+#include "IntegrationLookup.h"
 #include <map>
 
 #include "IntegrationService.h"
@@ -12,24 +13,20 @@ class TsuryPhone;
 struct IntegrationCallbackResult;
 
 // Include available integrations
-#ifdef HOME_ASSISTANT_INTEGRATION
 #include "ha/HAIntegration.h"
-#endif
-#ifdef MOCK_INTEGRATION
-#include "mock/MockIntegration.h"
-#endif
 
 IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &config, State &state)
     : _tsuryPhone(tsuryPhone),
       _config(config),
       _stats(),
       _state(state),
-      _statsManager(_stats, state),
+      _statsManager(_stats, state, _config),
       _prevDndState(false),
       _prevMaintenanceMode(false),
       _prevHookOff(false),
       _prevAppState(AppState::Startup),
-      _prevRingingState(false) {
+      _prevRingingState(false),
+      _prevVolumeMode(VolumeMode::Earpiece) {
   _config.setConfigChangeCallback([this](ConfigChangeType changeType) {
     ConfigChangeEvent event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
     bool notify = true;
@@ -55,6 +52,9 @@ IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &con
       break;
     case ConfigChangeType::DeviceName:
       event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
+      break;
+    case ConfigChangeType::DefaultDialingCode:
+      event = ConfigChangeEvent::DEFAULT_DIALING_CODE_CHANGED;
       break;
     default:
       notify = false;
@@ -157,13 +157,21 @@ void IntegrationManager::updatePhoneState(AppState newState, AppState previousSt
 
 void IntegrationManager::updateCallInfo(const String &number,
                                         bool isIncoming,
-                                        unsigned long startTime) {
+                                        unsigned long startTime,
+                                        bool isPriority,
+                                        const String &name) {
+  // Resolve caller name when not provided
+  String resolvedName = name;
+  if (resolvedName.isEmpty()) {
+    resolvedName = IntegrationLookup::lookupCallerName(_config, number);
+  }
+
   // Notify StatsManager of call info change
-  _statsManager.onCallInfoChanged(number, isIncoming);
+  _statsManager.onCallInfoChanged(number, isIncoming, isPriority, resolvedName);
 
   // Notify all integrations
   for (auto &integration : _integrations) {
-    integration->updateCallInfo(number, isIncoming, startTime);
+    integration->updateCallInfo(number, isIncoming, startTime, isPriority, resolvedName);
   }
 }
 
@@ -191,6 +199,12 @@ void IntegrationManager::updateDndState(bool isDndActive) {
   }
 }
 
+void IntegrationManager::updateVolumeMode(VolumeMode mode) {
+  for (auto &integration : _integrations) {
+    integration->updateVolumeMode(mode);
+  }
+}
+
 void IntegrationManager::onFactoryResetInitiated() {
   emitStructuredJsonLog("factory_reset", "initiated");
 }
@@ -207,6 +221,13 @@ void IntegrationManager::setDialCallback(
   }
 }
 
+void IntegrationManager::setDialDigitCallback(
+    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+  for (auto &integration : _integrations) {
+    integration->setDialDigitCallback(callback);
+  }
+}
+
 void IntegrationManager::setAnswerCallback(std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setAnswerCallback(callback);
@@ -220,7 +241,7 @@ void IntegrationManager::setHangupCallback(std::function<IntegrationCallbackResu
 }
 
 void IntegrationManager::setRingCallback(
-    std::function<IntegrationCallbackResult(const String &)> callback) {
+    std::function<IntegrationCallbackResult(const String &, bool)> callback) {
   for (auto &integration : _integrations) {
     integration->setRingCallback(callback);
   }
@@ -230,6 +251,13 @@ void IntegrationManager::setCallWaitingCallback(
     std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
     integration->setCallWaitingCallback(callback);
+  }
+}
+
+void IntegrationManager::setVolumeModeCallback(
+    std::function<IntegrationCallbackResult(VolumeMode)> callback) {
+  for (auto &integration : _integrations) {
+    integration->setVolumeModeCallback(callback);
   }
 }
 
@@ -313,17 +341,7 @@ void IntegrationManager::registerIntegrations() {
   INT_LOG_INFO("CORE", "Registered Home Assistant integration");
 #endif
 
-#ifdef MOCK_INTEGRATION
-  std::unique_ptr<MockIntegration> mockInt(new MockIntegration());
-  _integrations.push_back(std::move(mockInt));
-  INT_LOG_INFO("CORE", "Registered Mock integration");
-#endif
-
   // Future integrations can be added here:
-  // #ifdef ANDROID_INTEGRATION
-  // _integrations.push_back(std::unique_ptr<IIntegration>(new AndroidIntegration(_config,
-  // _stats))); Logger::infoln(F("Registered Android integration")); #endif
-
   // #ifdef MQTT_INTEGRATION
   // _integrations.push_back(std::unique_ptr<IIntegration>(new MqttIntegration(_config, _stats)));
   // Logger::infoln(F("Registered MQTT integration"));
@@ -441,12 +459,13 @@ void IntegrationManager::checkForStateChanges() {
     bool isIncoming = (_state.newAppState == AppState::IncomingCall ||
                        _state.newAppState == AppState::IncomingCallRing);
 
-    // Classify number (blocked / priority) once here; no hidden side-effects.
-    auto cls = _config.classifyNumber(_prevCallNumber);
-    // Set priority flag (non-blocking paths). Blocked takes precedence if both somehow true.
-    _state.callState.isPriority = (!cls.isBlocked && cls.isPriority);
+    const bool isBlocked = _state.callState.isBlocked;
+    const bool isPriority = _state.callState.isPriority;
+  String callerName = IntegrationLookup::lookupCallerName(_config, _prevCallNumber);
 
-    if (isIncoming && cls.isBlocked) {
+    if (isIncoming && isBlocked) {
+      // Modem has already enforced the block (hang-up or rejection). Integrations are notified
+      // purely for telemetry so this callback must remain side-effect free.
       handleCallBlocked(_prevCallNumber);
       IntegrationService::shared(_config, _stats, _state).setCurrentCallDirection(true);
       if (_callBlockedCallback) {
@@ -454,12 +473,13 @@ void IntegrationManager::checkForStateChanges() {
       }
     } else {
       // Notify StatsManager and integrations
-      _statsManager.onCallInfoChanged(_prevCallNumber, isIncoming);
-      updateCallInfo(_prevCallNumber, isIncoming);
+      auto &svc = IntegrationService::shared(_config, _stats, _state);
+      svc.setCurrentCallDirection(isIncoming);
+      _statsManager.onCallInfoChanged(_prevCallNumber, isIncoming, isPriority, callerName);
+      updateCallInfo(_prevCallNumber, isIncoming, 0, isPriority, callerName);
 
       // If we just got call info during an active call, report call start
       if (_callWasActive && _callStartTime > 0) {
-        auto &svc = IntegrationService::shared(_config, _stats, _state);
         svc.setCurrentCallDirection(isIncoming);
         handleCallStarted(_prevCallNumber, isIncoming);
       }
@@ -482,6 +502,14 @@ void IntegrationManager::checkForStateChanges() {
   if (_state.isDnd != _prevDndState) {
     _prevDndState = _state.isDnd;
     updateDndState(_state.isDnd);
+  }
+
+  if (_state.volumeMode != _prevVolumeMode) {
+    _prevVolumeMode = _state.volumeMode;
+    INT_LOG_INFO("CORE",
+                 "Volume mode changed: %s",
+                 _state.volumeMode == VolumeMode::Speaker ? "speaker" : "earpiece");
+    updateVolumeMode(_state.volumeMode);
   }
 
   if (_state.isHookOff != _prevHookOff) {
@@ -507,6 +535,37 @@ void IntegrationManager::checkForStateChanges() {
     updateRingState(currentRingingState);
   }
 
+  bool callWaitingAvailable = _state.callState.hasCallWaiting();
+  int callWaitingId = _state.callState.callWaitingId;
+  bool callWaitingOnHold = _state.callState.callWaitingIsOnHold;
+  if (callWaitingAvailable != _prevCallWaitingAvailable || callWaitingId != _prevCallWaitingId ||
+      callWaitingOnHold != _prevCallWaitingOnHold) {
+    _prevCallWaitingAvailable = callWaitingAvailable;
+    _prevCallWaitingId = callWaitingId;
+    _prevCallWaitingOnHold = callWaitingOnHold;
+
+    INT_LOG_INFO("CORE",
+                 "Call waiting context changed id=%d available=%s on_hold=%s",
+                 callWaitingId,
+                 callWaitingAvailable ? "true" : "false",
+                 callWaitingOnHold ? "true" : "false");
+
+    // Broadcast updated phone state so integrations receive call waiting flags immediately.
+    updatePhoneState(_state.newAppState, _prevAppState);
+
+    // Provide a refreshed call info snapshot when we have an active number so listeners
+    // can correlate the waiting context without waiting for the next natural update.
+    if (_state.callState.callNumber[0] != '\0') {
+      auto &svc = IntegrationService::shared(_config, _stats, _state);
+      String activeNumber = String(_state.callState.callNumber);
+      bool isIncoming = svc.getCurrentCallIsIncoming();
+      unsigned long startTs = svc.getCurrentCallStartTs();
+      bool isPriority = _state.callState.isPriority;
+  String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
+      updateCallInfo(activeNumber, isIncoming, startTs, isPriority, callerName);
+    }
+  }
+
   // Could add more state change checks here if needed
   // For example, if we wanted to track other state changes automatically
 }
@@ -515,7 +574,9 @@ void IntegrationManager::handleCallBlocked(const String &number) {
   INT_LOG_WARN("CORE", "Blocked call from %s", number.c_str());
 
   // Notify StatsManager and integrations
-  _statsManager.onCallBlocked(number);
+  bool isPriority = _state.callState.isPriority;
+  String callerName = IntegrationLookup::lookupCallerName(_config, number);
+  _statsManager.onCallBlocked(number, isPriority, callerName);
   reportBlockedCall(number);
 }
 
@@ -673,15 +734,16 @@ void IntegrationManager::addConfigChangeCallback(ConfigChangeCallback callback) 
 }
 
 void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
-  const char *name = (event == ConfigChangeEvent::DND_CONFIG_CHANGED)     ? "DND_CONFIG_CHANGED"
-                     : (event == ConfigChangeEvent::AUDIO_CONFIG_CHANGED) ? "AUDIO_CONFIG_CHANGED"
-                     : (event == ConfigChangeEvent::QUICK_DIAL_CHANGED)   ? "QUICK_DIAL_CHANGED"
-                     : (event == ConfigChangeEvent::BLOCKED_NUMBER_CHANGED)
-                         ? "BLOCKED_NUMBER_CHANGED"
-                     : (event == ConfigChangeEvent::RING_PATTERN_CHANGED) ? "RING_PATTERN_CHANGED"
-                     : (event == ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED)
-                         ? "INTEGRATION_EXTENSION_CHANGED"
-                         : "UNKNOWN_CONFIG_EVENT";
+  const char *name =
+      (event == ConfigChangeEvent::DND_CONFIG_CHANGED)             ? "DND_CONFIG_CHANGED"
+      : (event == ConfigChangeEvent::AUDIO_CONFIG_CHANGED)         ? "AUDIO_CONFIG_CHANGED"
+      : (event == ConfigChangeEvent::QUICK_DIAL_CHANGED)           ? "QUICK_DIAL_CHANGED"
+      : (event == ConfigChangeEvent::BLOCKED_NUMBER_CHANGED)       ? "BLOCKED_NUMBER_CHANGED"
+      : (event == ConfigChangeEvent::RING_PATTERN_CHANGED)         ? "RING_PATTERN_CHANGED"
+      : (event == ConfigChangeEvent::DEFAULT_DIALING_CODE_CHANGED) ? "DEFAULT_DIALING_CODE_CHANGED"
+      : (event == ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED)
+          ? "INTEGRATION_EXTENSION_CHANGED"
+          : "UNKNOWN_CONFIG_EVENT";
 
   INT_LOG_DEBUG("CORE",
                 "Config change %s (%d callbacks)",
@@ -696,23 +758,27 @@ void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
 
 void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult(const String &)> dialCallback,
+    std::function<IntegrationCallbackResult(uint8_t)> dialDigitCallback,
     std::function<IntegrationCallbackResult()> answerCallback,
     std::function<IntegrationCallbackResult()> hangupCallback,
-    std::function<IntegrationCallbackResult(const String &)> ringCallback,
+    std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
     std::function<IntegrationCallbackResult()> callWaitingCallback,
+    std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
     std::function<void(const String &)> callBlockedCallback,
     std::function<void(bool)> maintenanceModeCallback,
-  std::function<void()> factoryResetCallback,
+    std::function<void()> factoryResetCallback,
     std::function<void(ConfigChangeEvent)> configChangeCallback) {
 
   INT_LOG_INFO("CORE", "Setting up callbacks");
 
   // Set up device operation callbacks for all integrations
   setDialCallback(dialCallback);
+  setDialDigitCallback(dialDigitCallback);
   setAnswerCallback(answerCallback);
   setHangupCallback(hangupCallback);
   setRingCallback(ringCallback);
   setCallWaitingCallback(callWaitingCallback);
+  setVolumeModeCallback(volumeModeCallback);
   setCallBlockedCallback(callBlockedCallback);
   setMaintenanceModeChangedCallback(maintenanceModeCallback);
   setFactoryResetCallback(factoryResetCallback);
@@ -721,4 +787,4 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
 
 // Webhook-specific helper methods removed (replaced by future generic action handler registry)
 
-#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION
+#endif // HOME_ASSISTANT_INTEGRATION

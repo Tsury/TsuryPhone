@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+
 #include "../common/logger.h"
 #include <Arduino.h>
 
@@ -37,3 +39,5 @@ inline void setIntegrationDebugLogging(bool enabled) {
 #define INTL_WARN(fmt, ...) INT_LOG_WARN(getTag(), fmt, ##__VA_ARGS__)
 #define INTL_ERROR(fmt, ...) INT_LOG_ERROR(getTag(), fmt, ##__VA_ARGS__)
 #define INTL_DEBUG(fmt, ...) INT_LOG_DEBUG(getTag(), fmt, ##__VA_ARGS__)
+
+#endif // HOME_ASSISTANT_INTEGRATION

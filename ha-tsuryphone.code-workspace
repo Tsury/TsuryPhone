@@ -5,18 +5,6 @@
       "path": "../ha-tsuryphone-new-cc"
     },
     {
-      "name": "ha-tsuryphone-frontend",
-      "path": "../ha-tsuryphone-frontend"
-    },
-    {
-      "name": "ha-tsuryphone-new",
-      "path": "../ha-tsuryphone-new"
-    },
-    {
-      "name": "ha-tsuryphone",
-      "path": "../ha-tsuryphone"
-    },
-    {
       "name": "TsuryPhone",
       "path": "."
     }

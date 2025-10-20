@@ -1,11 +1,6 @@
 #pragma once
 
-#if !defined(HOME_ASSISTANT_INTEGRATION) && !defined(ANDROID_INTEGRATION)
-#error                                                                                             \
-    "IIntegration included but no integration macro defined. Define HOME_ASSISTANT_INTEGRATION or ANDROID_INTEGRATION."
-#endif
-
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 #include "../common/state.h"
 #include "../core/DeviceConfig.h"
 #include "core/DeviceStats.h"
@@ -40,23 +35,34 @@ public:
 
   // State synchronization
   virtual void updatePhoneState(AppState newState, AppState previousState) = 0;
-  virtual void
-  updateCallInfo(const String &number, bool isIncoming, unsigned long startTime = 0) = 0;
+  virtual void updateCallInfo(const String &number,
+                              bool isIncoming,
+                              unsigned long startTime = 0,
+                              bool isPriority = false,
+                              const String &name = "") = 0;
   virtual void updateDialingProgress(const String &currentNumber) = 0;
   virtual void updateRingState(bool isRinging) = 0;
   virtual void updateSystemStatus() = 0;
   virtual void updateDndState(bool isDndActive) = 0;
+  virtual void updateVolumeMode(VolumeMode mode) {
+    (void)mode;
+  }
 
   // Device operation callbacks
   virtual void
   setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
+  virtual void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback) = 0;
   virtual void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setHangupCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void
-  setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
+  setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback) = 0;
   virtual void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) = 0;
+  virtual void
+  setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) {
+    (void)callback;
+  }
   virtual void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) = 0;
-    virtual void setFactoryResetCallback(std::function<void()> callback) = 0;
+  virtual void setFactoryResetCallback(std::function<void()> callback) = 0;
 
   // Statistics and monitoring
   virtual void reportCallStart(const String &number, bool isIncoming) = 0;

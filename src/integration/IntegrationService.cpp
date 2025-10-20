@@ -1,9 +1,16 @@
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 
 #include "IntegrationService.h"
 #include "../common/logger.h"
+#include "../common/phoneNormalization.h"
 #include "IntegrationLog.h"
+#include "IntegrationLookup.h"
 #include <algorithm>
+
+namespace {
+  constexpr const char *kDirectionIncoming = "incoming";
+  constexpr const char *kDirectionOutgoing = "outgoing";
+}
 
 IntegrationService::IntegrationService(DeviceConfig &config, DeviceStats &stats, State &state)
     : _config(config), _stats(stats), _state(state) {}
@@ -34,13 +41,23 @@ void IntegrationService::setHangupCallback(std::function<IntegrationCallbackResu
 }
 
 void IntegrationService::setRingCallback(
-    std::function<IntegrationCallbackResult(const String &)> callback) {
+    std::function<IntegrationCallbackResult(const String &, bool)> callback) {
   _ringCallback = callback;
+}
+
+void IntegrationService::setDialDigitCallback(
+    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+  _dialDigitCallback = callback;
 }
 
 void IntegrationService::setCallWaitingCallback(
     std::function<IntegrationCallbackResult()> callback) {
   _callWaitingCallback = callback;
+}
+
+void IntegrationService::setVolumeModeCallback(
+    std::function<IntegrationCallbackResult(VolumeMode)> callback) {
+  _volumeModeCallback = callback;
 }
 
 void IntegrationService::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
@@ -65,6 +82,29 @@ IntegrationCallbackResult IntegrationService::handleDialRequest(const String &nu
     INT_LOG_INFO("CORE", "Dial success %s", number.c_str());
   } else {
     INT_LOG_ERROR("CORE", "Dial failed %s : %s", number.c_str(), result.errorMessage.c_str());
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit) {
+  if (digit > 9) {
+    return IntegrationCallbackResult(false, "Digit must be between 0 and 9", "WEB_INVALID_DIGIT");
+  }
+
+  if (!_dialDigitCallback) {
+    return IntegrationCallbackResult(
+        false, "Dial digit callback not available", "WEB_SERVICE_UNAVAILABLE");
+  }
+
+  IntegrationCallbackResult result = _dialDigitCallback(digit);
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Dial digit success %u", static_cast<unsigned>(digit));
+  } else {
+    INT_LOG_ERROR("CORE",
+                  "Dial digit %u failed: %s",
+                  static_cast<unsigned>(digit),
+                  result.errorMessage.c_str());
   }
 
   return result;
@@ -143,18 +183,41 @@ IntegrationCallbackResult IntegrationService::handleToggleCallWaiting() {
   return result;
 }
 
-IntegrationCallbackResult IntegrationService::handleRingOperation(const String &pattern) {
-  INT_LOG_INFO("CORE", "Ring operation pattern %s", pattern.c_str());
+IntegrationCallbackResult IntegrationService::handleSetVolumeMode(VolumeMode mode) {
+  INT_LOG_INFO(
+      "CORE", "Volume mode request %s", mode == VolumeMode::Speaker ? "speaker" : "earpiece");
+
+  if (!_volumeModeCallback) {
+    return IntegrationCallbackResult(
+        false, "Volume mode callback not available", "WEB_SERVICE_UNAVAILABLE");
+  }
+
+  IntegrationCallbackResult result = _volumeModeCallback(mode);
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Volume mode set success");
+  } else {
+    INT_LOG_ERROR("CORE", "Volume mode set failed %s", result.errorMessage.c_str());
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleRingOperation(const String &pattern,
+                                                                  bool force) {
+  INT_LOG_INFO(
+      "CORE", "Ring operation pattern %s (force=%s)", pattern.c_str(), force ? "true" : "false");
 
   if (!_ringCallback) {
     return IntegrationCallbackResult(false, "Ring callback not available");
   }
 
-  IntegrationCallbackResult result = _ringCallback(pattern);
+  IntegrationCallbackResult result = _ringCallback(pattern, force);
   if (result.success) {
-    INT_LOG_INFO("CORE", "Ring success pattern %s", pattern.c_str());
+    INT_LOG_INFO(
+        "CORE", "Ring success pattern %s (force=%s)", pattern.c_str(), force ? "true" : "false");
   } else {
-    INT_LOG_ERROR("CORE", "Ring failed %s", result.errorMessage.c_str());
+    INT_LOG_ERROR(
+        "CORE", "Ring failed %s (force=%s)", result.errorMessage.c_str(), force ? "true" : "false");
   }
 
   return result;
@@ -294,11 +357,12 @@ IntegrationCallbackResult IntegrationService::handleSetAudioConfig(const JsonVar
 
 IntegrationCallbackResult IntegrationService::handleSetRingPattern(const String &pattern) {
   if (pattern.isEmpty()) {
-    return IntegrationCallbackResult(false, "Ring pattern cannot be empty");
+    _config.setRingPattern("");
+    INT_LOG_INFO("CORE", "Ring pattern cleared to device default");
+  } else {
+    _config.setRingPattern(pattern);
+    INT_LOG_INFO("CORE", "Ring pattern %s", pattern.c_str());
   }
-
-  _config.setRingPattern(pattern);
-  INT_LOG_INFO("CORE", "Ring pattern %s", pattern.c_str());
 
   // Publish config change event
   // Config change event emitted externally (C2)
@@ -309,6 +373,49 @@ IntegrationCallbackResult IntegrationService::handleSetRingPattern(const String 
   JsonObject config = data["config"].to<JsonObject>();
   JsonObject ring = config["ring"].to<JsonObject>();
   ring["pattern"] = pattern;
+
+  return IntegrationCallbackResult(true, resultData);
+}
+
+IntegrationCallbackResult IntegrationService::handleSetDialingConfig(const JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    return IntegrationCallbackResult(false, "Invalid JSON payload");
+  }
+
+  JsonObject obj = json.as<JsonObject>();
+  JsonVariant defaultCodeVariant = obj["defaultCode"];
+  if (defaultCodeVariant.isNull()) {
+    return IntegrationCallbackResult(false, "Missing required field: defaultCode");
+  }
+
+  String requestedCode;
+  if (defaultCodeVariant.is<const char *>()) {
+    requestedCode = defaultCodeVariant.as<const char *>();
+  } else if (defaultCodeVariant.is<String>()) {
+    requestedCode = defaultCodeVariant.as<String>();
+  } else {
+    return IntegrationCallbackResult(false, "defaultCode must be a string");
+  }
+
+  requestedCode.trim();
+  if (requestedCode.isEmpty()) {
+    return IntegrationCallbackResult(false, "defaultCode cannot be empty");
+  }
+
+  const String previousCode = _config.getDefaultDialingCode();
+  _config.setDefaultDialingCode(requestedCode);
+  const String effectiveCode = _config.getDefaultDialingCode();
+
+  JsonDocument resultData;
+  JsonObject data = resultData.to<JsonObject>();
+  JsonObject dialing = data["dialing"].to<JsonObject>();
+  dialing["defaultCode"] = effectiveCode;
+  if (!effectiveCode.isEmpty()) {
+    dialing["defaultPrefix"] = String("+") + effectiveCode;
+  } else {
+    dialing["defaultPrefix"] = "";
+  }
+  dialing["previousCode"] = previousCode;
 
   return IntegrationCallbackResult(true, resultData);
 }
@@ -335,6 +442,21 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
     entry["code"] = code;
     entry["number"] = number;
     entry["name"] = name;
+    String trimmedNumberStr = number;
+    trimmedNumberStr.trim();
+    const String normalizedCandidate = _config.normalizeNumber(trimmedNumberStr);
+    const auto &entries = _config.getQuickDialEntries();
+    auto it = std::find_if(
+        entries.begin(), entries.end(), [&](const QuickDialEntry &qd) { return qd.code == code; });
+    if (it != entries.end()) {
+      entry["number"] = it->effectiveNumber();
+      if (it->hasNormalized()) {
+        entry["normalizedNumber"] = it->normalizedNumber;
+      }
+    } else if (!normalizedCandidate.isEmpty()) {
+      entry["number"] = normalizedCandidate;
+      entry["normalizedNumber"] = normalizedCandidate;
+    }
 
     return IntegrationCallbackResult(true, resultData);
   } else {
@@ -358,7 +480,7 @@ IntegrationCallbackResult IntegrationService::handleRemoveQuickDial(const String
 }
 
 IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const String &number,
-                                                                     const String &reason) {
+                                                                     const String &name) {
   if (number.isEmpty()) {
     return IntegrationCallbackResult(false, "Number cannot be empty");
   }
@@ -369,7 +491,7 @@ IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const Strin
     return IntegrationCallbackResult(false, "Number is a priority caller");
   }
 
-  if (_config.addBlockedNumber(number, reason)) {
+  if (_config.addBlockedNumber(number, name)) {
     // Publish config change event
     // Config change event emitted externally (C2)
 
@@ -378,7 +500,25 @@ IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const Strin
     JsonObject data = resultData.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
     entry["number"] = number;
-    entry["reason"] = reason;
+    entry["name"] = name;
+    String trimmedNumberStr = number;
+    trimmedNumberStr.trim();
+    const String normalizedCandidate = _config.normalizeNumber(trimmedNumberStr);
+    if (!normalizedCandidate.isEmpty()) {
+      const auto &blockedEntries = _config.getBlockedNumbers();
+      auto it = std::find_if(blockedEntries.begin(),
+                             blockedEntries.end(),
+                             [&](const BlockedNumberEntry &blockedEntry) {
+                               return blockedEntry.matchesNormalized(normalizedCandidate);
+                             });
+      if (it != blockedEntries.end() && it->hasNormalized()) {
+        entry["number"] = it->effectiveNumber();
+        entry["normalizedNumber"] = it->normalizedNumber;
+      } else {
+        entry["number"] = normalizedCandidate;
+        entry["normalizedNumber"] = normalizedCandidate;
+      }
+    }
 
     return IntegrationCallbackResult(true, resultData);
   } else {
@@ -417,9 +557,14 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
     return IntegrationCallbackResult(false, "Failed to add priority caller (already exists?)");
   }
 
+  String trimmedNumberStr = number;
+  trimmedNumberStr.trim();
+  const String normalizedCandidate = _config.normalizeNumber(trimmedNumberStr);
+  const String &logNumber = normalizedCandidate.isEmpty() ? number : normalizedCandidate;
+
   INT_LOG_INFO("CORE",
                "Priority caller added %s total=%u",
-               number.c_str(),
+               logNumber.c_str(),
                (unsigned)_config.getPriorityCallers().size());
 
   // Create response data
@@ -428,6 +573,21 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
   JsonObject entry = data["entry"].to<JsonObject>();
   entry["number"] = number;
   entry["priority"] = true;
+  if (!normalizedCandidate.isEmpty()) {
+    const auto &priorityEntries = _config.getPriorityCallers();
+    auto it = std::find_if(priorityEntries.begin(),
+                           priorityEntries.end(),
+                           [&](const PriorityCallerEntry &priorityEntry) {
+                             return priorityEntry.matchesNormalized(normalizedCandidate);
+                           });
+    if (it != priorityEntries.end() && it->hasNormalized()) {
+      entry["number"] = it->effectiveNumber();
+      entry["normalizedNumber"] = it->normalizedNumber;
+    } else {
+      entry["number"] = normalizedCandidate;
+      entry["normalizedNumber"] = normalizedCandidate;
+    }
+  }
   return IntegrationCallbackResult(true, resultData);
 }
 
@@ -493,7 +653,8 @@ IntegrationCallbackResult IntegrationService::handleFactoryReset() {
 
 bool IntegrationService::processScheduledReset() {
   if (_resetRequested && millis() >= _resetScheduledTime) {
-    INT_LOG_WARN("CORE", "Executing scheduled device %s",
+    INT_LOG_WARN("CORE",
+                 "Executing scheduled device %s",
                  _factoryResetRequested ? "factory reset" : "reset");
 
     // Additional delay to ensure cleanup
@@ -590,7 +751,7 @@ void IntegrationService::addConfig(JsonObject &doc) {
   const DndConfig &dndConfig = _config.getDndConfig();
   JsonObject dnd = config["dnd"].to<JsonObject>();
   dnd["force"] = dndConfig.force;
-  dnd["schedule"] = dndConfig.scheduled;
+  dnd["scheduled"] = dndConfig.scheduled;
   dnd["startMinute"] = dndConfig.startMinute;
   dnd["endMinute"] = dndConfig.endMinute;
   dnd["startHour"] = dndConfig.startHour;
@@ -599,6 +760,16 @@ void IntegrationService::addConfig(JsonObject &doc) {
   // Ring config (DS7 normalized)
   JsonObject ring = config["ring"].to<JsonObject>();
   ring["pattern"] = _config.getRingPattern();
+
+  // Dialing config
+  JsonObject dialing = config["dialing"].to<JsonObject>();
+  const String defaultCode = _config.getDefaultDialingCode();
+  dialing["defaultCode"] = defaultCode;
+  if (!defaultCode.isEmpty()) {
+    dialing["defaultPrefix"] = String("+") + defaultCode;
+  } else {
+    dialing["defaultPrefix"] = "";
+  }
 }
 
 void IntegrationService::addStats(JsonObject &doc) {
@@ -607,11 +778,29 @@ void IntegrationService::addStats(JsonObject &doc) {
 
   JsonObject calls = stats["calls"].to<JsonObject>();
   JsonObject totals = calls["totals"].to<JsonObject>();
-  addStatsInfo(totals); // Reuse the logic instead of duplicating
+  totals["total"] = callStats.totalCalls;
+  totals["incoming"] = callStats.incomingCalls;
+  totals["outgoing"] = callStats.outgoingCalls;
+  totals["blocked"] = callStats.blockedCalls;
+  totals["talkTimeSeconds"] = callStats.totalTalkTimeSeconds;
 
+  CallRecord currentSnapshot = buildCurrentCallSnapshot(callStats.currentCall,
+                                                        String(_state.callState.callNumber),
+                                                        _currentCallIsIncoming,
+                                                        _state.callState.isPriority);
+  unsigned long callStartTs = _currentCallStartTs;
+  uint32_t liveDurationSeconds = 0;
+  if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
+      _state.newAppState == AppState::InCall) {
+    liveDurationSeconds = (millis() - callStartTs) / 1000UL;
+  }
+  JsonObject currentCall = calls["currentCall"].to<JsonObject>();
+  serializeCallRecord(
+      currentCall, currentSnapshot, "active", callStartTs, liveDurationSeconds, true);
+
+  LastCallRecord lastSnapshot = buildLastCallSnapshot(callStats.lastCall);
   JsonObject lastCall = calls["lastCall"].to<JsonObject>();
-  lastCall["number"] = callStats.lastCall.number;
-  lastCall["type"] = callStats.lastCall.type;
+  serializeLastCallRecord(lastCall, lastSnapshot, true);
 
   JsonObject systemStats = stats["system"].to<JsonObject>();
   systemStats["resets"] = _stats.getResetCount();
@@ -623,6 +812,15 @@ void IntegrationService::addPhone(JsonObject &doc) {
   // Include current phone state snapshot alongside configuration lists (HA parity)
   addPhoneStateInfo(phone);
 
+  const String defaultCode = _config.getDefaultDialingCode();
+  JsonObject dialing = phone["dialing"].to<JsonObject>();
+  dialing["defaultCode"] = defaultCode;
+  if (!defaultCode.isEmpty()) {
+    dialing["defaultPrefix"] = String("+") + defaultCode;
+  } else {
+    dialing["defaultPrefix"] = "";
+  }
+
   // Quick dial entries
   JsonArray quickDial = phone["quickDial"].to<JsonArray>();
   for (const auto &entry : _config.getQuickDialEntries()) {
@@ -630,6 +828,9 @@ void IntegrationService::addPhone(JsonObject &doc) {
     entryObj["code"] = entry.code;
     entryObj["number"] = entry.number;
     entryObj["name"] = entry.name;
+    if (entry.hasNormalized()) {
+      entryObj["normalizedNumber"] = entry.normalizedNumber;
+    }
   }
 
   // Blocked numbers
@@ -637,13 +838,22 @@ void IntegrationService::addPhone(JsonObject &doc) {
   for (const auto &entry : _config.getBlockedNumbers()) {
     JsonObject entryObj = blocked.add<JsonObject>();
     entryObj["number"] = entry.number;
-    entryObj["reason"] = entry.reason;
+    entryObj["name"] = entry.name;
+    if (entry.hasNormalized()) {
+      entryObj["normalizedNumber"] = entry.normalizedNumber;
+    }
   }
 
   // Priority callers
   JsonArray priority = phone["priorityCallers"].to<JsonArray>();
-  for (const auto &num : _config.getPriorityCallers()) {
-    priority.add(num);
+  JsonArray priorityDetails = phone["priorityCallerDetails"].to<JsonArray>();
+  for (const auto &entry : _config.getPriorityCallers()) {
+    priority.add(entry.number);
+    JsonObject obj = priorityDetails.add<JsonObject>();
+    obj["number"] = entry.number;
+    if (entry.hasNormalized()) {
+      obj["normalizedNumber"] = entry.normalizedNumber;
+    }
   }
 }
 
@@ -660,16 +870,23 @@ void IntegrationService::addPhoneStateInfo(JsonObject &obj) {
   obj["dndActive"] = _state.isDnd;
   obj["isMaintenanceMode"] = _state.isMaintenanceMode; // DS9 boolean normalization
   obj["isHookOff"] = _state.isHookOff;
+  obj["volumeMode"] = String(volumeModeToString(_state.volumeMode));
+  obj["volumeModeCode"] = static_cast<int>(_state.volumeMode);
+  obj["isSpeakerMode"] = (_state.volumeMode == VolumeMode::Speaker);
 
-  // Add active call number if present
-  if (_state.callState.callNumber[0] != '\0') {
-    obj["currentCallNumber"] = _state.callState.callNumber;
-    obj["currentCallIsPriority"] = _state.callState.isPriority;
-  }
   // Add dialing buffer number if present (distinct from active call)
   if (_state.currentDialingNumber[0] != '\0') {
     obj["currentDialingNumber"] = _state.currentDialingNumber;
+    String normalizedDial = PhoneNormalization::normalizePhoneNumber(
+        String(_state.currentDialingNumber), _config.getDefaultDialingCode());
+    if (!normalizedDial.isEmpty()) {
+      obj["currentDialingNumberNormalized"] = normalizedDial;
+    }
   }
+
+  // Snapshot structured call data (current + last call)
+  String activeNumber = String(_state.callState.callNumber);
+  addCallInfo(obj, activeNumber, _currentCallIsIncoming, _currentCallStartTs);
 }
 
 void IntegrationService::addBasicPhoneStatus(JsonObject &obj) {
@@ -681,14 +898,85 @@ void IntegrationService::addCallInfo(JsonObject &obj,
                                      const String &callNumber,
                                      bool isIncoming,
                                      unsigned long startTime) {
-  if (!callNumber.isEmpty()) {
-    obj["currentCallNumber"] = callNumber;
-    obj["isIncomingCall"] = isIncoming;
-    obj["callStartTs"] = startTime; // ms
-    if (startTime > 0) {
-      obj["currentCallDurationMs"] = (uint32_t)(millis() - startTime);
-    }
+  const bool priorityHint = _state.callState.isPriority;
+  String numberHint = callNumber;
+  if (numberHint.isEmpty() && _state.callState.callNumber[0] != '\0') {
+    numberHint = String(_state.callState.callNumber);
   }
+
+  CallRecord currentSnapshot =
+      buildCurrentCallSnapshot(_stats.getCurrentCall(), numberHint, isIncoming, priorityHint);
+  unsigned long callStartTs = startTime > 0 ? startTime : _currentCallStartTs;
+
+  uint32_t liveDurationSeconds = 0;
+  if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
+      _state.newAppState == AppState::InCall) {
+    liveDurationSeconds = (millis() - callStartTs) / 1000UL;
+  }
+
+  JsonObject currentCallObj = obj["currentCall"].to<JsonObject>();
+  serializeCallRecord(
+      currentCallObj, currentSnapshot, "active", callStartTs, liveDurationSeconds, true);
+
+  if (!currentSnapshot.number.isEmpty()) {
+    obj["currentCallNumber"] = currentSnapshot.number;
+    obj["currentCallName"] = currentSnapshot.name;
+    obj["currentCallIsPriority"] = currentSnapshot.isPriority;
+    obj["isIncomingCall"] = currentSnapshot.isIncoming;
+
+    if (callStartTs > 0) {
+      obj["callStartTs"] = callStartTs;
+      obj["currentCallDurationMs"] = static_cast<uint32_t>(millis() - callStartTs);
+    } else {
+      obj["callStartTs"] = 0;
+      obj["currentCallDurationMs"] = 0;
+    }
+
+    String normalized = PhoneNormalization::normalizePhoneNumber(currentSnapshot.number,
+                                                                 _config.getDefaultDialingCode());
+    if (!normalized.isEmpty()) {
+      obj["currentCallNumberNormalized"] = normalized;
+    }
+  } else {
+    obj["currentCallNumber"] = "";
+    obj["currentCallName"] = "";
+    obj["currentCallIsPriority"] = false;
+    obj["isIncomingCall"] = false;
+    obj["callStartTs"] = 0;
+    obj["currentCallDurationMs"] = 0;
+    obj.remove("currentCallNumberNormalized");
+  }
+
+  LastCallRecord lastSnapshot = buildLastCallSnapshot(_stats.getLastCall());
+  JsonObject lastCallObj = obj["lastCall"].to<JsonObject>();
+  serializeLastCallRecord(lastCallObj, lastSnapshot, true);
+
+  if (!lastSnapshot.number.isEmpty()) {
+    obj["lastCallNumber"] = lastSnapshot.number;
+    obj["lastCallName"] = lastSnapshot.name;
+    obj["lastCallResult"] = lastSnapshot.result;
+    obj["lastCallIsIncoming"] = lastSnapshot.isIncoming;
+    obj["lastCallIsPriority"] = lastSnapshot.isPriority;
+    obj["lastCallDurationSeconds"] = lastSnapshot.durationSeconds;
+
+    String normalizedLast = PhoneNormalization::normalizePhoneNumber(
+        lastSnapshot.number, _config.getDefaultDialingCode());
+    if (!normalizedLast.isEmpty()) {
+      obj["lastCallNumberNormalized"] = normalizedLast;
+    }
+  } else {
+    obj["lastCallNumber"] = "";
+    obj["lastCallName"] = "";
+    obj["lastCallResult"] = "";
+    obj["lastCallIsIncoming"] = false;
+    obj["lastCallIsPriority"] = false;
+    obj["lastCallDurationSeconds"] = 0;
+    obj.remove("lastCallNumberNormalized");
+  }
+
+  obj["callWaitingId"] = _state.callState.callWaitingId;
+  obj["callWaitingAvailable"] = _state.callState.hasCallWaiting();
+  obj["callWaitingOnHold"] = _state.callState.callWaitingIsOnHold;
 }
 
 void IntegrationService::addSystemInfo(JsonObject &obj) {
@@ -707,6 +995,28 @@ void IntegrationService::addStatsInfo(JsonObject &obj) {
   totals["outgoing"] = callStats.outgoingCalls;
   totals["blocked"] = callStats.blockedCalls;
   totals["talkTimeSeconds"] = callStats.totalTalkTimeSeconds;
+
+  CallRecord currentSnapshot = buildCurrentCallSnapshot(callStats.currentCall,
+                                                        String(_state.callState.callNumber),
+                                                        _currentCallIsIncoming,
+                                                        _state.callState.isPriority);
+  unsigned long callStartTs = _currentCallStartTs;
+  uint32_t liveDurationSeconds = 0;
+  if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
+      _state.newAppState == AppState::InCall) {
+    liveDurationSeconds = (millis() - callStartTs) / 1000UL;
+  }
+
+  JsonObject currentCall = calls["currentCall"].to<JsonObject>();
+  serializeCallRecord(
+      currentCall, currentSnapshot, "active", callStartTs, liveDurationSeconds, true);
+
+  LastCallRecord lastSnapshot = buildLastCallSnapshot(callStats.lastCall);
+  JsonObject lastCall = calls["lastCall"].to<JsonObject>();
+  serializeLastCallRecord(lastCall, lastSnapshot, true);
+
+  JsonObject systemStats = obj["system"].to<JsonObject>();
+  systemStats["resets"] = _stats.getResetCount();
 }
 
 JsonObject IntegrationService::createEventObject(JsonDocument &doc,
@@ -785,25 +1095,172 @@ JsonDocument IntegrationService::buildCallEvent(const String &eventType,
                                                 unsigned long duration) {
   JsonDocument doc;
   JsonObject obj = createEventObject(doc, "call", eventType);
-  if (!number.isEmpty()) {
-    obj["number"] = number;
+  String numberHint = number;
+  if (numberHint.isEmpty() && _state.callState.callNumber[0] != '\0') {
+    numberHint = String(_state.callState.callNumber);
   }
-  // Use stored direction if available (override parameter if internal state set)
-  bool effectiveIncoming = _currentCallIsIncoming ? true : isIncoming;
+
   if (eventType == "start") {
-    obj["isIncoming"] = effectiveIncoming;
-    obj["callStartTs"] = _currentCallStartTs > 0 ? _currentCallStartTs : millis();
-  } else if (eventType == "end") {
-    obj["isIncoming"] = effectiveIncoming;
-    obj["callStartTs"] = _currentCallStartTs;
-    if (duration > 0) {
-      obj["durationMs"] = (uint32_t)(duration * 1000UL);
+    CallRecord currentSnapshot = buildCurrentCallSnapshot(
+        _stats.getCurrentCall(), numberHint, isIncoming, _state.callState.isPriority);
+    unsigned long callStartTs = _currentCallStartTs > 0 ? _currentCallStartTs : millis();
+    uint32_t liveDurationSeconds = 0;
+    if (!currentSnapshot.number.isEmpty() && callStartTs > 0) {
+      liveDurationSeconds = (millis() - callStartTs) / 1000UL;
     }
-  } else if (eventType == "blocked") {
-    obj["isIncoming"] = true; // blocked implies incoming
+
+    JsonObject currentCall = obj["currentCall"].to<JsonObject>();
+    serializeCallRecord(
+        currentCall, currentSnapshot, "active", callStartTs, liveDurationSeconds, true);
+
+    if (!currentSnapshot.number.isEmpty()) {
+      obj["number"] = currentSnapshot.number;
+      String normalized = PhoneNormalization::normalizePhoneNumber(currentSnapshot.number,
+                                                                   _config.getDefaultDialingCode());
+      if (!normalized.isEmpty()) {
+        obj["normalizedNumber"] = normalized;
+      }
+    }
+    if (!currentSnapshot.name.isEmpty()) {
+      obj["currentCallName"] = currentSnapshot.name;
+    }
+
+    obj["isIncoming"] = currentSnapshot.isIncoming;
+    obj["isPriority"] = currentSnapshot.isPriority;
+    obj["callStartTs"] = callStartTs;
+  } else {
+    LastCallRecord lastSnapshot = buildLastCallSnapshot(_stats.getLastCall());
+    JsonObject lastCall = obj["lastCall"].to<JsonObject>();
+    serializeLastCallRecord(lastCall, lastSnapshot, true);
+
+    if (!lastSnapshot.number.isEmpty()) {
+      obj["number"] = lastSnapshot.number;
+      String normalized = PhoneNormalization::normalizePhoneNumber(lastSnapshot.number,
+                                                                   _config.getDefaultDialingCode());
+      if (!normalized.isEmpty()) {
+        obj["normalizedNumber"] = normalized;
+      }
+    }
+    if (!lastSnapshot.name.isEmpty()) {
+      obj["lastCallName"] = lastSnapshot.name;
+    }
+    if (!lastSnapshot.result.isEmpty()) {
+      obj["result"] = lastSnapshot.result;
+    }
+
+    obj["isIncoming"] = lastSnapshot.isIncoming;
+    obj["isPriority"] = lastSnapshot.isPriority;
+    obj["durationSeconds"] = lastSnapshot.durationSeconds;
+
+    if (eventType == "end") {
+      if (_currentCallStartTs > 0) {
+        obj["callStartTs"] = _currentCallStartTs;
+      }
+      if (duration > 0) {
+        obj["durationMs"] = static_cast<uint32_t>(duration * 1000UL);
+      }
+    } else if (eventType == "blocked") {
+      obj["isIncoming"] = true;
+      if (lastSnapshot.result.isEmpty()) {
+        obj["result"] = "blocked";
+      }
+    }
   }
   addPhoneStateInfo(obj);
   return doc;
+}
+
+String IntegrationService::resolveCallerName(const String &number) const {
+  return IntegrationLookup::lookupCallerName(_config, number);
+}
+
+CallRecord IntegrationService::buildCurrentCallSnapshot(const CallRecord &base,
+                                                        const String &numberHint,
+                                                        bool incomingHint,
+                                                        bool priorityHint) const {
+  CallRecord snapshot = base;
+
+  if (snapshot.number.isEmpty()) {
+    if (!numberHint.isEmpty()) {
+      snapshot.number = numberHint;
+    } else if (_state.callState.callNumber[0] != '\0') {
+      snapshot.number = String(_state.callState.callNumber);
+    }
+  }
+
+  if (base.number.isEmpty()) {
+    snapshot.isIncoming = incomingHint;
+    snapshot.isPriority = priorityHint;
+  }
+
+  if (snapshot.name.isEmpty() && !snapshot.number.isEmpty()) {
+    snapshot.name = resolveCallerName(snapshot.number);
+  }
+
+  return snapshot;
+}
+
+LastCallRecord IntegrationService::buildLastCallSnapshot(const LastCallRecord &base) const {
+  LastCallRecord snapshot = base;
+
+  if (snapshot.name.isEmpty() && !snapshot.number.isEmpty()) {
+    snapshot.name = resolveCallerName(snapshot.number);
+  }
+
+  return snapshot;
+}
+
+void IntegrationService::serializeCallRecord(JsonObject &target,
+                                             const CallRecord &record,
+                                             const char *presenceKey,
+                                             unsigned long startTs,
+                                             uint32_t durationOverride,
+                                             bool includeNormalized) const {
+  const bool hasNumber = !record.number.isEmpty();
+  if (presenceKey != nullptr) {
+    target[presenceKey] = hasNumber;
+  }
+
+  if (!record.name.isEmpty()) {
+    target["name"] = record.name;
+  }
+
+  if (hasNumber) {
+    target["number"] = record.number;
+
+    if (includeNormalized) {
+      String normalized =
+          PhoneNormalization::normalizePhoneNumber(record.number, _config.getDefaultDialingCode());
+      if (!normalized.isEmpty()) {
+        target["normalizedNumber"] = normalized;
+      }
+    }
+
+    target["direction"] = record.isIncoming ? kDirectionIncoming : kDirectionOutgoing;
+    target["isIncoming"] = record.isIncoming;
+    target["isPriority"] = record.isPriority;
+
+    uint32_t durationValue = durationOverride > 0 ? durationOverride : record.durationSeconds;
+    target["durationSeconds"] = durationValue;
+
+    if (startTs > 0) {
+      target["startTs"] = startTs;
+    }
+  } else {
+    // When no active call is present, normalize boolean fields for template consumers.
+    target["isPriority"] = false;
+    target["isIncoming"] = false;
+    target["durationSeconds"] = 0;
+  }
+}
+
+void IntegrationService::serializeLastCallRecord(JsonObject &target,
+                                                 const LastCallRecord &record,
+                                                 bool includeNormalized) const {
+  serializeCallRecord(target, record, "available", 0, 0, includeNormalized);
+  if (!record.result.isEmpty()) {
+    target["result"] = record.result;
+  }
 }
 
 JsonDocument IntegrationService::buildPhoneStateEvent(const String &eventType,
@@ -821,7 +1278,7 @@ JsonDocument IntegrationService::buildPhoneStateEvent(const String &eventType,
   } else if (eventType == "call_info") {
     addPhoneStateInfo(obj);
     // Snapshot only (no fabricated start time here)
-    addCallInfo(obj, currentNumber, false, 0);
+    addCallInfo(obj, currentNumber, _currentCallIsIncoming, 0);
   } else if (eventType == "dialing") {
     addPhoneStateInfo(obj);
     obj["currentDialingNumber"] = currentNumber;
@@ -891,7 +1348,7 @@ JsonDocument IntegrationService::buildCurrentCallEvent(const String &eventType,
 
   if (eventType == "start") {
     unsigned long startTs = _currentCallStartTs > 0 ? _currentCallStartTs : millis();
-    addCallInfo(obj, callNumber, false, startTs);
+    addCallInfo(obj, callNumber, _currentCallIsIncoming, startTs);
   } else if (eventType == "end") {
     if (duration > 0) {
       obj["durationMs"] = (uint32_t)(duration * 1000UL);
@@ -950,4 +1407,4 @@ JsonDocument IntegrationService::buildAggregatedConfigDeltaEvent(
   return doc;
 }
 
-#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION
+#endif // HOME_ASSISTANT_INTEGRATION

@@ -1,12 +1,13 @@
 #include "ringer.h"
 #include "common/logger.h"
 #include "config.h"
+#include "core/DeviceConfig.h"
 #include <Arduino.h>
 #include <cstring>
 
 namespace {
   const constexpr int kRingCycleDuration = 30;
-  const constexpr int kDefaultRingDuration = 2000;
+  const constexpr uint32_t kDefaultRingDurationMs = 2000;
 }
 
 void Ringer::init() const {
@@ -22,7 +23,7 @@ void Ringer::init() const {
 }
 
 void Ringer::startRinging() {
-  startRinging(kDefaultRingDuration);
+  startRinging(String(DeviceConfig::getDefaultRingPattern()));
 }
 
 void Ringer::startRinging(uint32_t duration) {
@@ -33,10 +34,11 @@ void Ringer::startRinging(uint32_t duration) {
   resetPattern();
   _pattern.durations.push_back(duration);
   _pattern.active = false;
+  _ignoreDnd = false;
   initializeRinging();
 }
 
-void Ringer::startRinging(const String &pattern) {
+void Ringer::startRinging(const String &pattern, bool ignoreDnd) {
   if (_ringing) {
     return;
   }
@@ -44,6 +46,7 @@ void Ringer::startRinging(const String &pattern) {
   resetPattern();
   parsePattern(pattern);
   _pattern.active = true;
+  _ignoreDnd = ignoreDnd;
   initializeRinging();
 }
 
@@ -52,7 +55,7 @@ void Ringer::process(State &state) {
     return;
   }
 
-  if (state.isDnd) {
+  if (state.isDnd && !_ignoreDnd) {
     stopRinging();
     return;
   }
@@ -110,6 +113,7 @@ void Ringer::stopRinging() {
   }
 
   _ringing = false;
+  _ignoreDnd = false;
   setRingerEnabled(false);
   resetPattern();
 }
@@ -147,14 +151,12 @@ void Ringer::setRingerPins(bool pin1High, bool pin2High) const {
 }
 
 void Ringer::parsePattern(const String &pattern) {
-  if (pattern.length() == 0) {
-    _pattern.durations.push_back(kDefaultRingDuration);
-    return;
-  }
+  String patternToParse = pattern.length() == 0 ? String(DeviceConfig::getDefaultRingPattern())
+                                                : pattern;
 
   // Check if pattern is a simple numeric
   char *endPtr;
-  long value = strtol(pattern.c_str(), &endPtr, 10);
+  long value = strtol(patternToParse.c_str(), &endPtr, 10);
   if (*endPtr == '\0' && value > 0) {
     // Simple numeric pattern
     _pattern.durations.push_back(static_cast<uint32_t>(value));
@@ -162,7 +164,7 @@ void Ringer::parsePattern(const String &pattern) {
   }
 
   // Parse comma-separated pattern
-  String patternCopy = pattern;
+  String patternCopy = patternToParse;
 
   // Check for repeat suffix (xNUM)
   int repeatPos = patternCopy.lastIndexOf('x');
@@ -199,7 +201,7 @@ void Ringer::parsePattern(const String &pattern) {
 
   // Validate pattern
   if (_pattern.durations.empty()) {
-    _pattern.durations.push_back(kDefaultRingDuration);
+    _pattern.durations.push_back(kDefaultRingDurationMs);
     return;
   }
 
@@ -207,7 +209,7 @@ void Ringer::parsePattern(const String &pattern) {
   if (_pattern.repeatCount > 1 && (_pattern.durations.size() % 2 != 0)) {
     Logger::errorln(F("Pattern with repeats must have even number of durations"));
     _pattern.durations.clear();
-    _pattern.durations.push_back(kDefaultRingDuration);
+    _pattern.durations.push_back(kDefaultRingDurationMs);
     _pattern.repeatCount = 1;
     return;
   }
@@ -216,7 +218,7 @@ void Ringer::parsePattern(const String &pattern) {
   if (_pattern.repeatCount == 1 && (_pattern.durations.size() % 2 == 0)) {
     Logger::errorln(F("Pattern without repeats must have odd number of durations"));
     _pattern.durations.clear();
-    _pattern.durations.push_back(kDefaultRingDuration);
+    _pattern.durations.push_back(kDefaultRingDurationMs);
     return;
   }
 }

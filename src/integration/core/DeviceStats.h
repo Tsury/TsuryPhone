@@ -4,12 +4,29 @@
 
 #include <Arduino.h>
 
-struct LastCallInfo {
+struct CallRecord {
+  String name;
   String number;
-  String type; // "incoming", "outgoing", "blocked"
+  bool isIncoming = false;
+  bool isPriority = false;
+  uint32_t durationSeconds = 0;
 
-  LastCallInfo() = default;
-  LastCallInfo(const String &n, const String &t) : number(n), type(t) {}
+  void clear() {
+    name = "";
+    number = "";
+    isIncoming = false;
+    isPriority = false;
+    durationSeconds = 0;
+  }
+};
+
+struct LastCallRecord : public CallRecord {
+  String result; // answered, blocked, missed, unanswered, rejected, etc.
+
+  void clear() {
+    CallRecord::clear();
+    result = "";
+  }
 };
 
 struct CallStats {
@@ -18,7 +35,8 @@ struct CallStats {
   uint32_t outgoingCalls = 0;
   uint32_t blockedCalls = 0;
   uint32_t totalTalkTimeSeconds = 0;
-  LastCallInfo lastCall;
+  CallRecord currentCall;
+  LastCallRecord lastCall;
 };
 
 class DeviceStats {
@@ -31,14 +49,21 @@ public:
   void reset();
 
   // Call statistics
-  void recordIncomingCall(const String &number);
-  void recordOutgoingCall(const String &number);
-  void recordBlockedCall(const String &number);
-  void recordCallStart();
-  void recordCallEnd();
-  bool isCallActive() const {
-    return _callStartTime != 0;
-  }
+  void beginCall(const String &number,
+                 const String &name,
+                 bool isIncoming,
+                 bool isPriority);
+  void finalizeCurrentCall(const String &result);
+  void recordBlockedCall(const String &number,
+                         const String &name,
+                         bool isPriority);
+  void recordMissedIncomingCall(const String &number,
+                                const String &name,
+                                bool isPriority);
+  void recordUnansweredOutgoingCall(const String &number,
+                                    const String &name,
+                                    bool isPriority);
+  void clearCurrentCall();
 
   // System statistics
   int getResetCount() const {
@@ -54,6 +79,12 @@ public:
   const CallStats &getCallStats() const {
     return _callStats;
   }
+  const CallRecord &getCurrentCall() const {
+    return _callStats.currentCall;
+  }
+  const LastCallRecord &getLastCall() const {
+    return _callStats.lastCall;
+  }
   uint32_t getUptime() const;
   uint32_t getFreeHeap() const;
   int getRSSI() const;
@@ -62,7 +93,13 @@ public:
   void recordSystemStart();
 
 private:
-  void updateTalkTime();
+  void storeLastCallFromCurrent(const String &result);
+  void storeStandaloneLastCall(const String &number,
+                               const String &name,
+                               bool isIncoming,
+                               bool isPriority,
+                               uint32_t durationSeconds,
+                               const String &result);
 
   CallStats _callStats;
   uint64_t _systemStartTime;

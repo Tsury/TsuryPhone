@@ -12,6 +12,7 @@ enum class ConfigChangeEvent {
   QUICK_DIAL_CHANGED,
   BLOCKED_NUMBER_CHANGED,
   RING_PATTERN_CHANGED,
+  DEFAULT_DIALING_CODE_CHANGED,
   INTEGRATION_EXTENSION_CHANGED // Generic bucket for integration-specific config changes
 };
 

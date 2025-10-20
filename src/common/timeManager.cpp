@@ -2,6 +2,7 @@
 #include "../core/DeviceConfig.h"
 #include "config.h"
 #include "logger.h"
+#include <WiFi.h>
 #include <cstdio>
 #include <ctime>
 
@@ -21,8 +22,13 @@ void TimeManager::init() const {
 }
 
 bool TimeManager::fetchLocalTime(struct tm &timeinfo) const {
+  if (WiFi.status() != WL_CONNECTED) {
+    Logger::warnln(F("Skipping time sync: WiFi not connected"));
+    return false;
+  }
+
   if (!getLocalTime(&timeinfo)) {
-    Logger::errorln(F("Failed to obtain time"));
+    Logger::warnln(F("Failed to obtain time from NTP (will retry)"));
     return false;
   }
 

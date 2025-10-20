@@ -28,8 +28,6 @@ enum class Tone {
   AmericanDialTone = 20,
 };
 
-enum class VolumeMode { Earpiece, Speaker };
-
 enum class AudioType { Tone, Mp3 };
 
 struct AudioItem {
@@ -53,7 +51,7 @@ public:
   Modem(DeviceConfig &config);
 
   void init();
-  void process(const State &state);
+  void process(State &state);
 
   void deriveStateFromMessage(State &currState);
 
@@ -61,6 +59,7 @@ public:
   void hangUp();
   void answer();
   void switchToCallWaiting();
+  void rejectCallWaiting(CallState &callState);
 
   void enqueueTone(const Tone toneId, const int duration);
   void stopTone();
@@ -102,6 +101,7 @@ private:
   void enableHangUp();
   void disableUnneededFeatures();
   void disableUnneededFeaturesAfterInit();
+  void clearCallWaitingState(CallState &callState);
 
   bool messageAvailable() const;
   bool isKnownMessage(const char *msg) const;

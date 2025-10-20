@@ -17,7 +17,7 @@ void HookSwitch::init() const {
   Logger::infoln(F("Hook switch initialized!"));
 }
 
-void HookSwitch::process() {
+void HookSwitch::process(State &state) {
   int newState = digitalRead(kHookSwitchPin);
 
   if (newState != _statePrevious) {
@@ -42,6 +42,8 @@ void HookSwitch::process() {
   }
 
   _statePrevious = newState;
+
+  state.isHookOff = isOffHook();
 }
 
 bool HookSwitch::isOffHook() const {

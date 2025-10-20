@@ -2,10 +2,112 @@
 import argparse
 import os
 import sys
+from typing import List, Tuple
 
-PB_FILE = "pb.txt"
-PRIORITY_FILE = "priority.txt"
-BLOCKED_FILE = "blocked.txt"
+_FORMATTING_CHARS = {" ", "-", "(", ")", ".", "\t", "\r", "\n"}
+
+
+def _strip_formatting(value: str) -> str:
+    result: list[str] = []
+    for index, char in enumerate(value):
+        if char in _FORMATTING_CHARS:
+            continue
+        if char == "+":
+            if not result:
+                result.append(char)
+            continue
+        if char.isdigit():
+            result.append(char)
+    return "".join(result)
+
+
+def _strip_leading_zeros(digits: str) -> str:
+    stripped = digits.lstrip("0")
+    if stripped:
+        return stripped
+    return digits if digits and digits.count("0") == len(digits) else ""
+
+
+def _localize_with_default(digits: str, sanitized_code: str) -> str | None:
+    """Convert international digits into local dialing format."""
+
+    if not sanitized_code or not digits.startswith(sanitized_code):
+        return None
+
+    remainder = digits[len(sanitized_code) :]
+    if not remainder:
+        return None
+
+    return remainder if remainder.startswith("0") else f"0{remainder}"
+
+
+def strip_to_digits(value: str) -> str:
+    """Return only digit characters from value."""
+    return "".join(ch for ch in value if ch.isdigit())
+
+
+def sanitize_default_dialing_code(value: str | None) -> str:
+    if not value:
+        return ""
+    digits = strip_to_digits(str(value))
+    if not digits:
+        return ""
+    sanitized = _strip_leading_zeros(digits)
+    return sanitized
+
+
+def normalize_phone_number(
+    raw_number: str | None, default_dialing_code: str | None
+) -> str:
+    if raw_number is None:
+        return ""
+
+    trimmed = str(raw_number).strip()
+    if not trimmed:
+        return ""
+
+    cleaned = _strip_formatting(trimmed)
+    if not cleaned:
+        return ""
+
+    digits_only = strip_to_digits(cleaned)
+    if not digits_only:
+        return ""
+
+    has_plus = cleaned.startswith("+")
+
+    sanitized_code = sanitize_default_dialing_code(default_dialing_code or "")
+
+    if has_plus:
+        localized = _localize_with_default(digits_only, sanitized_code)
+        return localized if localized else digits_only
+
+    if digits_only.startswith("00") and len(digits_only) > 2:
+        stripped = digits_only[2:]
+        localized = _localize_with_default(stripped, sanitized_code)
+        return localized if localized else digits_only
+
+    localized = _localize_with_default(digits_only, sanitized_code)
+    if localized:
+        return localized
+
+    if digits_only.startswith("0"):
+        return digits_only
+
+    if sanitized_code and len(digits_only) >= 7:
+        return f"0{digits_only}"
+
+    return digits_only
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PB_FILE = os.path.join(SCRIPT_DIR, "pb.txt")
+PRIORITY_FILE = os.path.join(SCRIPT_DIR, "priority.txt")
+BLOCKED_FILE = os.path.join(SCRIPT_DIR, "blocked.txt")
+
+
+def escape_c_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def main():
@@ -22,23 +124,46 @@ def main():
     # priority_callers.h + blocked_numbers.h in the SAME output directory.
 
     # Read phone book entries
-    with open(PB_FILE, "r") as pb_file:
+    with open(PB_FILE, "r", encoding="utf-8") as pb_file:
         lines = pb_file.readlines()
 
-    entries = []
-    for line in lines:
-        line = line.strip()
-        if not line:
+    default_code = ""
+    entries: List[Tuple[str, str, str]] = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
             continue
-        parts = line.split(",")
-        if len(parts) != 2:
+
+        if not default_code and "," not in line:
+            default_code = sanitize_default_code_line(line)
+            continue
+
+        parts = [segment.strip() for segment in line.split(",")]
+        if len(parts) < 2:
             print("Skipping invalid line:", line)
             continue
-        entry = parts[0].strip()
-        number = parts[1].strip()
-        entries.append((entry, number))
 
-    phonebook_header_content = generate_phonebook_header(entries)
+        code = parts[0]
+        number = parts[1]
+        name = ",".join(parts[2:]).strip() if len(parts) > 2 else ""
+
+        if not code or not number:
+            print("Skipping line with missing code or number:", line)
+            continue
+
+        normalized_number = normalize_phone_number(number, default_code)
+        if not normalized_number:
+            print("Skipping line with un-normalizable number:", line)
+            continue
+
+        entries.append((code, normalized_number, name))
+
+    if not entries:
+        print("No phone book entries found in", PB_FILE)
+        sys.exit(1)
+
+    phonebook_header_content = generate_phonebook_header(entries, default_code)
 
     output_path = (
         args.output
@@ -50,8 +175,8 @@ def main():
     print("Generated", output_path)
 
     # Read priority & blocked lists (optional seed files)
-    priority_numbers = read_number_list(PRIORITY_FILE)
-    blocked_numbers = read_number_list(BLOCKED_FILE)
+    priority_numbers = read_number_list(PRIORITY_FILE, default_code)
+    blocked_numbers = read_number_list(BLOCKED_FILE, default_code)
 
     # Conflict detection: intersection must be empty; if not, fail generation.
     conflict = set(priority_numbers) & set(blocked_numbers)
@@ -104,7 +229,7 @@ def dedupe(items):
     return result
 
 
-def read_number_list(path):
+def read_number_list(path, default_code):
     if not os.path.exists(path):
         return []
     numbers = []
@@ -113,16 +238,29 @@ def read_number_list(path):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            # Treat as already normalized; accept as-is
-            numbers.append(line)
+            normalized = normalize_phone_number(line, default_code)
+            if not normalized:
+                print(f"Skipping invalid number in {os.path.basename(path)}: {line}")
+                continue
+            numbers.append(normalized)
     return numbers
 
 
-def generate_phonebook_header(entries):
+def generate_phonebook_header(entries, default_code):
     entries_lines = []
-    for entry, number in entries:
-        entries_lines.append('    { "%s", "%s" }' % (entry, number))
+    for code, number, name in entries:
+        entries_lines.append(
+            '    { "%s", "%s", "%s" }'
+            % (
+                escape_c_string(code),
+                escape_c_string(number),
+                escape_c_string(name),
+            )
+        )
     entries_str = ",\n".join(entries_lines)
+
+    sanitized_code = sanitize_default_dialing_code(default_code)
+    prefix = f"+{sanitized_code}" if sanitized_code else ""
 
     header = f"""// This is a generated file. Do not edit manually.
 #pragma once
@@ -131,7 +269,11 @@ def generate_phonebook_header(entries):
 struct PhoneBookEntry {{
     const char* entry;
     const char* number;
+    const char* name;
 }};
+
+static constexpr const char kPhoneBookDefaultDialingCode[] = "{escape_c_string(sanitized_code)}";
+static constexpr const char kPhoneBookDefaultDialingPrefix[] = "{escape_c_string(prefix)}";
 
 static const PhoneBookEntry phoneBookEntries[] = {{
 {entries_str}
@@ -157,6 +299,13 @@ inline bool isPhoneBookEntry(const char* number) {{
 }}
 """
     return header
+
+
+def sanitize_default_code_line(value: str) -> str:
+    sanitized = sanitize_default_dialing_code(value)
+    if not sanitized:
+        print("WARNING: Default dialing code line contains no digits; leaving empty")
+    return sanitized
 
 
 def generate_simple_number_header(header_name, array_name, func_name, numbers):

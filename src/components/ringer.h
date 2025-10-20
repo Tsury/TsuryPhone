@@ -28,7 +28,7 @@ public:
 
   void startRinging();
   void startRinging(uint32_t duration);
-  void startRinging(const String &pattern);
+  void startRinging(const String &pattern, bool ignoreDnd = false);
   void stopRinging();
 
 private:
@@ -41,6 +41,7 @@ private:
 
   bool _ringing = false;
   bool _ringState = false;
+  bool _ignoreDnd = false;
 
   uint32_t _ringStartTime = 0UL;
   uint32_t _lastCycleTime = 0UL;

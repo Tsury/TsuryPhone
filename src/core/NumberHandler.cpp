@@ -26,6 +26,26 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
     return result;
   }
 
+  String dialedStr(dialedNumber);
+
+  if (dialedStr.startsWith("+")) {
+    String normalized = _config.normalizeNumber(dialedStr);
+    if (normalized.isEmpty()) {
+      result.action = NumberAction::Invalid;
+      result.isComplete = true;
+    } else {
+      size_t digitCount = normalized.length() > 0 ? normalized.length() - 1 : 0; // exclude '+'
+      if (digitCount >= 6) {
+        result.action = NumberAction::DirectDial;
+        result.targetNumber = normalized;
+        result.isComplete = true;
+      } else {
+        result.action = NumberAction::Pending;
+      }
+    }
+    return result;
+  }
+
   // Check for exact quick dial match
   if (_config.hasQuickDialEntry(String(dialedNumber))) {
     result.action = NumberAction::QuickDial;
@@ -46,7 +66,14 @@ NumberValidationResult NumberHandler::validateNumber(const char *dialedNumber) {
   switch (phoneValidation) {
   case DialedNumberValidationResult::Valid:
     result.action = NumberAction::DirectDial;
-    result.targetNumber = String(dialedNumber);
+    {
+      String normalized = _config.normalizeNumber(String(dialedNumber));
+      if (!normalized.isEmpty()) {
+        result.targetNumber = normalized;
+      } else {
+        result.targetNumber = String(dialedNumber);
+      }
+    }
     result.isComplete = true;
     break;
 

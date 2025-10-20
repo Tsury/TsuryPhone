@@ -1,11 +1,6 @@
 #pragma once
 
-#if !defined(HOME_ASSISTANT_INTEGRATION) && !defined(ANDROID_INTEGRATION)
-#error                                                                                             \
-    "IntegrationManager included but no integration macro defined. Define at least one integration (HOME_ASSISTANT_INTEGRATION / ANDROID_INTEGRATION)."
-#endif
-
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 
 #include "../common/state.h"
 #include "../core/DeviceConfig.h"
@@ -39,23 +34,30 @@ public:
   void stop();
 
   // Setup callbacks - to be called after construction to avoid circular dependencies
-  void
-  setupTsuryPhoneCallbacks(std::function<IntegrationCallbackResult(const String &)> dialCallback,
-                           std::function<IntegrationCallbackResult()> answerCallback,
-                           std::function<IntegrationCallbackResult()> hangupCallback,
-                           std::function<IntegrationCallbackResult(const String &)> ringCallback,
-                           std::function<IntegrationCallbackResult()> callWaitingCallback,
-                           std::function<void(const String &)> callBlockedCallback,
-                           std::function<void(bool)> maintenanceModeCallback,
-                           std::function<void()> factoryResetCallback,
-                           std::function<void(ConfigChangeEvent)> configChangeCallback);
+  void setupTsuryPhoneCallbacks(
+      std::function<IntegrationCallbackResult(const String &)> dialCallback,
+      std::function<IntegrationCallbackResult(uint8_t)> dialDigitCallback,
+      std::function<IntegrationCallbackResult()> answerCallback,
+      std::function<IntegrationCallbackResult()> hangupCallback,
+      std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
+      std::function<IntegrationCallbackResult()> callWaitingCallback,
+      std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
+      std::function<void(const String &)> callBlockedCallback,
+      std::function<void(bool)> maintenanceModeCallback,
+      std::function<void()> factoryResetCallback,
+      std::function<void(ConfigChangeEvent)> configChangeCallback);
 
   // State synchronization - calls all registered integrations
   void updatePhoneState(AppState newState, AppState previousState);
-  void updateCallInfo(const String &number, bool isIncoming, unsigned long startTime = 0);
+  void updateCallInfo(const String &number,
+                      bool isIncoming,
+                      unsigned long startTime = 0,
+                      bool isPriority = false,
+                      const String &name = "");
   void updateDialingProgress(const String &currentNumber);
   void updateSystemStatus();
   void updateDndState(bool isDndActive);
+  void updateVolumeMode(VolumeMode mode);
 
   // Device lifecycle hooks
   void onFactoryResetInitiated();
@@ -63,10 +65,12 @@ public:
 
   // Device operation callbacks - sets callbacks for all integrations
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
-  void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
+  void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
   void setFactoryResetCallback(std::function<void()> callback);
 
@@ -143,11 +147,15 @@ private:
   bool _prevHookOff = false;
   AppState _prevAppState = AppState::Startup;
   bool _prevRingingState = false;
+  VolumeMode _prevVolumeMode = VolumeMode::Earpiece;
   String _prevCallNumber = "";
   String _prevDialingNumber = "";
   String _prevCallStateNumber = ""; // Cache for call state number to avoid string creation
   bool _callWasActive = false;
   unsigned long _callStartTime = 0;
+  int _prevCallWaitingId = -1;
+  bool _prevCallWaitingAvailable = false;
+  bool _prevCallWaitingOnHold = false;
 
   // Callback for blocked calls
   std::function<void(const String &)> _callBlockedCallback;
@@ -165,4 +173,4 @@ private:
   std::vector<char> _debugCharQueue;
 };
 
-#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION
+#endif // HOME_ASSISTANT_INTEGRATION

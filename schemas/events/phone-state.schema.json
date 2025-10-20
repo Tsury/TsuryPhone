@@ -15,15 +15,19 @@
         "state": { "type": "integer" },
         "stateName": { "type": "string" },
         "previousState": { "type": "integer" },
-  "previousStateName": { "type": "string" },
+        "previousStateName": { "type": "string" },
         "currentCallNumber": { "type": "string" },
-  "currentCallIsPriority": { "type": "boolean" },
+        "currentCallName": { "type": "string" },
+        "currentCallIsPriority": { "type": "boolean" },
         "isIncomingCall": { "type": "boolean" },
         "currentDialingNumber": { "type": "string" },
         "isRinging": { "type": "boolean" },
         "dndActive": { "type": "boolean" },
-  "isMaintenanceMode": { "type": "boolean" },
-  "isHookOff": { "type": "boolean" }
+        "isMaintenanceMode": { "type": "boolean" },
+        "isHookOff": { "type": "boolean" },
+        "callWaitingId": { "type": "integer" },
+        "callWaitingAvailable": { "type": "boolean" },
+        "callWaitingOnHold": { "type": "boolean" }
       },
       "required": [
         "category",

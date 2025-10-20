@@ -1,11 +1,6 @@
 #pragma once
 
-#if !defined(HOME_ASSISTANT_INTEGRATION) && !defined(ANDROID_INTEGRATION)
-#error                                                                                             \
-    "IntegrationService included but no integration macro defined. Define HOME_ASSISTANT_INTEGRATION or ANDROID_INTEGRATION."
-#endif
-
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 #include "../common/state.h"
 #include "../core/DeviceConfig.h"
 #include "IntegrationTypes.h"
@@ -32,26 +27,31 @@ public:
 
   // Device operation callbacks (set by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
-  void setRingCallback(std::function<IntegrationCallbackResult(const String &)> callback);
+  void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
+  void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
   void setFactoryResetCallback(std::function<void()> callback);
 
   // Core business logic methods - these contain the actual logic
   IntegrationCallbackResult handleDialRequest(const String &number);
+  IntegrationCallbackResult handleDialDigit(uint8_t digit);
   IntegrationCallbackResult handleAnswerRequest();
   IntegrationCallbackResult handleHangupRequest();
   IntegrationCallbackResult handleDialQuickDial(const String &code);
   IntegrationCallbackResult handleToggleCallWaiting();
-  IntegrationCallbackResult handleRingOperation(const String &pattern);
+  IntegrationCallbackResult handleRingOperation(const String &pattern, bool force = false);
+  IntegrationCallbackResult handleSetVolumeMode(VolumeMode mode);
 
   // Configuration management
   IntegrationCallbackResult handleSetDND(const JsonVariant &json);
   IntegrationCallbackResult handleSetMaintenanceMode(bool enabled);
   IntegrationCallbackResult handleSetAudioConfig(const JsonVariant &json);
   IntegrationCallbackResult handleSetRingPattern(const String &pattern);
+  IntegrationCallbackResult handleSetDialingConfig(const JsonVariant &json);
 
   // Quick dial management
   IntegrationCallbackResult
@@ -59,7 +59,7 @@ public:
   IntegrationCallbackResult handleRemoveQuickDial(const String &code);
 
   // Blocked numbers management
-  IntegrationCallbackResult handleAddBlockedNumber(const String &number, const String &reason = "");
+  IntegrationCallbackResult handleAddBlockedNumber(const String &number, const String &name = "");
   IntegrationCallbackResult handleRemoveBlockedNumber(const String &number);
 
   // Priority callers management
@@ -104,7 +104,7 @@ public:
   void addStatsInfo(JsonObject &obj);
   // Create a new event object using v2 root fields (category,event,seq,...)
   JsonObject createEventObject(JsonDocument &doc, const String &category, const String &event);
-  // Integration tag setter ("ha", "android", etc.) used in root event field
+  // Integration tag setter (e.g., "ha") used in root event field
   void setIntegrationTag(const char *tag) {
     _integrationTag = tag ? tag : "core";
   }
@@ -169,12 +169,16 @@ private:
   DeviceStats &_stats;
   State &_state;
 
+  String resolveCallerName(const String &number) const;
+
   // Device operation callbacks
   std::function<IntegrationCallbackResult(const String &)> _dialCallback;
+  std::function<IntegrationCallbackResult(uint8_t)> _dialDigitCallback;
   std::function<IntegrationCallbackResult()> _answerCallback;
   std::function<IntegrationCallbackResult()> _hangupCallback;
-  std::function<IntegrationCallbackResult(const String &)> _ringCallback;
+  std::function<IntegrationCallbackResult(const String &, bool)> _ringCallback;
   std::function<IntegrationCallbackResult()> _callWaitingCallback;
+  std::function<IntegrationCallbackResult(VolumeMode)> _volumeModeCallback;
   std::function<void(bool)> _maintenanceModeChangedCallback;
   std::function<void()> _factoryResetCallback;
   // Removed per C2: config change events now routed exclusively via IntegrationManager
@@ -199,6 +203,21 @@ public:
   }
 
 private:
+  CallRecord buildCurrentCallSnapshot(const CallRecord &base,
+                                      const String &numberHint,
+                                      bool incomingHint,
+                                      bool priorityHint) const;
+  LastCallRecord buildLastCallSnapshot(const LastCallRecord &base) const;
+  void serializeCallRecord(JsonObject &target,
+                           const CallRecord &record,
+                           const char *presenceKey,
+                           unsigned long startTs,
+                           uint32_t durationOverride,
+                           bool includeNormalized) const;
+  void serializeLastCallRecord(JsonObject &target,
+                               const LastCallRecord &record,
+                               bool includeNormalized) const;
+
   const char *_integrationTag = "core"; // included in every event root
   uint32_t _eventSeq = 0;               // monotonically increasing sequence
   uint32_t nextSeq() {
@@ -208,4 +227,4 @@ private:
   bool _currentCallIsIncoming = false;   // DS3: direction persistence across lifecycle
 };
 
-#endif // HOME_ASSISTANT_INTEGRATION || ANDROID_INTEGRATION
+#endif // HOME_ASSISTANT_INTEGRATION

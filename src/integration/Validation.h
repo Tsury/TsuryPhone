@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(HOME_ASSISTANT_INTEGRATION) || defined(ANDROID_INTEGRATION)
+#ifdef HOME_ASSISTANT_INTEGRATION
 #include <Arduino.h>
 
 namespace IntegrationValidation {
@@ -14,6 +14,23 @@ namespace IntegrationValidation {
     for (size_t i = 0; i < len; ++i) {
       char c = code[i];
       if (!(c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z'))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Validate webhook id: allow broader character set used by HA webhooks
+  // Accept 1-64 characters containing letters, digits, hyphen or underscore
+  inline bool isValidWebhookId(const String &id) {
+    size_t len = id.length();
+    if (len == 0 || len > 64) {
+      return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+      char c = id[i];
+      if (!(c == '-' || c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
             (c >= 'a' && c <= 'z'))) {
         return false;
       }
@@ -49,11 +66,17 @@ namespace IntegrationValidation {
   // Accept forms like "500" "500,500,250" "500,500,500x3".
   inline bool isValidPattern(const String &pattern) {
     size_t len = pattern.length();
-    if (len == 0 || len > 32) {
+    if (len == 0) {
+      // Empty string defers to device default pattern
+      return true;
+    }
+    if (len > 32) {
       return false;
     }
+
     bool sawDigit = false;
     bool afterX = false;
+    int xIndex = -1;
     for (size_t i = 0; i < len; ++i) {
       char c = pattern[i];
       if (c >= '0' && c <= '9') {
@@ -62,7 +85,6 @@ namespace IntegrationValidation {
         if (afterX) {
           return false; // no commas after repeat segment
         }
-        // require that previous char wasn't comma or 'x'
         if (i == 0) {
           return false;
         }
@@ -74,7 +96,6 @@ namespace IntegrationValidation {
         if (afterX) {
           return false; // only one x allowed
         }
-        // previous must be digit
         if (i == 0) {
           return false;
         }
@@ -83,18 +104,71 @@ namespace IntegrationValidation {
           return false;
         }
         afterX = true;
+        xIndex = static_cast<int>(i);
       } else {
         return false;
       }
     }
-    // last char must be digit
+
     char last = pattern[len - 1];
     if (!(last >= '0' && last <= '9')) {
       return false;
     }
+
+    long repeatCount = 1;
+    if (xIndex != -1) {
+      String repeatStr = pattern.substring(xIndex + 1);
+      if (repeatStr.length() == 0) {
+        return false;
+      }
+      repeatCount = repeatStr.toInt();
+      if (repeatCount <= 0) {
+        repeatCount = 1;
+      }
+    }
+
+    String base = (xIndex != -1) ? pattern.substring(0, xIndex) : pattern;
+    if (base.length() == 0) {
+      return false;
+    }
+
+    int segments = 0;
+    int start = 0;
+    while (start < base.length()) {
+      int comma = base.indexOf(',', start);
+      int end = (comma == -1) ? base.length() : comma;
+      if (end <= start) {
+        return false;
+      }
+      String token = base.substring(start, end);
+      long duration = token.toInt();
+      if (duration <= 0) {
+        return false;
+      }
+      ++segments;
+      if (comma == -1) {
+        break;
+      }
+      start = end + 1;
+    }
+
+    if (segments == 0) {
+      return false;
+    }
+
+    if (repeatCount > 1) {
+      if (segments % 2 != 0) {
+        return false;
+      }
+    } else {
+      if (segments % 2 == 0) {
+        return false;
+      }
+    }
+
     return sawDigit;
   }
 
 }
 
-#endif
+#endif // HOME_ASSISTANT_INTEGRATION
