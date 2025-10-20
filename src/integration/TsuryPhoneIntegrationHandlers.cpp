@@ -1,7 +1,10 @@
 #ifdef HOME_ASSISTANT_INTEGRATION
 
-#include "common/logger.h"
+// clang-format off
+// main.h must precede logger to avoid HTTP_* enum clashes
 #include "main.h"
+#include "common/logger.h"
+// clang-format on
 
 namespace {
   constexpr int kVolumeToggleToneDurationMs = 75;
