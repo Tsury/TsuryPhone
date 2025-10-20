@@ -6,7 +6,7 @@
 
 namespace IntegrationLookup {
 
-String lookupCallerName(const DeviceConfig &config, const String &number);
+  String lookupCallerName(const DeviceConfig &config, const String &number);
 
 }
 

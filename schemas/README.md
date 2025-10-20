@@ -4,14 +4,14 @@ Machine-readable contracts for every outbound event and HTTP response the firmwa
 
 ## Directory layout
 
-| File | Purpose |
-| --- | --- |
-| `base-event.schema.json` | Shared `$defs` and required root fields (`category`, `event`, `schemaVersion`). |
-| `call-*.schema.json` | Call lifecycle notifications (`start`, `end`, `missed`, etc.). |
-| `phone-state.schema.json` | Phone state snapshots and incremental updates (dialing, call info, DND, ringing flags). |
-| `system-*.schema.json` | System health/status events (stats, shutdown, error). Add new variants alongside existing files. |
-| `config-delta-single.schema.json` / `config-delta-aggregated.schema.json` | Change notifications for configuration mutations. |
-| `response-success.schema.json` / `response-error.schema.json` | Contract for HTTP responses from the HA web server. |
+| File                                                                      | Purpose                                                                                          |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `base-event.schema.json`                                                  | Shared `$defs` and required root fields (`category`, `event`, `schemaVersion`).                  |
+| `call-*.schema.json`                                                      | Call lifecycle notifications (`start`, `end`, `missed`, etc.).                                   |
+| `phone-state.schema.json`                                                 | Phone state snapshots and incremental updates (dialing, call info, DND, ringing flags).          |
+| `system-*.schema.json`                                                    | System health/status events (stats, shutdown, error). Add new variants alongside existing files. |
+| `config-delta-single.schema.json` / `config-delta-aggregated.schema.json` | Change notifications for configuration mutations.                                                |
+| `response-success.schema.json` / `response-error.schema.json`             | Contract for HTTP responses from the HA web server.                                              |
 
 ## Authoring checklist
 

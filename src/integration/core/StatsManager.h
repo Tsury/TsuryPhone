@@ -24,7 +24,8 @@ public:
 
   // State change handlers - called automatically by IntegrationManager
   void onPhoneStateChanged(AppState newState, AppState previousState);
-  void onCallInfoChanged(const String &number, bool isIncoming, bool isPriority, const String &name);
+  void
+  onCallInfoChanged(const String &number, bool isIncoming, bool isPriority, const String &name);
   void onCallBlocked(const String &number, bool isPriority, const String &name);
   void onDialingProgressChanged(const String &currentNumber);
 

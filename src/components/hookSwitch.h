@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
 #include "common/state.h"
+#include <Arduino.h>
 
 class HookSwitch {
 public:

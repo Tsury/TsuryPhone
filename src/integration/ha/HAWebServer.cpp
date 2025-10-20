@@ -112,10 +112,9 @@ void HAWebServer::setupRoutes() {
       "/api/call/dial_quick_dial",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleDialQuickDial(req, json); });
 
-    addJsonPostRoute("/api/call/volume_mode",
-                     [this](AsyncWebServerRequest *req, JsonVariant &json) {
-                       handleSetVolumeMode(req, json);
-                     });
+  addJsonPostRoute("/api/call/volume_mode", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSetVolumeMode(req, json);
+  });
 
   addJsonPostRoute("/api/config/dnd", [this](AsyncWebServerRequest *req, JsonVariant &json) {
     handleSetDND(req, json);
@@ -431,23 +430,21 @@ void HAWebServer::handleRingOperation(AsyncWebServerRequest *request, JsonVarian
   executeCommand(request, "ring", json);
 }
 
-  void HAWebServer::handleSetVolumeMode(AsyncWebServerRequest *request, JsonVariant &json) {
-    if (!json.is<JsonObject>()) {
-      sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
-      return;
-    }
-
-    if (json["mode"].isNull() && json["modeCode"].isNull()) {
-      sendErrorResponse(request,
-                        "Missing 'mode' string or 'modeCode' integer",
-                        400,
-                        "WEB_INVALID_VOLUME_MODE");
-      return;
-    }
-
-    Logger::infoln(F("HA API: Volume mode request"));
-    executeCommand(request, "volume_mode", json);
+void HAWebServer::handleSetVolumeMode(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
   }
+
+  if (json["mode"].isNull() && json["modeCode"].isNull()) {
+    sendErrorResponse(
+        request, "Missing 'mode' string or 'modeCode' integer", 400, "WEB_INVALID_VOLUME_MODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Volume mode request"));
+  executeCommand(request, "volume_mode", json);
+}
 
 void HAWebServer::handleResetDevice(AsyncWebServerRequest *request) {
   Logger::infoln(F("HA API: Device reset requested"));

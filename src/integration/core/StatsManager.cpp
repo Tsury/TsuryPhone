@@ -112,8 +112,8 @@ void StatsManager::onPhoneStateChanged(AppState newState, AppState previousState
 
   // Detect outgoing attempts that never connected (dialing -> idle without active call)
   if (previousState == AppState::Dialing && newState == AppState::Idle && !_callInProgress) {
-    String dialingNumber = _lastDialingNumber.isEmpty() ? resolveLastKnownNumber()
-                                                       : _lastDialingNumber;
+    String dialingNumber =
+        _lastDialingNumber.isEmpty() ? resolveLastKnownNumber() : _lastDialingNumber;
     String callerName = resolveCallerName(dialingNumber);
     handleUnansweredOutgoingCall(dialingNumber, callerName, false);
   }
@@ -245,8 +245,8 @@ bool StatsManager::isIncomingAlertState(AppState state) const {
 }
 
 void StatsManager::handleMissedIncomingCall(const String &number,
-                                           const String &name,
-                                           bool isPriority) {
+                                            const String &name,
+                                            bool isPriority) {
   String resolvedNumber = number;
   if (resolvedNumber.isEmpty()) {
     resolvedNumber = resolveLastKnownNumber();
@@ -278,8 +278,7 @@ void StatsManager::handleMissedIncomingCall(const String &number,
     }
   }
 
-  Logger::infoln(F("StatsManager: Recording missed incoming call from %s"),
-                 resolvedNumber.c_str());
+  Logger::infoln(F("StatsManager: Recording missed incoming call from %s"), resolvedNumber.c_str());
 
   _stats.recordMissedIncomingCall(resolvedNumber, resolvedName, isPriority);
   _stats.clearCurrentCall();

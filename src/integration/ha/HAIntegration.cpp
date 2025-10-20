@@ -3,8 +3,8 @@
 #include "HAIntegration.h"
 #include "../../common/logger.h"
 #include "../IntegrationLog.h"
-#include "../IntegrationManager.h"
 #include "../IntegrationLookup.h"
+#include "../IntegrationManager.h"
 #include "../core/ConfigDiff.h"
 #include <HTTPClient.h>
 #include <WiFi.h>

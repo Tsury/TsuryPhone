@@ -144,8 +144,7 @@ bool DeviceStats::load() {
     _callStats.currentCall.number = currentCall["number"].as<String>();
     _callStats.currentCall.name = currentCall["name"].as<String>();
     const String direction = currentCall["direction"].as<String>();
-    _callStats.currentCall.isIncoming =
-        normalizeDirection(direction, true) == kDirectionIncoming;
+    _callStats.currentCall.isIncoming = normalizeDirection(direction, true) == kDirectionIncoming;
     _callStats.currentCall.isPriority = currentCall["isPriority"].as<bool>();
     _callStats.currentCall.durationSeconds = currentCall["durationSeconds"].as<uint32_t>();
   } else {
@@ -230,9 +229,7 @@ void DeviceStats::finalizeCurrentCall(const String &result) {
   save();
 }
 
-void DeviceStats::recordBlockedCall(const String &number,
-                                    const String &name,
-                                    bool isPriority) {
+void DeviceStats::recordBlockedCall(const String &number, const String &name, bool isPriority) {
   _callStats.blockedCalls++;
   _callStats.incomingCalls++;
   _callStats.totalCalls++;

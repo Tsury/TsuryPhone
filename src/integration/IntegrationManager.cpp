@@ -461,7 +461,7 @@ void IntegrationManager::checkForStateChanges() {
 
     const bool isBlocked = _state.callState.isBlocked;
     const bool isPriority = _state.callState.isPriority;
-  String callerName = IntegrationLookup::lookupCallerName(_config, _prevCallNumber);
+    String callerName = IntegrationLookup::lookupCallerName(_config, _prevCallNumber);
 
     if (isIncoming && isBlocked) {
       // Modem has already enforced the block (hang-up or rejection). Integrations are notified
@@ -561,7 +561,7 @@ void IntegrationManager::checkForStateChanges() {
       bool isIncoming = svc.getCurrentCallIsIncoming();
       unsigned long startTs = svc.getCurrentCallStartTs();
       bool isPriority = _state.callState.isPriority;
-  String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
+      String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
       updateCallInfo(activeNumber, isIncoming, startTs, isPriority, callerName);
     }
   }

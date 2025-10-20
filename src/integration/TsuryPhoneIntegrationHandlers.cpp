@@ -1,7 +1,7 @@
 #ifdef HOME_ASSISTANT_INTEGRATION
 
-#include "main.h"
 #include "common/logger.h"
+#include "main.h"
 
 namespace {
   constexpr int kVolumeToggleToneDurationMs = 75;

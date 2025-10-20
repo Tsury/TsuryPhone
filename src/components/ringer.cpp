@@ -151,8 +151,8 @@ void Ringer::setRingerPins(bool pin1High, bool pin2High) const {
 }
 
 void Ringer::parsePattern(const String &pattern) {
-  String patternToParse = pattern.length() == 0 ? String(DeviceConfig::getDefaultRingPattern())
-                                                : pattern;
+  String patternToParse =
+      pattern.length() == 0 ? String(DeviceConfig::getDefaultRingPattern()) : pattern;
 
   // Check if pattern is a simple numeric
   char *endPtr;
