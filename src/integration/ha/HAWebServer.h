@@ -53,6 +53,7 @@ private:
   void handleHangupCall(AsyncWebServerRequest *request);
   void handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
   void handleToggleCallWaiting(AsyncWebServerRequest *request);
+  void handleToggleVolumeMode(AsyncWebServerRequest *request);
 
   void handleSetDND(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonVariant &json);

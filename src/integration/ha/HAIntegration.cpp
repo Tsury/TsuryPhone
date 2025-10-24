@@ -254,6 +254,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleSetDialingConfig(data);
         } else if (command == "volume_mode") {
           return handleSetVolumeMode(data);
+        } else if (command == "toggle_volume_mode") {
+          return handleToggleVolumeMode();
         } else if (command == "ring") {
           return handleRingOperation(data);
         } else if (command == "reset") {
@@ -636,6 +638,18 @@ HAOperationResult HAIntegration::handleSetVolumeMode(const JsonVariant &json) {
   }
 
   IntegrationCallbackResult result = _integrationService.handleSetVolumeMode(targetMode);
+  HAOperationResult haResult = convertResult(result);
+
+  if (haResult.success) {
+    JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("volume_mode");
+    haResult.data = doc;
+  }
+
+  return haResult;
+}
+
+HAOperationResult HAIntegration::handleToggleVolumeMode() {
+  IntegrationCallbackResult result = _integrationService.handleToggleVolumeMode();
   HAOperationResult haResult = convertResult(result);
 
   if (haResult.success) {

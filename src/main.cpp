@@ -204,6 +204,7 @@ void TsuryPhone::onStateIncomingCall() {
   CallState &callState = _state.callState;
   char *callNumber = callState.callNumber;
 
+  // TODO: BUG - When a blocked number is dialing, the phone might ring for a split second.
   if (callState.isBlocked) {
     Logger::warnln(F("Dropping blocked incoming call %s"), callNumber);
     _ringer.stopRinging();

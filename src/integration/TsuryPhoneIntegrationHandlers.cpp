@@ -154,7 +154,6 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationVolumeModeRequest(VolumeM
     _modem.setEarpieceVolume();
   }
 
-  _state.volumeMode = _modem.getCurrentVolumeMode();
   _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kVolumeToggleToneDurationMs);
 
   return IntegrationCallbackResult(true);

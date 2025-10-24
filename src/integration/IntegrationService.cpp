@@ -202,6 +202,19 @@ IntegrationCallbackResult IntegrationService::handleSetVolumeMode(VolumeMode mod
   return result;
 }
 
+IntegrationCallbackResult IntegrationService::handleToggleVolumeMode() {
+  INT_LOG_INFO("CORE", "Volume mode toggle request");
+
+  VolumeMode current = _state.volumeMode;
+  if (current != VolumeMode::Speaker && current != VolumeMode::Earpiece) {
+    current = VolumeMode::Earpiece;
+  }
+
+  const VolumeMode target =
+      (current == VolumeMode::Speaker) ? VolumeMode::Earpiece : VolumeMode::Speaker;
+  return handleSetVolumeMode(target);
+}
+
 IntegrationCallbackResult IntegrationService::handleRingOperation(const String &pattern,
                                                                   bool force) {
   INT_LOG_INFO(

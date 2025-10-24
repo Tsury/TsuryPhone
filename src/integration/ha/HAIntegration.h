@@ -75,6 +75,7 @@ public:
   HAOperationResult handleSetDialingConfig(const JsonVariant &data);
   HAOperationResult handleRingOperation(const JsonVariant &data);
   HAOperationResult handleSetVolumeMode(const JsonVariant &data);
+  HAOperationResult handleToggleVolumeMode();
   HAOperationResult handleResetDevice();
   HAOperationResult handleFactoryReset();
   HAOperationResult handleAddQuickDial(const JsonVariant &data);

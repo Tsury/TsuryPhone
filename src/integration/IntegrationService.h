@@ -45,6 +45,7 @@ public:
   IntegrationCallbackResult handleToggleCallWaiting();
   IntegrationCallbackResult handleRingOperation(const String &pattern, bool force = false);
   IntegrationCallbackResult handleSetVolumeMode(VolumeMode mode);
+  IntegrationCallbackResult handleToggleVolumeMode();
 
   // Configuration management
   IntegrationCallbackResult handleSetDND(const JsonVariant &json);

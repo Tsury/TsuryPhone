@@ -91,6 +91,10 @@ void HAWebServer::setupRoutes() {
     handleToggleCallWaiting(request);
   });
 
+  _server.on("/api/call/toggle_volume_mode", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleToggleVolumeMode(request);
+  });
+
   _server.on("/api/system/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetDevice(request);
   });
@@ -277,22 +281,18 @@ void HAWebServer::handleDialNumber(AsyncWebServerRequest *request, JsonVariant &
 }
 
 void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &json) {
-  if (!json["digit"]) {
+  JsonVariant digitVariant = json["digit"];
+  if (digitVariant.isNull()) {
     sendErrorResponse(request, "Missing 'digit' parameter", 400, "WEB_MISSING_DIGIT");
     return;
   }
 
-  int digit = -1;
-  if (json["digit"].is<int>()) {
-    digit = json["digit"].as<int>();
-  } else if (json["digit"].is<const char *>()) {
-    String digitStr = json["digit"].as<const char *>();
-    digitStr.trim();
-    if (digitStr.length() == 1 && digitStr[0] >= '0' && digitStr[0] <= '9') {
-      digit = digitStr[0] - '0';
-    }
+  if (!digitVariant.is<int>()) {
+    sendErrorResponse(request, "Digit must be between 0 and 9", 400, "WEB_INVALID_DIGIT");
+    return;
   }
 
+  int digit = digitVariant.as<int>();
   if (digit < 0 || digit > 9) {
     sendErrorResponse(request, "Digit must be between 0 and 9", 400, "WEB_INVALID_DIGIT");
     return;
@@ -519,6 +519,13 @@ void HAWebServer::handleToggleCallWaiting(AsyncWebServerRequest *request) {
 
   JsonDocument commandData;
   executeCommand(request, "switch_call_waiting", commandData.as<JsonVariant>());
+}
+
+void HAWebServer::handleToggleVolumeMode(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Toggle volume mode request"));
+
+  JsonDocument commandData;
+  executeCommand(request, "toggle_volume_mode", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::onWebSocketEvent(AsyncWebSocket *server,

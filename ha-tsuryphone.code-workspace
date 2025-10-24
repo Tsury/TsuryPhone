@@ -1,6 +1,10 @@
 {
   "folders": [
     {
+      "name": "ha-tsuryphone-frontend",
+      "path": "../ha-tsuryphone-frontend"
+    },
+    {
       "name": "ha-tsuryphone-new-cc",
       "path": "../ha-tsuryphone-new-cc"
     },
