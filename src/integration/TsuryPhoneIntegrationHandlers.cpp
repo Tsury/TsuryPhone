@@ -36,8 +36,9 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialRequest(const String 
   return IntegrationCallbackResult(false, error);
 }
 
-IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t digit, bool deferValidation) {
-  Logger::infoln(F("Integration dial digit request: %u (defer: %s)"), 
+IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t digit,
+                                                                        bool deferValidation) {
+  Logger::infoln(F("Integration dial digit request: %u (defer: %s)"),
                  static_cast<unsigned>(digit),
                  deferValidation ? "yes" : "no");
 
@@ -88,7 +89,7 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationSendDialedNumberRequest()
   Logger::infoln(F("Sending dialed number: %s"), _state.currentDialingNumber);
 
   const String dialedString(_state.currentDialingNumber);
-  
+
   // Check for action codes first
   if (_integrationManager && _integrationManager->isActionCode(dialedString)) {
     const String actionId = _integrationManager->resolveActionId(dialedString);
@@ -176,7 +177,8 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationHangupRequest() {
   Logger::infoln(F("Integration hangup request"));
   if (_state.newAppState == AppState::InCall || _state.newAppState == AppState::Dialing ||
       _state.newAppState == AppState::IncomingCall ||
-      _state.newAppState == AppState::IncomingCallRing) {
+      _state.newAppState == AppState::IncomingCallRing ||
+      _state.newAppState == AppState::InvalidNumber) {
     _modem.hangUp();
     return IntegrationCallbackResult(true);
   }
