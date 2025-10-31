@@ -36,7 +36,8 @@ public:
   // Setup callbacks - to be called after construction to avoid circular dependencies
   void setupTsuryPhoneCallbacks(
       std::function<IntegrationCallbackResult(const String &)> dialCallback,
-      std::function<IntegrationCallbackResult(uint8_t)> dialDigitCallback,
+      std::function<IntegrationCallbackResult(uint8_t, bool)> dialDigitCallback,
+      std::function<IntegrationCallbackResult()> sendDialedNumberCallback,
       std::function<IntegrationCallbackResult()> answerCallback,
       std::function<IntegrationCallbackResult()> hangupCallback,
       std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
@@ -65,7 +66,8 @@ public:
 
   // Device operation callbacks - sets callbacks for all integrations
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
-  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback);
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback);
+  void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
@@ -153,9 +155,11 @@ private:
   String _prevCallStateNumber = ""; // Cache for call state number to avoid string creation
   bool _callWasActive = false;
   unsigned long _callStartTime = 0;
+  int _prevCallId = -1;
   int _prevCallWaitingId = -1;
   bool _prevCallWaitingAvailable = false;
   bool _prevCallWaitingOnHold = false;
+  unsigned long _lastCallDurationBroadcast = 0;
 
   // Callback for blocked calls
   std::function<void(const String &)> _callBlockedCallback;

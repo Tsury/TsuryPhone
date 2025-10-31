@@ -67,8 +67,7 @@ void Ringer::process(State &state) {
       _pattern.currentRepeat++;
 
       if (_pattern.currentRepeat >= _pattern.repeatCount) {
-        stopRinging();
-        state.callState.rangAtLeastOnce = true;
+        markRingComplete(state);
         return;
       }
       // Reset for next repeat
@@ -98,8 +97,7 @@ void Ringer::process(State &state) {
   } else {
     // Original simple ringing logic
     if (millis() - _ringStartTime >= _pattern.durations[0]) {
-      stopRinging();
-      state.callState.rangAtLeastOnce = true;
+      markRingComplete(state);
       return;
     }
 
@@ -116,6 +114,14 @@ void Ringer::stopRinging() {
   _ignoreDnd = false;
   setRingerEnabled(false);
   resetPattern();
+}
+
+void Ringer::markRingComplete(State &state) {
+  stopRinging();
+
+  // If we're encountering phantom caller announcements, wrap this with
+  // "if (state.callState.active.isValid()) {"
+  state.callState.active.rangAtLeastOnce = true;
 }
 
 void Ringer::setRingerEnabled(const bool enabled) const {

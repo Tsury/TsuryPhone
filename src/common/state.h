@@ -2,6 +2,8 @@
 
 #include "consts.h"
 #include <Arduino.h>
+#include <cstring>
+#include <utility>
 
 enum class AppState {
   Startup,
@@ -20,44 +22,88 @@ enum class VolumeMode {
   Speaker,
 };
 
-struct CallState {
-  int callId;
-  int callWaitingId;
-  bool callWaitingIsOnHold = false;
-  bool introducedCaller = false;
-  bool playedCallWaitingTone = false;
-  bool rangAtLeastOnce = false;
-  bool otherPartyDropped = false;
-  bool isPriority = false;
-  bool isBlocked = false;
-  bool callWaitingIsPriority = false;
-  bool callWaitingIsBlocked = false;
-  char callNumber[kSmallBufferSize];
-  char callWaitingNumber[kSmallBufferSize];
+struct CallLeg {
+  int id;
+  bool isPriority;
+  bool isBlocked;
+  bool isOnHold;
+  bool shouldReject;
+  bool introducedCaller;
+  bool rangAtLeastOnce;
+  bool otherPartyDropped;
+  bool isIncoming;
+  unsigned long startedAtMs;
+  char number[kSmallBufferSize];
 
-  CallState()
-      : callId(-1),
-        callWaitingId(-1),
-        callWaitingIsOnHold(false),
-        introducedCaller(false),
-        playedCallWaitingTone(false),
-        rangAtLeastOnce(false),
-        otherPartyDropped(false),
-        isPriority(false),
-        isBlocked(false),
-        callWaitingIsPriority(false),
-        callWaitingIsBlocked(false) {
-    callNumber[0] = '\0';
-    callWaitingNumber[0] = '\0';
+  CallLeg() {
+    reset();
   }
 
-  void setcallNumber(const char *number) {
-    strncpy(callNumber, number, kSmallBufferSize - 1);
-    callNumber[kSmallBufferSize - 1] = '\0';
+  void reset() {
+    id = -1;
+    isPriority = false;
+    isBlocked = false;
+    isOnHold = false;
+    shouldReject = false;
+    introducedCaller = false;
+    rangAtLeastOnce = false;
+    otherPartyDropped = false;
+    isIncoming = false;
+    startedAtMs = 0UL;
+    number[0] = '\0';
+  }
+
+  void setNumber(const char *value) {
+    if (value == nullptr) {
+      number[0] = '\0';
+      return;
+    }
+    std::strncpy(number, value, kSmallBufferSize - 1);
+    number[kSmallBufferSize - 1] = '\0';
+  }
+
+  bool isValid() const {
+    return id != -1;
+  }
+};
+
+struct CallState {
+  CallLeg active;
+  CallLeg waiting;
+  int waitingReleaseId;
+  bool playedCallWaitingTone;
+
+  CallState() : active(), waiting(), waitingReleaseId(-1), playedCallWaitingTone(false) {}
+
+  void reset() {
+    active.reset();
+    waiting.reset();
+    waitingReleaseId = -1;
+    playedCallWaitingTone = false;
   }
 
   bool hasCallWaiting() const {
-    return callWaitingId != -1;
+    return waiting.isValid();
+  }
+
+  void clearWaiting() {
+    waiting.reset();
+    waitingReleaseId = -1;
+  }
+
+  void promoteWaitingToActive(unsigned long now) {
+    if (!hasCallWaiting()) {
+      return;
+    }
+    std::swap(active, waiting);
+    active.isOnHold = false;
+    active.shouldReject = false;
+    if (active.startedAtMs == 0UL) {
+      active.startedAtMs = now;
+    }
+    waiting.isOnHold = true;
+    waiting.shouldReject = false;
+    waitingReleaseId = -1;
   }
 };
 

@@ -4,10 +4,13 @@
 // main.h must precede logger to avoid HTTP_* enum clashes
 #include "main.h"
 #include "common/logger.h"
+#include "common/string.h"
 // clang-format on
 
 namespace {
   constexpr int kVolumeToggleToneDurationMs = 75;
+  constexpr int kResetToneDuration = 500;
+  constexpr int kInvalidNumberMp3RepeatCount = 100;
 }
 
 // Keep only integration-specific TsuryPhone method implementations here to declutter main.cpp
@@ -33,8 +36,10 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialRequest(const String 
   return IntegrationCallbackResult(false, error);
 }
 
-IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t digit) {
-  Logger::infoln(F("Integration dial digit request: %u"), static_cast<unsigned>(digit));
+IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t digit, bool deferValidation) {
+  Logger::infoln(F("Integration dial digit request: %u (defer: %s)"), 
+                 static_cast<unsigned>(digit),
+                 deferValidation ? "yes" : "no");
 
   if (digit > 9) {
     String error = "Digit must be between 0 and 9";
@@ -55,10 +60,101 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t 
     return IntegrationCallbackResult(false, error, "WEB_DIAL_BUFFER_FULL");
   }
 
-  if (!handleDialedDigitInput(digit, true, true)) {
+  // Use the main handleDialedDigitInput function with skipValidation flag
+  if (!handleDialedDigitInput(digit, true, true, deferValidation)) {
     String error = "Failed to process digit";
     Logger::errorln(F("Integration dial digit request: %s"), error.c_str());
     return IntegrationCallbackResult(false, error, "WEB_INVALID_DIGIT");
+  }
+
+  return IntegrationCallbackResult(true);
+}
+
+IntegrationCallbackResult TsuryPhone::handleIntegrationSendDialedNumberRequest() {
+  Logger::infoln(F("Integration send dialed number request"));
+
+  if (_state.newAppState != AppState::Idle) {
+    String error = "Phone not idle (state: " + String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration send dialed number request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "PHONE_NOT_READY");
+  }
+
+  if (_state.currentDialingNumber[0] == '\0') {
+    String error = "No digits to send";
+    Logger::errorln(F("Integration send dialed number request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_NO_DIGITS");
+  }
+
+  Logger::infoln(F("Sending dialed number: %s"), _state.currentDialingNumber);
+
+  const String dialedString(_state.currentDialingNumber);
+  
+  // Check for action codes first
+  if (_integrationManager && _integrationManager->isActionCode(dialedString)) {
+    const String actionId = _integrationManager->resolveActionId(dialedString);
+    if (!actionId.isEmpty()) {
+      Logger::infoln(F("Action trigger %s"), actionId.c_str());
+      _integrationManager->triggerAction(actionId);
+      _state.currentDialingNumber[0] = '\0';
+      if (_integrationManager) {
+        _integrationManager->updateDialingProgress("");
+      }
+      return IntegrationCallbackResult(true);
+    }
+  }
+
+  // Validate the number
+  const NumberValidationResult numberValidation =
+      _numberHandler.validateNumber(_state.currentDialingNumber);
+
+  if (!numberValidation.isComplete) {
+    // Pending or incomplete = invalid for send mode
+    Logger::errorln(F("Cannot send incomplete number: %s"), _state.currentDialingNumber);
+    _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+    setState(AppState::InvalidNumber);
+    _state.currentDialingNumber[0] = '\0';
+    if (_integrationManager) {
+      _integrationManager->updateDialingProgress("");
+    }
+    return IntegrationCallbackResult(false, "Incomplete number", "WEB_INCOMPLETE_NUMBER");
+  }
+
+  // Execute the action based on validation result
+  switch (numberValidation.action) {
+  case NumberAction::SystemAction:
+    if (strEqual(_state.currentDialingNumber, kResetNumber)) {
+      _modem.enqueueTone(Tone::NegativeAcknowledgeOrErrorTone, kResetToneDuration);
+      ESP.restart();
+    } else if (strEqual(_state.currentDialingNumber, kFactoryResetNumber)) {
+      _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kResetToneDuration);
+      performFactoryReset();
+    } else if (strEqual(_state.currentDialingNumber, kWifiWebPortalNumber)) {
+      _state.isMaintenanceMode = !_state.isMaintenanceMode;
+      onMaintenanceModeChanged(_state.isMaintenanceMode);
+    }
+    break;
+
+  case NumberAction::QuickDial:
+  case NumberAction::DirectDial:
+    _modem.enqueueCall(numberValidation.targetNumber.c_str());
+    break;
+
+  case NumberAction::Invalid:
+    _modem.enqueueMp3(dial_error, kInvalidNumberMp3RepeatCount);
+    setState(AppState::InvalidNumber);
+    _state.currentDialingNumber[0] = '\0';
+    if (_integrationManager) {
+      _integrationManager->updateDialingProgress("");
+    }
+    return IntegrationCallbackResult(false, "Invalid number", "WEB_INVALID_NUMBER");
+
+  default:
+    break;
+  }
+
+  _state.currentDialingNumber[0] = '\0';
+  if (_integrationManager) {
+    _integrationManager->updateDialingProgress("");
   }
 
   return IntegrationCallbackResult(true);

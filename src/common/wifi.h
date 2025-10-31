@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/DeviceConfig.h" // Include DeviceConfig definition
+#include "state.h"
 #include <WiFiManager.h>
 #include <functional>
 
@@ -9,7 +10,7 @@ public:
   Wifi(DeviceConfig &config);
 
   void init();
-  void process();
+  void process(State &state);
 
   void openConfigPortal();
   void closeConfigPortal();
@@ -31,7 +32,7 @@ private:
 
 #ifdef WEB_SERIAL
   void initWebSerial();
-  void processWebSerial();
+  void processWebSerial(State &state);
 #endif
 
   DeviceConfig &_config;

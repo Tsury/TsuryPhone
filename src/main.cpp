@@ -62,8 +62,11 @@ void TsuryPhone::setup() {
       [this](const String &number) -> IntegrationCallbackResult {
         return handleIntegrationDialRequest(number);
       },
-      [this](uint8_t digit) -> IntegrationCallbackResult {
-        return handleIntegrationDialDigitRequest(digit);
+      [this](uint8_t digit, bool deferValidation) -> IntegrationCallbackResult {
+        return handleIntegrationDialDigitRequest(digit, deferValidation);
+      },
+      [this]() -> IntegrationCallbackResult { 
+        return handleIntegrationSendDialedNumberRequest(); 
       },
       [this]() -> IntegrationCallbackResult { return handleIntegrationAnswerRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationHangupRequest(); },
@@ -108,7 +111,7 @@ void TsuryPhone::loop() {
   // once before processing subsystems, then compare after ringer processing. The MP3 is NOT played
   // immediately at the edge to avoid surprising the user; instead the state handler uses the flag
   // to introduce the MP3 at a natural gap.
-  const bool prevRangAtLeastOnce = _state.callState.rangAtLeastOnce;
+  const bool prevRangAtLeastOnce = _state.callState.active.rangAtLeastOnce;
   _modem.deriveStateFromMessage(_state);
   const uint32_t now = millis();
   _modem.process(_state);
@@ -121,12 +124,12 @@ void TsuryPhone::loop() {
     _timeManager.process(_state);
   }
   if (due(_lastWifi, kWifiIntervalMs, now)) {
-    _wifi.process();
+    _wifi.process(_state);
   }
   if (_integrationManager && due(_lastIntegration, kIntegrationIntervalMs, now)) {
     _integrationManager->process();
   }
-  const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.rangAtLeastOnce;
+  const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.active.rangAtLeastOnce;
   if (afterFirstRing || _state.prevAppState != _state.newAppState) {
     onStateChanged();
   }
@@ -188,7 +191,7 @@ void TsuryPhone::onStateIdle() {
   stopEverything();
   _modem.setSpeakerVolume();
 
-  if (_state.callState.otherPartyDropped) {
+  if (_state.callState.active.otherPartyDropped) {
     _modem.enqueueTone(Tone::CallWaitingTone, kCallDroppedToneDuration);
   }
 
@@ -202,18 +205,19 @@ void TsuryPhone::onStateIdle() {
 
 void TsuryPhone::onStateIncomingCall() {
   CallState &callState = _state.callState;
-  char *callNumber = callState.callNumber;
+  char *callNumber = callState.active.number;
 
   // TODO: BUG - When a blocked number is dialing, the phone might ring for a split second.
-  if (callState.isBlocked) {
+  if (callState.active.isBlocked) {
     Logger::warnln(F("Dropping blocked incoming call %s"), callNumber);
     _ringer.stopRinging();
     _modem.hangUp();
     return;
   }
 
-  if (callNumber[0] != '\0' && !callState.introducedCaller && callState.rangAtLeastOnce) {
-    callState.introducedCaller = true;
+  if (callNumber[0] != '\0' && !callState.active.introducedCaller &&
+      callState.active.rangAtLeastOnce) {
+    callState.active.introducedCaller = true;
 
     if (hasMp3ForCall(callNumber)) {
       Logger::infoln(F("Playing MP3 for caller: %s"), callNumber);
@@ -233,7 +237,7 @@ void TsuryPhone::onStateIncomingCall() {
     Logger::infoln(F("Ringing..."));
 
     if (_state.isDnd) {
-      if (callState.isPriority) {
+      if (callState.active.isPriority) {
         Logger::infoln(F("Bypassing DND for priority caller %s"), callNumber);
       } else {
         Logger::infoln(F("Suppressing ring due to DND (caller %s not priority)"), callNumber);
@@ -241,7 +245,7 @@ void TsuryPhone::onStateIncomingCall() {
       }
     }
     String ringPattern = _deviceConfig.getRingPattern();
-    _ringer.startRinging(ringPattern, callState.isPriority);
+    _ringer.startRinging(ringPattern, callState.active.isPriority);
   }
 }
 
@@ -354,7 +358,7 @@ void TsuryPhone::processStateIdle() {
   }
 }
 
-bool TsuryPhone::handleDialedDigitInput(uint8_t digit, bool appendToState, bool fromIntegration) {
+bool TsuryPhone::handleDialedDigitInput(uint8_t digit, bool appendToState, bool fromIntegration, bool skipValidation) {
   if (digit > 9) {
     return false;
   }
@@ -377,6 +381,14 @@ bool TsuryPhone::handleDialedDigitInput(uint8_t digit, bool appendToState, bool 
   Logger::infoln(F("Dialed number: %s"), _state.currentDialingNumber);
 
   _modem.enqueueMp3(dialedDigitsToMp3s[digit]);
+
+  // If skipValidation is true, just update state and return (for send mode)
+  if (skipValidation) {
+    if (_integrationManager) {
+      _integrationManager->updateDialingProgress(_state.currentDialingNumber);
+    }
+    return true;
+  }
 
   const String dialedString(_state.currentDialingNumber);
   bool handledAsAction = false;
@@ -456,8 +468,15 @@ void TsuryPhone::processStateInCall() {
     _modem.hangUp();
   }
 
-  if (_state.callState.callWaitingIsBlocked && _state.callState.callWaitingId != -1) {
+  if (_state.callState.waiting.shouldReject && _state.callState.waiting.id != -1) {
+    String waitingNumber = String(_state.callState.waiting.number);
+
+    _state.callState.waiting.shouldReject = false;
     _modem.rejectCallWaiting(_state.callState);
+
+    if (_integrationManager) {
+      _integrationManager->handleCallBlocked(waitingNumber);
+    }
   }
 
   const int dialedDigit = _rotaryDial.getDialedDigit();
@@ -467,6 +486,7 @@ void TsuryPhone::processStateInCall() {
     _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
     _modem.toggleVolume();
   } else if (dialedDigit == 2 && _state.callState.hasCallWaiting()) {
+    _state.callState.promoteWaitingToActive(millis());
     _modem.switchToCallWaiting();
   }
 

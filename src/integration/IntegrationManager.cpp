@@ -26,7 +26,8 @@ IntegrationManager::IntegrationManager(TsuryPhone &tsuryPhone, DeviceConfig &con
       _prevHookOff(false),
       _prevAppState(AppState::Startup),
       _prevRingingState(false),
-      _prevVolumeMode(VolumeMode::Earpiece) {
+      _prevVolumeMode(VolumeMode::Earpiece),
+      _lastCallDurationBroadcast(0) {
   _config.setConfigChangeCallback([this](ConfigChangeType changeType) {
     ConfigChangeEvent event = ConfigChangeEvent::INTEGRATION_EXTENSION_CHANGED;
     bool notify = true;
@@ -222,9 +223,16 @@ void IntegrationManager::setDialCallback(
 }
 
 void IntegrationManager::setDialDigitCallback(
-    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+    std::function<IntegrationCallbackResult(uint8_t, bool)> callback) {
   for (auto &integration : _integrations) {
     integration->setDialDigitCallback(callback);
+  }
+}
+
+void IntegrationManager::setSendDialedNumberCallback(
+    std::function<IntegrationCallbackResult()> callback) {
+  for (auto &integration : _integrations) {
+    integration->setSendDialedNumberCallback(callback);
   }
 }
 
@@ -416,14 +424,16 @@ void IntegrationManager::checkForStateChanges() {
     if (!prevCallActive && currentCallActive) {
       // Call started
       _callWasActive = true;
-      _callStartTime = millis();
+      const unsigned long legStart = _state.callState.active.startedAtMs;
+      _callStartTime = legStart != 0UL ? legStart : millis();
       auto &svc = IntegrationService::shared(_config, _stats, _state);
       svc.setCurrentCallStartTs(_callStartTime);
+      _prevCallId = _state.callState.active.id;
 
       // If we have call info, report call start
-      if (_state.callState.callNumber[0] != '\0' &&
-          strcmp(_state.callState.callNumber, _prevCallStateNumber.c_str()) != 0) {
-        _prevCallStateNumber = String(_state.callState.callNumber);
+      if (_state.callState.active.number[0] != '\0' &&
+          strcmp(_state.callState.active.number, _prevCallStateNumber.c_str()) != 0) {
+        _prevCallStateNumber = String(_state.callState.active.number);
         bool isIncoming =
             (currentState == AppState::InCall && (_prevAppState == AppState::IncomingCall ||
                                                   _prevAppState == AppState::IncomingCallRing));
@@ -441,6 +451,7 @@ void IntegrationManager::checkForStateChanges() {
         svc.setCurrentCallDirection(false);
         _callWasActive = false;
         _callStartTime = 0;
+        _prevCallId = -1;
         _prevCallStateNumber = ""; // Reset to allow same number to call again
       }
     }
@@ -451,32 +462,37 @@ void IntegrationManager::checkForStateChanges() {
   }
 
   // Check for call number changes (for automatic call info updates)
-  if (strcmp(_state.callState.callNumber, _prevCallNumber.c_str()) != 0 &&
-      _state.callState.callNumber[0] != '\0') {
-    _prevCallNumber = String(_state.callState.callNumber);
+  if (strcmp(_state.callState.active.number, _prevCallNumber.c_str()) != 0 &&
+      _state.callState.active.number[0] != '\0') {
+    _prevCallNumber = String(_state.callState.active.number);
 
     // Determine if it's incoming or outgoing based on state
     bool isIncoming = (_state.newAppState == AppState::IncomingCall ||
                        _state.newAppState == AppState::IncomingCallRing);
-
-    const bool isBlocked = _state.callState.isBlocked;
-    const bool isPriority = _state.callState.isPriority;
+    const bool isBlocked = _state.callState.active.isBlocked;
+    const bool isPriority = _state.callState.active.isPriority;
     String callerName = IntegrationLookup::lookupCallerName(_config, _prevCallNumber);
+    auto &svc = IntegrationService::shared(_config, _stats, _state);
+
+    const unsigned long legStart = _state.callState.active.startedAtMs;
+    if (legStart != 0UL) {
+      _callStartTime = legStart;
+      svc.setCurrentCallStartTs(_callStartTime);
+    }
 
     if (isIncoming && isBlocked) {
       // Modem has already enforced the block (hang-up or rejection). Integrations are notified
       // purely for telemetry so this callback must remain side-effect free.
       handleCallBlocked(_prevCallNumber);
-      IntegrationService::shared(_config, _stats, _state).setCurrentCallDirection(true);
+      svc.setCurrentCallDirection(true);
       if (_callBlockedCallback) {
         _callBlockedCallback(_prevCallNumber);
       }
     } else {
       // Notify StatsManager and integrations
-      auto &svc = IntegrationService::shared(_config, _stats, _state);
       svc.setCurrentCallDirection(isIncoming);
       _statsManager.onCallInfoChanged(_prevCallNumber, isIncoming, isPriority, callerName);
-      updateCallInfo(_prevCallNumber, isIncoming, 0, isPriority, callerName);
+      updateCallInfo(_prevCallNumber, isIncoming, _callStartTime, isPriority, callerName);
 
       // If we just got call info during an active call, report call start
       if (_callWasActive && _callStartTime > 0) {
@@ -484,6 +500,8 @@ void IntegrationManager::checkForStateChanges() {
         handleCallStarted(_prevCallNumber, isIncoming);
       }
     }
+
+    _prevCallId = _state.callState.active.id;
   }
 
   // Check for dialing progress changes
@@ -496,6 +514,33 @@ void IntegrationManager::checkForStateChanges() {
     } else {
       _prevDialingNumber = "";
     }
+  }
+
+  if (_state.newAppState == AppState::InCall) {
+    const int currentCallId = _state.callState.active.id;
+    if (currentCallId != -1 && currentCallId != _prevCallId) {
+      _prevCallId = currentCallId;
+      auto &svc = IntegrationService::shared(_config, _stats, _state);
+      const unsigned long legStart = _state.callState.active.startedAtMs;
+      _callStartTime = legStart != 0UL ? legStart : millis();
+      svc.setCurrentCallStartTs(_callStartTime);
+      svc.setCurrentCallDirection(_state.callState.active.isIncoming);
+      _callWasActive = true;
+
+      String activeNumber = String(_state.callState.active.number);
+      if (!activeNumber.isEmpty()) {
+        const bool isIncoming = _state.callState.active.isIncoming;
+        const bool isPriority = _state.callState.active.isPriority;
+        String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
+        _statsManager.onCallInfoChanged(activeNumber, isIncoming, isPriority, callerName);
+        updateCallInfo(activeNumber, isIncoming, _callStartTime, isPriority, callerName);
+        handleCallStarted(activeNumber, isIncoming);
+        _prevCallNumber = activeNumber;
+        _prevCallStateNumber = activeNumber;
+      }
+    }
+  } else {
+    _prevCallId = -1;
   }
 
   // Check for DND state changes
@@ -536,8 +581,8 @@ void IntegrationManager::checkForStateChanges() {
   }
 
   bool callWaitingAvailable = _state.callState.hasCallWaiting();
-  int callWaitingId = _state.callState.callWaitingId;
-  bool callWaitingOnHold = _state.callState.callWaitingIsOnHold;
+  int callWaitingId = _state.callState.waiting.id;
+  bool callWaitingOnHold = _state.callState.waiting.isOnHold;
   if (callWaitingAvailable != _prevCallWaitingAvailable || callWaitingId != _prevCallWaitingId ||
       callWaitingOnHold != _prevCallWaitingOnHold) {
     _prevCallWaitingAvailable = callWaitingAvailable;
@@ -555,15 +600,38 @@ void IntegrationManager::checkForStateChanges() {
 
     // Provide a refreshed call info snapshot when we have an active number so listeners
     // can correlate the waiting context without waiting for the next natural update.
-    if (_state.callState.callNumber[0] != '\0') {
+    if (_state.callState.active.number[0] != '\0') {
       auto &svc = IntegrationService::shared(_config, _stats, _state);
-      String activeNumber = String(_state.callState.callNumber);
+      String activeNumber = String(_state.callState.active.number);
       bool isIncoming = svc.getCurrentCallIsIncoming();
       unsigned long startTs = svc.getCurrentCallStartTs();
-      bool isPriority = _state.callState.isPriority;
+      bool isPriority = _state.callState.active.isPriority;
       String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
       updateCallInfo(activeNumber, isIncoming, startTs, isPriority, callerName);
     }
+  }
+
+  if (_callWasActive && _callStartTime > 0) {
+    const unsigned long now = millis();
+    if (_lastCallDurationBroadcast == 0 || (now - _lastCallDurationBroadcast) >= 1000UL) {
+      _lastCallDurationBroadcast = now;
+      auto &svc = IntegrationService::shared(_config, _stats, _state);
+      unsigned long startTs = svc.getCurrentCallStartTs();
+      if (startTs == 0) {
+        startTs = _callStartTime;
+        svc.setCurrentCallStartTs(startTs);
+      }
+      String activeNumber = String(_state.callState.active.number);
+      if (activeNumber.isEmpty()) {
+        activeNumber = _prevCallStateNumber;
+      }
+      bool isIncoming = svc.getCurrentCallIsIncoming();
+      bool isPriority = _state.callState.active.isPriority;
+      String callerName = IntegrationLookup::lookupCallerName(_config, activeNumber);
+      updateCallInfo(activeNumber, isIncoming, startTs, isPriority, callerName);
+    }
+  } else if (_lastCallDurationBroadcast != 0) {
+    _lastCallDurationBroadcast = 0;
   }
 
   // Could add more state change checks here if needed
@@ -574,10 +642,26 @@ void IntegrationManager::handleCallBlocked(const String &number) {
   INT_LOG_WARN("CORE", "Blocked call from %s", number.c_str());
 
   // Notify StatsManager and integrations
-  bool isPriority = _state.callState.isPriority;
   String callerName = IntegrationLookup::lookupCallerName(_config, number);
-  _statsManager.onCallBlocked(number, isPriority, callerName);
+  _statsManager.onCallBlocked(number, false, callerName);
   reportBlockedCall(number);
+
+  auto &svc = IntegrationService::shared(_config, _stats, _state);
+  unsigned long startTs = svc.getCurrentCallStartTs();
+  if (startTs == 0) {
+    startTs = _callStartTime;
+  }
+  String activeNumber = String(_state.callState.active.number);
+  if (activeNumber.isEmpty()) {
+    activeNumber = number;
+  }
+  bool activeIsIncoming = svc.getCurrentCallIsIncoming();
+  bool activeIsPriority = _state.callState.active.isPriority;
+  if (activeNumber == number) {
+    activeIsPriority = false;
+  }
+  String activeName = IntegrationLookup::lookupCallerName(_config, activeNumber);
+  updateCallInfo(activeNumber, activeIsIncoming, startTs, activeIsPriority, activeName);
 }
 
 void IntegrationManager::updateMaintenanceMode(bool enabled) {
@@ -758,7 +842,8 @@ void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
 
 void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult(const String &)> dialCallback,
-    std::function<IntegrationCallbackResult(uint8_t)> dialDigitCallback,
+    std::function<IntegrationCallbackResult(uint8_t, bool)> dialDigitCallback,
+    std::function<IntegrationCallbackResult()> sendDialedNumberCallback,
     std::function<IntegrationCallbackResult()> answerCallback,
     std::function<IntegrationCallbackResult()> hangupCallback,
     std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
@@ -774,6 +859,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
   // Set up device operation callbacks for all integrations
   setDialCallback(dialCallback);
   setDialDigitCallback(dialDigitCallback);
+  setSendDialedNumberCallback(sendDialedNumberCallback);
   setAnswerCallback(answerCallback);
   setHangupCallback(hangupCallback);
   setRingCallback(ringCallback);

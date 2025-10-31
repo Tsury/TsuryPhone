@@ -112,6 +112,10 @@ void HAWebServer::setupRoutes() {
     handleDialDigit(req, json);
   });
 
+  _server.on("/api/call/send_dialed_number", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleSendDialedNumber(request);
+  });
+
   addJsonPostRoute(
       "/api/call/dial_quick_dial",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleDialQuickDial(req, json); });
@@ -253,14 +257,14 @@ void HAWebServer::setupMDNS() {
 }
 
 void HAWebServer::handleGetTsuryPhoneConfig(AsyncWebServerRequest *request) {
-  Logger::infoln(F("HA API: Get TsuryPhone config requested"));
+  Logger::debugln(F("HA API: Get TsuryPhone config requested"));
 
   JsonDocument commandData;
   executeCommand(request, "tsuryphone_config", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleRefetchAll(AsyncWebServerRequest *request) {
-  Logger::infoln(F("HA API: Refetch all data requested"));
+  Logger::debugln(F("HA API: Refetch all data requested"));
 
   JsonDocument commandData;
   executeCommand(request, "refetch_all", commandData.as<JsonVariant>());
@@ -298,11 +302,27 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
     return;
   }
 
-  Logger::infoln(F("HA API: Dial digit request - %d"), digit);
+  // Check for optional deferValidation parameter
+  bool deferValidation = false;
+  if (!json["deferValidation"].isNull() && json["deferValidation"].is<bool>()) {
+    deferValidation = json["deferValidation"].as<bool>();
+  }
+
+  Logger::infoln(F("HA API: Dial digit request - %d (defer: %s)"), 
+                 digit, 
+                 deferValidation ? "yes" : "no");
 
   JsonDocument commandData;
   commandData["digit"] = digit;
+  commandData["deferValidation"] = deferValidation;
   executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
+}
+
+void HAWebServer::handleSendDialedNumber(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Send dialed number request"));
+
+  JsonDocument commandData;
+  executeCommand(request, "send_dialed_number", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleAnswerCall(AsyncWebServerRequest *request) {

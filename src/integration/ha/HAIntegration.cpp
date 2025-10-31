@@ -156,8 +156,12 @@ void HAIntegration::setDialCallback(
 }
 
 void HAIntegration::setDialDigitCallback(
-    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+    std::function<IntegrationCallbackResult(uint8_t, bool)> callback) {
   _integrationService.setDialDigitCallback(callback);
+}
+
+void HAIntegration::setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) {
+  _integrationService.setSendDialedNumberCallback(callback);
 }
 
 void HAIntegration::setAnswerCallback(std::function<IntegrationCallbackResult()> callback) {
@@ -190,7 +194,7 @@ void HAIntegration::setFactoryResetCallback(std::function<void()> callback) {
   _integrationService.setFactoryResetCallback(callback);
 }
 void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
-  bool isPriority = _state.callState.isPriority;
+  bool isPriority = _state.callState.active.isPriority;
   String callerName = IntegrationLookup::lookupCallerName(_config, number);
   updateCallInfo(number, isIncoming, 0, isPriority, callerName);
   // Preserve direction and omit fabricated start time in generic builder
@@ -200,7 +204,7 @@ void HAIntegration::reportCallStart(const String &number, bool isIncoming) {
 
 void HAIntegration::reportCallEnd(unsigned long duration) {
   // Use last known call number from state
-  String number = String(_state.callState.callNumber);
+  String number = String(_state.callState.active.number);
   JsonDocument doc = _integrationService.buildCallEvent("end", number, false, duration);
   _webServer.broadcastStateUpdate(doc);
 }
@@ -234,6 +238,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleDialRequest(data["number"].as<String>());
         } else if (command == "dial_digit") {
           return handleDialDigitRequest(data);
+        } else if (command == "send_dialed_number") {
+          return handleSendDialedNumberRequest();
         } else if (command == "answer") {
           return handleAnswerRequest();
         } else if (command == "hangup") {
@@ -468,29 +474,38 @@ HAOperationResult HAIntegration::handleDialRequest(const String &number) {
 }
 
 HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data) {
-  if (!data["digit"]) {
+  JsonVariant digitVariant = data["digit"];
+  if (digitVariant.isNull()) {
     return HAOperationResult(false, "Missing 'digit' parameter");
   }
 
-  int digit = -1;
-  if (data["digit"].is<int>()) {
-    digit = data["digit"].as<int>();
-  } else if (data["digit"].is<const char *>()) {
-    String digitStr = data["digit"].as<const char *>();
-    digitStr.trim();
-    if (digitStr.length() == 1 && digitStr[0] >= '0' && digitStr[0] <= '9') {
-      digit = digitStr[0] - '0';
-    }
+  if (!digitVariant.is<int>()) {
+    return HAOperationResult(false, "Digit must be between 0 and 9");
   }
 
+  int digit = digitVariant.as<int>();
   if (digit < 0 || digit > 9) {
     return HAOperationResult(false, "Digit must be between 0 and 9");
   }
 
+  // Check for deferValidation parameter (default false)
+  bool deferValidation = false;
+  if (!data["deferValidation"].isNull() && data["deferValidation"].is<bool>()) {
+    deferValidation = data["deferValidation"].as<bool>();
+  }
+
   IntegrationCallbackResult result =
-      _integrationService.handleDialDigit(static_cast<uint8_t>(digit));
+      _integrationService.handleDialDigit(static_cast<uint8_t>(digit), deferValidation);
   if (result.success) {
-    INTL_INFO("Dial digit success %d", digit);
+    INTL_INFO("Dial digit success %d (defer: %s)", digit, deferValidation ? "yes" : "no");
+  }
+  return convertResult(result);
+}
+
+HAOperationResult HAIntegration::handleSendDialedNumberRequest() {
+  IntegrationCallbackResult result = _integrationService.handleSendDialedNumber();
+  if (result.success) {
+    INTL_INFO("Send dialed number success");
   }
   return convertResult(result);
 }
@@ -874,7 +889,7 @@ HAOperationResult HAIntegration::handleSetHAUrl(const JsonVariant &json) {
 }
 
 HAOperationResult HAIntegration::handleGetTsuryPhoneConfig() {
-  INTL_INFO("Get config req");
+  INTL_DEBUG("Get config req");
 
   // Build config data including HA-specific webhook actions
   JsonDocument configData = _integrationService.buildDeviceConfig();

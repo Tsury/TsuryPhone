@@ -210,6 +210,20 @@ void DeviceStats::beginCall(const String &number,
   save();
 }
 
+void DeviceStats::updateCurrentCall(const String &number,
+                                    const String &name,
+                                    bool isIncoming,
+                                    bool isPriority) {
+  // Update the current call record WITHOUT incrementing counters or resetting start time
+  // Used for call waiting leg swaps where we're still in the same "call session"
+  _callStats.currentCall.number = number;
+  _callStats.currentCall.name = name;
+  _callStats.currentCall.isIncoming = isIncoming;
+  _callStats.currentCall.isPriority = isPriority;
+  // Note: durationSeconds and _callStartTime are preserved
+  save();
+}
+
 void DeviceStats::finalizeCurrentCall(const String &result) {
   if (_callStats.currentCall.number.isEmpty()) {
     return;

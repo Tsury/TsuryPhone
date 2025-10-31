@@ -50,6 +50,8 @@ public:
 
   // Call statistics
   void beginCall(const String &number, const String &name, bool isIncoming, bool isPriority);
+  void
+  updateCurrentCall(const String &number, const String &name, bool isIncoming, bool isPriority);
   void finalizeCurrentCall(const String &result);
   void recordBlockedCall(const String &number, const String &name, bool isPriority);
   void recordMissedIncomingCall(const String &number, const String &name, bool isPriority);

@@ -9,6 +9,7 @@
 // Define ENABLE_INT_LOG_DEBUG to enable debug level.
 
 // Runtime toggle (defaults true in debug builds, false otherwise)
+#if LOGGER_COMPILED_LEVEL <= LOG_LEVEL_DEBUG
 inline bool &integrationDebugEnabled() {
   static bool enabled =
 #ifdef ENABLE_INT_LOG_DEBUG
@@ -29,6 +30,17 @@ inline void setIntegrationDebugLogging(bool enabled) {
       Logger::debugln(F("[%s][D] " fmt), tag, ##__VA_ARGS__);                                      \
     }                                                                                              \
   } while (0)
+#else
+inline bool integrationDebugEnabled() {
+  return false;
+}
+
+inline void setIntegrationDebugLogging(bool) {}
+
+#define INT_LOG_DEBUG(tag, fmt, ...)                                                               \
+  do {                                                                                             \
+  } while (0)
+#endif
 
 #define INT_LOG_INFO(tag, fmt, ...) Logger::infoln(F("[%s][I] " fmt), tag, ##__VA_ARGS__)
 #define INT_LOG_WARN(tag, fmt, ...) Logger::warnln(F("[%s][W] " fmt), tag, ##__VA_ARGS__)

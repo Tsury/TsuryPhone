@@ -34,7 +34,8 @@ public:
   }
   void process() {}
   void setupTsuryPhoneCallbacks(std::function<IntegrationCallbackResult(const String &)>,
-                                std::function<IntegrationCallbackResult(uint8_t)>,
+                                std::function<IntegrationCallbackResult(uint8_t, bool)>,
+                                std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult(const String &, bool)>,
@@ -44,7 +45,8 @@ public:
                                 std::function<void(bool)>,
                                 std::function<void()>,
                                 std::function<void(ConfigChangeEvent)>) {}
-  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)>) {}
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)>) {}
+  void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()>) {}
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)>) {}
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)>) {}
   void enqueueDebugChar(char) {}
@@ -60,5 +62,8 @@ public:
     return false;
   }
   void triggerAction(const String &) {}
+  void handleCallBlocked(const String &) {}
+  void handleCallStarted(const String &, bool) {}
+  void handleCallEnded(unsigned long) {}
 };
 #endif

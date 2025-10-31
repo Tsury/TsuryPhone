@@ -42,7 +42,8 @@ public:
 
   // Device operation callbacks (to be called by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
-  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t)> callback) override;
+  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) override;
+  void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback) override;
   void
@@ -66,6 +67,7 @@ public:
   // HA-specific command handlers (thin wrappers around business logic)
   HAOperationResult handleDialRequest(const String &number);
   HAOperationResult handleDialDigitRequest(const JsonVariant &data);
+  HAOperationResult handleSendDialedNumberRequest();
   HAOperationResult handleAnswerRequest();
   HAOperationResult handleHangupRequest();
   HAOperationResult handleSetDND(const JsonVariant &data);

@@ -36,14 +36,14 @@ void StatsManager::process() {
   }
 
   // Check for call number changes (for automatic call info updates)
-  if (strcmp(_state.callState.callNumber, _lastProcessedCallNumber.c_str()) != 0 &&
-      _state.callState.callNumber[0] != '\0') {
-    _lastProcessedCallNumber = String(_state.callState.callNumber);
+  if (strcmp(_state.callState.active.number, _lastProcessedCallNumber.c_str()) != 0 &&
+      _state.callState.active.number[0] != '\0') {
+    _lastProcessedCallNumber = String(_state.callState.active.number);
 
     // Determine if it's incoming or outgoing based on state
     bool isIncoming = (_state.newAppState == AppState::IncomingCall ||
                        _state.newAppState == AppState::IncomingCallRing);
-    bool isPriority = _state.callState.isPriority;
+    bool isPriority = _state.callState.active.isPriority;
     String callerName = resolveCallerName(_lastProcessedCallNumber);
     onCallInfoChanged(_lastProcessedCallNumber, isIncoming, isPriority, callerName);
   }
@@ -80,7 +80,7 @@ void StatsManager::onPhoneStateChanged(AppState newState, AppState previousState
     } else if (previousState == AppState::Dialing) {
       isIncoming = false;
     }
-    bool isPriority = _state.callState.isPriority;
+    bool isPriority = _state.callState.active.isPriority;
     String callerName = resolveCallerName(number);
     handleCallStart(number, isIncoming, isPriority, callerName);
   }
@@ -97,13 +97,13 @@ void StatsManager::onPhoneStateChanged(AppState newState, AppState previousState
   if (wasIncomingAlert && !isIncomingAlert && !isInCall && !_callInProgress) {
     String missedNumber = resolveLastKnownNumber();
     String callerName = resolveCallerName(missedNumber);
-    bool isPriority = _state.callState.isPriority;
+    bool isPriority = _state.callState.active.isPriority;
     handleMissedIncomingCall(missedNumber, callerName, isPriority);
   }
 
   // Capture dialing number when entering dialing state
   if (newState == AppState::Dialing && previousState != AppState::Dialing) {
-    String currentNumber = String(_state.callState.callNumber);
+    String currentNumber = String(_state.callState.active.number);
     if (!currentNumber.isEmpty()) {
       _lastDialingNumber = currentNumber;
       Logger::debugln(F("StatsManager: Captured dialing number: %s"), currentNumber.c_str());
@@ -128,11 +128,11 @@ void StatsManager::onCallInfoChanged(const String &number,
   }
 
   String resolvedName = name.isEmpty() ? resolveCallerName(number) : name;
-  Logger::infoln(F("StatsManager: Call info changed - dir=%s number=%s priority=%s name=%s"),
-                 isIncoming ? F("incoming") : F("outgoing"),
-                 number.c_str(),
-                 isPriority ? F("true") : F("false"),
-                 resolvedName.c_str());
+  Logger::debugln(F("StatsManager: Call info changed - dir=%s number=%s priority=%s name=%s"),
+                  isIncoming ? F("incoming") : F("outgoing"),
+                  number.c_str(),
+                  isPriority ? F("true") : F("false"),
+                  resolvedName.c_str());
 
   _currentCallNumber = number;
   _currentCallIsIncoming = isIncoming;
@@ -142,6 +142,11 @@ void StatsManager::onCallInfoChanged(const String &number,
   // If we're already in a call state, start tracking immediately
   if (isCallActiveState(_state.newAppState) && !_callInProgress) {
     handleCallStart(number, isIncoming, isPriority, _currentCallName);
+  }
+  // If call is already in progress, update the cached CallRecord for call waiting leg swaps
+  else if (_callInProgress) {
+    Logger::infoln(F("StatsManager: Updating current call record during active call (leg swap)"));
+    _stats.updateCurrentCall(number, resolvedName, isIncoming, isPriority);
   }
 }
 
@@ -299,7 +304,7 @@ void StatsManager::handleUnansweredOutgoingCall(const String &number,
                     "processed: '%s', state: '%s', dialing: '%s'"),
                   _currentCallNumber.c_str(),
                   _lastProcessedCallNumber.c_str(),
-                  _state.callState.callNumber,
+                  _state.callState.active.number,
                   _lastDialingNumber.c_str());
 
   if (resolvedNumber.isEmpty()) {
@@ -337,8 +342,8 @@ String StatsManager::resolveLastKnownNumber() const {
     return _lastProcessedCallNumber;
   }
 
-  if (_state.callState.callNumber[0] != '\0') {
-    return String(_state.callState.callNumber);
+  if (_state.callState.active.number[0] != '\0') {
+    return String(_state.callState.active.number);
   }
 
   if (!_lastDialingNumber.isEmpty()) {

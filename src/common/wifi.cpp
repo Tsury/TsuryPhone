@@ -1,6 +1,8 @@
 #include "wifi.h"
 #include "config.h"
 #include "logger.h"
+#include <cstdio>
+#include <time.h>
 
 #ifdef WEB_SERIAL
 #include <ESPAsyncWebServer.h>
@@ -88,29 +90,40 @@ void Wifi::onWifiConnected() {
 #endif
 }
 
-void Wifi::process() {
+void Wifi::process(State &state) {
   _wifiManager.process();
   processConfigPortal();
 
 #ifdef WEB_SERIAL
-  processWebSerial();
+  processWebSerial(state);
 #endif
 }
 
 #ifdef WEB_SERIAL
-void Wifi::processWebSerial() {
+void Wifi::processWebSerial(State &state) {
   if (!_webSerialActive || WiFi.status() != WL_CONNECTED) {
     return;
   }
 
-  if (millis() - _lastWebSerialPrint > kWebSerialPrintInterval) {
-    WebSerial.print(F("IP address: "));
-    WebSerial.println(WiFi.localIP());
-    WebSerial.printf("Uptime: %lums\n", millis());
-    // TODO: Consider implementing a free heap watchdog that will reset the device if the free heap
-    // drops below a certain threshold.
-    WebSerial.printf("Free heap: %u\n", ESP.getFreeHeap());
-    _lastWebSerialPrint = millis();
+  const unsigned long now = millis();
+
+  if (now - _lastWebSerialPrint > kWebSerialPrintInterval) {
+    const unsigned long uptimeMs = now;
+    const uint32_t freeHeap = ESP.getFreeHeap();
+    struct tm timeinfo;
+    char timeDisplay[6] = "N/A";
+
+    if (getLocalTime(&timeinfo)) {
+      snprintf(timeDisplay, sizeof(timeDisplay), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+    }
+
+    Logger::infoln(F("Runtime stats: uptime=%lums freeHeap=%u currentTime=%s DND=%s"),
+                   uptimeMs,
+                   freeHeap,
+                   timeDisplay,
+                   state.isDnd ? "true" : "false");
+
+    _lastWebSerialPrint = now;
   }
 
   WebSerial.loop();

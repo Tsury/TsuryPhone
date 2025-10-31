@@ -38,6 +38,7 @@ private:
   void initializeRinging();
   void updateRingState();
   void setRingerPins(bool pin1High, bool pin2High) const;
+  void markRingComplete(State &state);
 
   bool _ringing = false;
   bool _ringState = false;

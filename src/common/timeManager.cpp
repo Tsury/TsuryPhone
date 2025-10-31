@@ -83,7 +83,4 @@ void TimeManager::determineDndState(State &state) {
   }
 
   state.isDnd = isDnd;
-
-  Logger::debugln(F("Current time: %02d:%02d"), timeinfo.tm_hour, timeinfo.tm_min);
-  Logger::debugln(F("DND state: %s"), state.isDnd ? F("true") : F("false"));
 }

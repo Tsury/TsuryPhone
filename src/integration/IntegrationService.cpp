@@ -46,8 +46,13 @@ void IntegrationService::setRingCallback(
 }
 
 void IntegrationService::setDialDigitCallback(
-    std::function<IntegrationCallbackResult(uint8_t)> callback) {
+    std::function<IntegrationCallbackResult(uint8_t, bool)> callback) {
   _dialDigitCallback = callback;
+}
+
+void IntegrationService::setSendDialedNumberCallback(
+    std::function<IntegrationCallbackResult()> callback) {
+  _sendDialedNumberCallback = callback;
 }
 
 void IntegrationService::setCallWaitingCallback(
@@ -87,7 +92,7 @@ IntegrationCallbackResult IntegrationService::handleDialRequest(const String &nu
   return result;
 }
 
-IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit) {
+IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, bool deferValidation) {
   if (digit > 9) {
     return IntegrationCallbackResult(false, "Digit must be between 0 and 9", "WEB_INVALID_DIGIT");
   }
@@ -97,14 +102,32 @@ IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit) {
         false, "Dial digit callback not available", "WEB_SERVICE_UNAVAILABLE");
   }
 
-  IntegrationCallbackResult result = _dialDigitCallback(digit);
+  IntegrationCallbackResult result = _dialDigitCallback(digit, deferValidation);
   if (result.success) {
-    INT_LOG_INFO("CORE", "Dial digit success %u", static_cast<unsigned>(digit));
+    INT_LOG_INFO("CORE", "Dial digit success %u (defer: %s)", 
+                 static_cast<unsigned>(digit),
+                 deferValidation ? "yes" : "no");
   } else {
     INT_LOG_ERROR("CORE",
                   "Dial digit %u failed: %s",
                   static_cast<unsigned>(digit),
                   result.errorMessage.c_str());
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleSendDialedNumber() {
+  if (!_sendDialedNumberCallback) {
+    return IntegrationCallbackResult(
+        false, "Send dialed number callback not available", "WEB_SERVICE_UNAVAILABLE");
+  }
+
+  IntegrationCallbackResult result = _sendDialedNumberCallback();
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Send dialed number success");
+  } else {
+    INT_LOG_ERROR("CORE", "Send dialed number failed: %s", result.errorMessage.c_str());
   }
 
   return result;
@@ -798,10 +821,13 @@ void IntegrationService::addStats(JsonObject &doc) {
   totals["talkTimeSeconds"] = callStats.totalTalkTimeSeconds;
 
   CallRecord currentSnapshot = buildCurrentCallSnapshot(callStats.currentCall,
-                                                        String(_state.callState.callNumber),
+                                                        String(_state.callState.active.number),
                                                         _currentCallIsIncoming,
-                                                        _state.callState.isPriority);
+                                                        _state.callState.active.isPriority);
   unsigned long callStartTs = _currentCallStartTs;
+  if (callStartTs == 0 && _state.callState.active.startedAtMs != 0UL) {
+    callStartTs = _state.callState.active.startedAtMs;
+  }
   uint32_t liveDurationSeconds = 0;
   if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
       _state.newAppState == AppState::InCall) {
@@ -898,7 +924,7 @@ void IntegrationService::addPhoneStateInfo(JsonObject &obj) {
   }
 
   // Snapshot structured call data (current + last call)
-  String activeNumber = String(_state.callState.callNumber);
+  String activeNumber = String(_state.callState.active.number);
   addCallInfo(obj, activeNumber, _currentCallIsIncoming, _currentCallStartTs);
 }
 
@@ -911,57 +937,166 @@ void IntegrationService::addCallInfo(JsonObject &obj,
                                      const String &callNumber,
                                      bool isIncoming,
                                      unsigned long startTime) {
-  const bool priorityHint = _state.callState.isPriority;
-  String numberHint = callNumber;
-  if (numberHint.isEmpty() && _state.callState.callNumber[0] != '\0') {
-    numberHint = String(_state.callState.callNumber);
+  const CallLeg &activeLeg = _state.callState.active;
+  const CallLeg &waitingLeg = _state.callState.waiting;
+
+  // Build currentCall snapshot from StatsManager cache (now properly updated on leg swaps)
+  CallRecord currentSnapshot = buildCurrentCallSnapshot(_stats.getCurrentCall(),
+                                                        String(activeLeg.number),
+                                                        _currentCallIsIncoming,
+                                                        activeLeg.isPriority);
+
+  unsigned long callStartTs = startTime > 0 ? startTime : _currentCallStartTs;
+  if (callStartTs == 0 && activeLeg.startedAtMs != 0UL) {
+    callStartTs = activeLeg.startedAtMs;
   }
 
-  CallRecord currentSnapshot =
-      buildCurrentCallSnapshot(_stats.getCurrentCall(), numberHint, isIncoming, priorityHint);
-  unsigned long callStartTs = startTime > 0 ? startTime : _currentCallStartTs;
-
+  const bool currentCallActive = (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
+                                  _state.newAppState == AppState::InCall);
+  const unsigned long nowMs = millis();
   uint32_t liveDurationSeconds = 0;
-  if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
-      _state.newAppState == AppState::InCall) {
-    liveDurationSeconds = (millis() - callStartTs) / 1000UL;
+  if (currentCallActive) {
+    liveDurationSeconds = (nowMs - callStartTs) / 1000UL;
   }
 
   JsonObject currentCallObj = obj["currentCall"].to<JsonObject>();
+  currentCallObj.clear();
   serializeCallRecord(
       currentCallObj, currentSnapshot, "active", callStartTs, liveDurationSeconds, true);
+
+  currentCallObj["leg"] = "active";
+  currentCallObj["callId"] = activeLeg.id;
+  currentCallObj["isOnHold"] = activeLeg.isOnHold;
+  currentCallObj["isBlocked"] = activeLeg.isBlocked;
+  currentCallObj["durationMs"] = liveDurationSeconds * 1000UL;
+  if (callStartTs > 0) {
+    currentCallObj["durationMs"] = static_cast<uint32_t>(nowMs - callStartTs);
+  }
 
   if (!currentSnapshot.number.isEmpty()) {
     obj["currentCallNumber"] = currentSnapshot.number;
     obj["currentCallName"] = currentSnapshot.name;
     obj["currentCallIsPriority"] = currentSnapshot.isPriority;
     obj["isIncomingCall"] = currentSnapshot.isIncoming;
+    obj["currentCallId"] = activeLeg.id;
+    obj["currentCallIsOnHold"] = activeLeg.isOnHold;
+    obj["currentCallIsBlocked"] = activeLeg.isBlocked;
 
     if (callStartTs > 0) {
       obj["callStartTs"] = callStartTs;
-      obj["currentCallDurationMs"] = static_cast<uint32_t>(millis() - callStartTs);
+      uint32_t durationMs = static_cast<uint32_t>(nowMs - callStartTs);
+      obj["currentCallDurationMs"] = durationMs;
+      obj["currentCallDurationSeconds"] = durationMs / 1000UL;
     } else {
       obj["callStartTs"] = 0;
       obj["currentCallDurationMs"] = 0;
+      obj["currentCallDurationSeconds"] = 0;
     }
 
     String normalized = PhoneNormalization::normalizePhoneNumber(currentSnapshot.number,
                                                                  _config.getDefaultDialingCode());
     if (!normalized.isEmpty()) {
       obj["currentCallNumberNormalized"] = normalized;
+    } else {
+      obj.remove("currentCallNumberNormalized");
     }
   } else {
     obj["currentCallNumber"] = "";
     obj["currentCallName"] = "";
     obj["currentCallIsPriority"] = false;
     obj["isIncomingCall"] = false;
+    obj["currentCallId"] = -1;
+    obj["currentCallIsOnHold"] = false;
+    obj["currentCallIsBlocked"] = false;
     obj["callStartTs"] = 0;
     obj["currentCallDurationMs"] = 0;
+    obj["currentCallDurationSeconds"] = 0;
     obj.remove("currentCallNumberNormalized");
+  }
+
+  JsonObject waitingCallObj = obj["waitingCall"].to<JsonObject>();
+  waitingCallObj.clear();
+
+  const bool hasWaiting = waitingLeg.isValid();
+  uint32_t waitingDurationSeconds = 0;
+  if (waitingLeg.startedAtMs != 0UL) {
+    waitingDurationSeconds = (nowMs - waitingLeg.startedAtMs) / 1000UL;
+  }
+
+  if (hasWaiting) {
+    CallRecord waitingSnapshot;
+    waitingSnapshot.number = String(waitingLeg.number);
+    waitingSnapshot.isIncoming = waitingLeg.isIncoming;
+    waitingSnapshot.isPriority = waitingLeg.isPriority;
+    waitingSnapshot.durationSeconds = waitingDurationSeconds;
+    if (!waitingSnapshot.number.isEmpty()) {
+      waitingSnapshot.name = resolveCallerName(waitingSnapshot.number);
+    }
+
+    serializeCallRecord(waitingCallObj,
+                        waitingSnapshot,
+                        "available",
+                        waitingLeg.startedAtMs,
+                        waitingDurationSeconds,
+                        true);
+
+    waitingCallObj["leg"] = "waiting";
+    waitingCallObj["callId"] = waitingLeg.id;
+    waitingCallObj["isOnHold"] = waitingLeg.isOnHold;
+    waitingCallObj["isBlocked"] = waitingLeg.isBlocked;
+    waitingCallObj["durationMs"] = waitingLeg.startedAtMs > 0
+                                       ? static_cast<uint32_t>(nowMs - waitingLeg.startedAtMs)
+                                       : waitingDurationSeconds * 1000UL;
+
+    obj["waitingCallNumber"] = waitingSnapshot.number;
+    obj["waitingCallName"] = waitingSnapshot.name;
+    obj["waitingCallIsPriority"] = waitingLeg.isPriority;
+    obj["waitingCallIsIncoming"] = waitingLeg.isIncoming;
+    obj["waitingCallIsBlocked"] = waitingLeg.isBlocked;
+    obj["waitingCallIsOnHold"] = waitingLeg.isOnHold;
+    obj["waitingCallId"] = waitingLeg.id;
+
+    if (waitingLeg.startedAtMs > 0) {
+      obj["waitingCallStartTs"] = waitingLeg.startedAtMs;
+      obj["waitingCallDurationMs"] = static_cast<uint32_t>(nowMs - waitingLeg.startedAtMs);
+    } else {
+      obj["waitingCallStartTs"] = 0;
+      obj["waitingCallDurationMs"] = 0;
+    }
+
+    String waitingNormalized = PhoneNormalization::normalizePhoneNumber(
+        waitingSnapshot.number, _config.getDefaultDialingCode());
+    if (!waitingNormalized.isEmpty()) {
+      obj["waitingCallNumberNormalized"] = waitingNormalized;
+    } else {
+      obj.remove("waitingCallNumberNormalized");
+    }
+  } else {
+    waitingCallObj["available"] = false;
+    waitingCallObj["leg"] = "waiting";
+    waitingCallObj["callId"] = -1;
+    waitingCallObj["isOnHold"] = false;
+    waitingCallObj["isBlocked"] = false;
+    waitingCallObj["isPriority"] = false;
+    waitingCallObj["isIncoming"] = false;
+    waitingCallObj["durationSeconds"] = 0;
+    waitingCallObj["durationMs"] = 0;
+
+    obj["waitingCallNumber"] = "";
+    obj["waitingCallName"] = "";
+    obj["waitingCallIsPriority"] = false;
+    obj["waitingCallIsIncoming"] = false;
+    obj["waitingCallIsBlocked"] = false;
+    obj["waitingCallIsOnHold"] = false;
+    obj["waitingCallId"] = -1;
+    obj["waitingCallStartTs"] = 0;
+    obj["waitingCallDurationMs"] = 0;
+    obj.remove("waitingCallNumberNormalized");
   }
 
   LastCallRecord lastSnapshot = buildLastCallSnapshot(_stats.getLastCall());
   JsonObject lastCallObj = obj["lastCall"].to<JsonObject>();
+  lastCallObj.clear();
   serializeLastCallRecord(lastCallObj, lastSnapshot, true);
 
   if (!lastSnapshot.number.isEmpty()) {
@@ -987,9 +1122,9 @@ void IntegrationService::addCallInfo(JsonObject &obj,
     obj.remove("lastCallNumberNormalized");
   }
 
-  obj["callWaitingId"] = _state.callState.callWaitingId;
-  obj["callWaitingAvailable"] = _state.callState.hasCallWaiting();
-  obj["callWaitingOnHold"] = _state.callState.callWaitingIsOnHold;
+  obj["callWaitingId"] = waitingLeg.id;
+  obj["callWaitingAvailable"] = hasWaiting;
+  obj["callWaitingOnHold"] = waitingLeg.isOnHold;
 }
 
 void IntegrationService::addSystemInfo(JsonObject &obj) {
@@ -1010,10 +1145,13 @@ void IntegrationService::addStatsInfo(JsonObject &obj) {
   totals["talkTimeSeconds"] = callStats.totalTalkTimeSeconds;
 
   CallRecord currentSnapshot = buildCurrentCallSnapshot(callStats.currentCall,
-                                                        String(_state.callState.callNumber),
+                                                        String(_state.callState.active.number),
                                                         _currentCallIsIncoming,
-                                                        _state.callState.isPriority);
+                                                        _state.callState.active.isPriority);
   unsigned long callStartTs = _currentCallStartTs;
+  if (callStartTs == 0 && _state.callState.active.startedAtMs != 0UL) {
+    callStartTs = _state.callState.active.startedAtMs;
+  }
   uint32_t liveDurationSeconds = 0;
   if (!currentSnapshot.number.isEmpty() && callStartTs > 0 &&
       _state.newAppState == AppState::InCall) {
@@ -1109,14 +1247,20 @@ JsonDocument IntegrationService::buildCallEvent(const String &eventType,
   JsonDocument doc;
   JsonObject obj = createEventObject(doc, "call", eventType);
   String numberHint = number;
-  if (numberHint.isEmpty() && _state.callState.callNumber[0] != '\0') {
-    numberHint = String(_state.callState.callNumber);
+  if (numberHint.isEmpty() && _state.callState.active.number[0] != '\0') {
+    numberHint = String(_state.callState.active.number);
   }
 
   if (eventType == "start") {
     CallRecord currentSnapshot = buildCurrentCallSnapshot(
-        _stats.getCurrentCall(), numberHint, isIncoming, _state.callState.isPriority);
-    unsigned long callStartTs = _currentCallStartTs > 0 ? _currentCallStartTs : millis();
+        _stats.getCurrentCall(), numberHint, isIncoming, _state.callState.active.isPriority);
+    unsigned long callStartTs = _currentCallStartTs > 0 ? _currentCallStartTs : 0;
+    if (callStartTs == 0 && _state.callState.active.startedAtMs != 0UL) {
+      callStartTs = _state.callState.active.startedAtMs;
+    }
+    if (callStartTs == 0) {
+      callStartTs = millis();
+    }
     uint32_t liveDurationSeconds = 0;
     if (!currentSnapshot.number.isEmpty() && callStartTs > 0) {
       liveDurationSeconds = (millis() - callStartTs) / 1000UL;
@@ -1196,8 +1340,8 @@ CallRecord IntegrationService::buildCurrentCallSnapshot(const CallRecord &base,
   if (snapshot.number.isEmpty()) {
     if (!numberHint.isEmpty()) {
       snapshot.number = numberHint;
-    } else if (_state.callState.callNumber[0] != '\0') {
-      snapshot.number = String(_state.callState.callNumber);
+    } else if (_state.callState.active.number[0] != '\0') {
+      snapshot.number = String(_state.callState.active.number);
     }
   }
 
@@ -1209,6 +1353,10 @@ CallRecord IntegrationService::buildCurrentCallSnapshot(const CallRecord &base,
   if (snapshot.name.isEmpty() && !snapshot.number.isEmpty()) {
     snapshot.name = resolveCallerName(snapshot.number);
   }
+
+  // Clear durationSeconds so serializeCallRecord always uses the live calculated value
+  // This prevents stale duration from persisting after call waiting leg swaps
+  snapshot.durationSeconds = 0;
 
   return snapshot;
 }
@@ -1255,6 +1403,7 @@ void IntegrationService::serializeCallRecord(JsonObject &target,
 
     uint32_t durationValue = durationOverride > 0 ? durationOverride : record.durationSeconds;
     target["durationSeconds"] = durationValue;
+    target["durationMs"] = durationValue * 1000UL;
 
     if (startTs > 0) {
       target["startTs"] = startTs;
@@ -1264,6 +1413,7 @@ void IntegrationService::serializeCallRecord(JsonObject &target,
     target["isPriority"] = false;
     target["isIncoming"] = false;
     target["durationSeconds"] = 0;
+    target["durationMs"] = 0;
   }
 }
 
@@ -1312,7 +1462,7 @@ JsonDocument IntegrationService::buildCurrentPhoneStateEvent(const String &event
   if (eventType == "state") {
     return buildPhoneStateEvent(eventType, _state.newAppState, _state.prevAppState, "");
   } else if (eventType == "call_info") {
-    String callNumber = String(_state.callState.callNumber);
+    String callNumber = String(_state.callState.active.number);
     return buildPhoneStateEvent(eventType, AppState::Idle, AppState::Idle, callNumber);
   } else if (eventType == "dialing") {
     String currentNumber = String(_state.currentDialingNumber);
@@ -1357,10 +1507,16 @@ JsonDocument IntegrationService::buildCurrentCallEvent(const String &eventType,
   JsonDocument doc;
   JsonObject obj = createEventObject(doc, "call", eventType);
 
-  String callNumber = String(_state.callState.callNumber);
+  String callNumber = String(_state.callState.active.number);
 
   if (eventType == "start") {
-    unsigned long startTs = _currentCallStartTs > 0 ? _currentCallStartTs : millis();
+    unsigned long startTs = _currentCallStartTs > 0 ? _currentCallStartTs : 0;
+    if (startTs == 0 && _state.callState.active.startedAtMs != 0UL) {
+      startTs = _state.callState.active.startedAtMs;
+    }
+    if (startTs == 0) {
+      startTs = millis();
+    }
     addCallInfo(obj, callNumber, _currentCallIsIncoming, startTs);
   } else if (eventType == "end") {
     if (duration > 0) {
@@ -1379,7 +1535,7 @@ JsonDocument IntegrationService::buildCurrentCallEvent(const String &eventType,
 
 JsonDocument IntegrationService::buildCurrentFullStateEvent() {
   // Extract current call info from state and delegate to the main method
-  String callNumber = String(_state.callState.callNumber);
+  String callNumber = String(_state.callState.active.number);
   if (!callNumber.isEmpty()) {
     return buildFullStateEvent(
         callNumber, false, millis()); // isIncoming info not available in state

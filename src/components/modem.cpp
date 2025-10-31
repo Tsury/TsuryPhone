@@ -240,24 +240,26 @@ void Modem::switchToCallWaiting() {
 }
 
 void Modem::rejectCallWaiting(CallState &callState) {
-  if (callState.callWaitingNumber[0] != '\0') {
-    Logger::warnln(F("Rejecting blocked waiting call %s"), callState.callWaitingNumber);
+  if (callState.waiting.number[0] != '\0') {
+    Logger::warnln(F("Rejecting blocked waiting call %s"), callState.waiting.number);
   } else {
     Logger::warnln(F("Rejecting blocked waiting call (unknown number)"));
   }
+
+  const int waitingCallId = callState.waiting.id;
 
   sendCommand(F("+CHLD=0"));
   verifyCallState();
 
   clearCallWaitingState(callState);
+
+  if (waitingCallId != -1) {
+    callState.waitingReleaseId = waitingCallId;
+  }
 }
 
 void Modem::clearCallWaitingState(CallState &callState) {
-  callState.callWaitingId = -1;
-  callState.callWaitingIsOnHold = false;
-  callState.callWaitingNumber[0] = '\0';
-  callState.callWaitingIsPriority = false;
-  callState.callWaitingIsBlocked = false;
+  callState.clearWaiting();
 }
 
 void Modem::verifyCallState() {
@@ -292,9 +294,12 @@ void Modem::deriveStateFromMessage(State &state) {
   }
 
   if (strEqual(msg, "OK") && _waitingForKeepAlive) {
+    if (_keepAliveRetryCount > 0) {
+      Logger::infoln(F("Keep-alive received after %lu ms"), millis() - _lastKeepAliveSent);
+    }
+
     _waitingForKeepAlive = false;
     _keepAliveRetryCount = 0;
-    Logger::infoln(F("Keep-alive received after %lu ms"), millis() - _lastKeepAliveSent);
   }
 
   if (Modem::isKnownMessage(msg) || strStartsWith(msg, "VOICE CALL:") ||
@@ -304,7 +309,7 @@ void Modem::deriveStateFromMessage(State &state) {
 
   snprintf(state.lastModemMessage, kBigBufferSize, "%s", msg);
 
-  Logger::infoln(F("Received from modem: %s"), msg);
+  Logger::debugln(F("Modem: %s"), msg);
 
   const AppState prevAppState = state.prevAppState;
   CallState &callState = state.callState;
@@ -362,22 +367,56 @@ void Modem::deriveStateFromMessage(State &state) {
     Logger::infoln(buffer);
 
     switch (callStatus) {
-    case 0:
+    case 0: {
       // Active
+      CallLeg *leg = nullptr;
+      if (callState.active.id == callId) {
+        leg = &callState.active;
+      } else if (callState.waiting.id == callId) {
+        callState.promoteWaitingToActive(millis());
+        leg = &callState.active;
+      } else {
+        leg = &callState.active;
+        leg->reset();
+        leg->id = callId;
+        leg->setNumber(callNumber);
+      }
+      leg->isOnHold = false;
+      leg->shouldReject = false;
+      leg->isIncoming = (callDirection == 1);
+      if (leg->startedAtMs == 0UL) {
+        leg->startedAtMs = millis();
+      }
       state.newAppState = AppState::InCall;
       break;
-    case 1:
+    }
+    case 1: {
       // Held
-      callState.callWaitingIsOnHold = true;
-      callState.callWaitingId = callId;
+      CallLeg *leg = nullptr;
+      if (callState.active.id == callId) {
+        leg = &callState.active;
+      } else {
+        if (callState.waiting.id != callId) {
+          callState.waiting.id = callId;
+          callState.waiting.setNumber(callNumber);
+        }
+        leg = &callState.waiting;
+      }
+      leg->isOnHold = true;
       break;
+    }
     case 2:
       // Dialing
       state.newAppState = AppState::Dialing;
-      callState.setcallNumber(callNumber);
-      callState.callId = callId;
-      callState.isPriority = false;
-      callState.isBlocked = false;
+      if (callState.active.id != callId) {
+        callState.active.reset();
+      }
+      callState.active.id = callId;
+      callState.active.setNumber(callNumber);
+      callState.active.isPriority = false;
+      callState.active.isBlocked = false;
+      callState.active.isIncoming = false;
+      callState.active.startedAtMs = 0UL;
       break;
     case 3:
       // Alerting (other party needs to pick up)
@@ -385,56 +424,68 @@ void Modem::deriveStateFromMessage(State &state) {
     case 4:
       // Incoming (doesn't include call waiting)
       state.newAppState = AppState::IncomingCall;
-      callState.setcallNumber(callNumber);
-      callState.callId = callId;
-      callState.isBlocked = _config.isIncomingCallBlocked(callNumber);
-      if (callState.isBlocked) {
-        Logger::warnln(F("Incoming call %s is blocked"), callNumber);
-        callState.isPriority = false;
-      } else {
-        callState.isPriority = _config.isPriorityCaller(callNumber);
+      if (callState.active.id != callId) {
+        callState.active.reset();
       }
+      callState.active.id = callId;
+      callState.active.setNumber(callNumber);
+      callState.active.isIncoming = true;
+      callState.active.isBlocked = _config.isIncomingCallBlocked(callNumber);
+      if (callState.active.isBlocked) {
+        Logger::warnln(F("Incoming call %s is blocked"), callNumber);
+        callState.active.isPriority = false;
+      } else {
+        callState.active.isPriority = _config.isPriorityCaller(callNumber);
+      }
+      callState.active.startedAtMs = 0UL;
       break;
     case 5:
       // Waiting
-      callState.callWaitingId = callId;
-      callState.callWaitingIsBlocked = _config.isIncomingCallBlocked(callNumber);
+      if (callState.waiting.id != callId) {
+        callState.waiting.reset();
+      }
+      callState.waiting.id = callId;
+      callState.waiting.setNumber(callNumber);
+      callState.waiting.isIncoming = true;
+      callState.waiting.isBlocked = _config.isIncomingCallBlocked(callNumber);
+      callState.waitingReleaseId = -1;
 
-      if (callState.callWaitingIsBlocked) {
+      if (callState.waiting.isBlocked) {
         Logger::warnln(F("Waiting call %s is blocked"), callNumber);
       }
 
-      callState.callWaitingIsPriority = _config.isPriorityCaller(callNumber);
-      snprintf(callState.callWaitingNumber, kSmallBufferSize, "%s", callNumber);
+      callState.waiting.isPriority =
+          !callState.waiting.isBlocked && _config.isPriorityCaller(callNumber);
+      callState.waiting.shouldReject = callState.waiting.isBlocked;
+      callState.waiting.isOnHold = false;
+      callState.waiting.startedAtMs = 0UL;
       break;
     case 6:
       // Since at least one party dropped, reset the call waiting tone state.
       callState.playedCallWaitingTone = false;
 
       // Disconnected (by the other party)
-      // TODO: I have chosen not to handle the very rare case of having the other party disconnect
-      // the incoming call, all the while there's a call waiting (not on hold).
-      if (callState.callId == callId) {
+      if (callState.active.id == callId) {
         Logger::infoln(F("Current call %d was disconnected by the other party."), callId);
 
-        if (callState.callWaitingIsOnHold) {
-          Logger::infoln(F("Switching to call waiting %d..."), callState.callWaitingId);
+        if (callState.waiting.isOnHold) {
+          Logger::infoln(F("Switching to call waiting %d..."), callState.waiting.id);
 
-          callState.callWaitingIsOnHold = false;
-          callState.callId = callState.callWaitingId;
-          callState.setcallNumber(callState.callWaitingNumber);
-          callState.isPriority = callState.callWaitingIsPriority;
-          callState.isBlocked = callState.callWaitingIsBlocked;
-          clearCallWaitingState(callState);
+          callState.waiting.isOnHold = false;
+          callState.promoteWaitingToActive(millis());
+          callState.clearWaiting();
           switchToCallWaiting();
         } else {
           state.newAppState = AppState::Idle;
           state.callState = CallState{};
-          state.callState.otherPartyDropped = prevAppState == AppState::InCall;
+          state.callState.active.otherPartyDropped = prevAppState == AppState::InCall;
         }
-      } else if (callState.callWaitingId == callId) {
+      } else if (callState.waiting.id == callId) {
         Logger::infoln(F("Call waiting %d was disconnected by the other party."), callId);
-        clearCallWaitingState(callState);
+        callState.clearWaiting();
+      } else if (callState.waitingReleaseId == callId) {
+        Logger::infoln(F("Blocked waiting call %d was rejected."), callId);
+        callState.waitingReleaseId = -1;
       } else {
         state.newAppState = AppState::Idle;
         state.callState = CallState{};
@@ -498,15 +549,15 @@ void Modem::process(State &state) {
 
   if (strStartsWith(state.lastModemMessage, "+AUDIOSTATE: ")) {
     if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play stop")) {
-      Logger::infoln(F("Audio stopped."));
+      Logger::debugln(F("Audio stopped."));
       _isPlayingAudio = false;
       _lastAudioStopMillis = millis();
     } else if (strEqual(state.lastModemMessage, "+AUDIOSTATE: audio play")) {
-      Logger::infoln(F("Audio playing..."));
+      Logger::debugln(F("Audio playing..."));
       _isPlayingAudio = true;
     }
   } else if (strEqual(state.lastModemMessage, "+STTONE: 0")) {
-    Logger::infoln(F("Tone stopped."));
+    Logger::debugln(F("Tone stopped."));
     _isPlayingAudio = false;
     _lastAudioStopMillis = millis();
   } else {
@@ -546,9 +597,11 @@ void Modem::keepAliveWatchdog() {
 }
 
 void Modem::sendKeepAlive() {
-  Logger::infoln(F("Sending keep-alive (resets=%lu retries=%u)..."),
-                 _watchdogResetCounter,
-                 _keepAliveRetryCount);
+  if (_keepAliveRetryCount > 0) {
+    Logger::infoln(F("Sending keep-alive (resets=%lu retries=%u)..."),
+                   _watchdogResetCounter,
+                   _keepAliveRetryCount);
+  }
   _modemImpl.sendAT("");
 }
 
