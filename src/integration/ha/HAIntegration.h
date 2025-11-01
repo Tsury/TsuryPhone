@@ -42,7 +42,8 @@ public:
 
   // Device operation callbacks (to be called by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
-  void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) override;
+  void
+  setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) override;
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback) override;

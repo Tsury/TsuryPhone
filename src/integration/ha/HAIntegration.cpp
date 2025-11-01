@@ -160,7 +160,8 @@ void HAIntegration::setDialDigitCallback(
   _integrationService.setDialDigitCallback(callback);
 }
 
-void HAIntegration::setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) {
+void HAIntegration::setSendDialedNumberCallback(
+    std::function<IntegrationCallbackResult()> callback) {
   _integrationService.setSendDialedNumberCallback(callback);
 }
 

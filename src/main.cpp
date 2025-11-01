@@ -65,9 +65,7 @@ void TsuryPhone::setup() {
       [this](uint8_t digit, bool deferValidation) -> IntegrationCallbackResult {
         return handleIntegrationDialDigitRequest(digit, deferValidation);
       },
-      [this]() -> IntegrationCallbackResult { 
-        return handleIntegrationSendDialedNumberRequest(); 
-      },
+      [this]() -> IntegrationCallbackResult { return handleIntegrationSendDialedNumberRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationAnswerRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationHangupRequest(); },
       [this](const String &pattern, bool bypassDnd) -> IntegrationCallbackResult {
@@ -358,7 +356,10 @@ void TsuryPhone::processStateIdle() {
   }
 }
 
-bool TsuryPhone::handleDialedDigitInput(uint8_t digit, bool appendToState, bool fromIntegration, bool skipValidation) {
+bool TsuryPhone::handleDialedDigitInput(uint8_t digit,
+                                        bool appendToState,
+                                        bool fromIntegration,
+                                        bool skipValidation) {
   if (digit > 9) {
     return false;
   }

@@ -104,7 +104,8 @@ IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, boo
 
   IntegrationCallbackResult result = _dialDigitCallback(digit, deferValidation);
   if (result.success) {
-    INT_LOG_INFO("CORE", "Dial digit success %u (defer: %s)", 
+    INT_LOG_INFO("CORE",
+                 "Dial digit success %u (defer: %s)",
                  static_cast<unsigned>(digit),
                  deferValidation ? "yes" : "no");
   } else {

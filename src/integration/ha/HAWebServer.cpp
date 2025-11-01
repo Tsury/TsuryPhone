@@ -308,9 +308,8 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
     deferValidation = json["deferValidation"].as<bool>();
   }
 
-  Logger::infoln(F("HA API: Dial digit request - %d (defer: %s)"), 
-                 digit, 
-                 deferValidation ? "yes" : "no");
+  Logger::infoln(
+      F("HA API: Dial digit request - %d (defer: %s)"), digit, deferValidation ? "yes" : "no");
 
   JsonDocument commandData;
   commandData["digit"] = digit;

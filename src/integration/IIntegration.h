@@ -51,7 +51,8 @@ public:
   // Device operation callbacks
   virtual void
   setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) = 0;
-  virtual void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) = 0;
+  virtual void
+  setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) = 0;
   virtual void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setHangupCallback(std::function<IntegrationCallbackResult()> callback) = 0;
