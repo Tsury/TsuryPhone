@@ -60,33 +60,27 @@ bool DeviceConfig::save() {
   JsonArray quickDial = doc["quickDial"].to<JsonArray>();
   for (const auto &entry : _quickDialEntries) {
     JsonObject entryObj = quickDial.add<JsonObject>();
+    entryObj["id"] = entry.id;
     entryObj["code"] = entry.code;
     entryObj["number"] = entry.number;
-    entryObj["name"] = entry.name; // Keeping this line for context
-    if (entry.hasNormalized()) {
-      entryObj["normalizedNumber"] = entry.normalizedNumber;
-    }
+    entryObj["name"] = entry.name;
   }
 
   // Blocked numbers
   JsonArray blocked = doc["blockedNumbers"].to<JsonArray>();
   for (const auto &entry : _blockedNumbers) {
     JsonObject entryObj = blocked.add<JsonObject>();
+    entryObj["id"] = entry.id;
     entryObj["number"] = entry.number;
-    entryObj["name"] = entry.name; // Updated to use name instead of reason
-    if (entry.hasNormalized()) {
-      entryObj["normalizedNumber"] = entry.normalizedNumber;
-    }
+    entryObj["name"] = entry.name;
   }
 
   // Priority callers
-  JsonArray priority = doc["priorityCallers"].to<JsonArray>();
+  JsonArray priority = doc["priorityCallerDetails"].to<JsonArray>();
   for (const auto &entry : _priorityCallers) {
     JsonObject obj = priority.add<JsonObject>();
+    obj["id"] = entry.id;
     obj["number"] = entry.number;
-    if (entry.hasNormalized()) {
-      obj["normalizedNumber"] = entry.normalizedNumber;
-    }
   }
 
   // Ring pattern
@@ -192,10 +186,11 @@ bool DeviceConfig::load() {
       if (entry.is<JsonObject>()) {
         JsonObject entryObj = entry.as<JsonObject>();
         QuickDialEntry qde;
+        qde.id = entryObj["id"].as<String>();
         qde.code = entryObj["code"].as<String>();
         qde.number = entryObj["number"].as<String>();
         qde.name = entryObj["name"].as<String>();
-        updateNormalizedNumber(qde.number, qde.normalizedNumber);
+        updateNormalizedNumber(qde.number, qde.number);  // Normalize in-place
         _quickDialEntries.push_back(qde);
       }
     }
@@ -210,11 +205,12 @@ bool DeviceConfig::load() {
       if (entry.is<JsonObject>()) {
         JsonObject entryObj = entry.as<JsonObject>();
         BlockedNumberEntry bne;
+        bne.id = entryObj["id"].as<String>();
         bne.number = entryObj["number"].as<String>();
         if (entryObj["name"].is<const char *>()) {
           bne.name = entryObj["name"].as<String>();
         }
-        updateNormalizedNumber(bne.number, bne.normalizedNumber);
+        updateNormalizedNumber(bne.number, bne.number);  // Normalize in-place
         _blockedNumbers.push_back(bne);
       }
     }
@@ -222,9 +218,9 @@ bool DeviceConfig::load() {
   }
 
   // Priority callers
-  if (doc["priorityCallers"]) {
+  if (doc["priorityCallerDetails"]) {
     _priorityCallers.clear();
-    JsonArray priority = doc["priorityCallers"];
+    JsonArray priority = doc["priorityCallerDetails"];
     for (JsonVariant entryVar : priority) {
       if (!entryVar.is<JsonObject>()) {
         continue;
@@ -235,9 +231,10 @@ bool DeviceConfig::load() {
       }
 
       PriorityCallerEntry entry;
+      entry.id = obj["id"].as<String>();
       entry.number = obj["number"].as<String>();
-      updateNormalizedNumber(entry.number, entry.normalizedNumber);
-      if (entry.hasNormalized()) {
+      updateNormalizedNumber(entry.number, entry.number);  // Normalize in-place
+      if (!entry.number.isEmpty()) {
         _priorityCallers.push_back(entry);
       }
     }
@@ -290,8 +287,10 @@ void DeviceConfig::initializeDefaults() {
   size_t numEntries = sizeof(phoneBookEntries) / sizeof(phoneBookEntries[0]);
   for (size_t i = 0; i < numEntries; ++i) {
     const PhoneBookEntry &seed = phoneBookEntries[i];
-    QuickDialEntry entry{String(seed.entry), String(seed.number), String(seed.name)};
-    updateNormalizedNumber(entry.number, entry.normalizedNumber);
+    String id = generateQuickDialId();
+    String number = String(seed.number);
+    updateNormalizedNumber(number, number);  // Normalize in-place
+    QuickDialEntry entry{id, String(seed.entry), number, String(seed.name)};
     _quickDialEntries.push_back(entry);
   }
 
@@ -299,8 +298,10 @@ void DeviceConfig::initializeDefaults() {
   size_t prioCount = getPriorityCallersCount();
   for (size_t i = 0; i < prioCount; ++i) {
     if (!isBlockedNumber(priorityCallerNumbers[i])) { // defensive conflict guard
-      PriorityCallerEntry entry{String(priorityCallerNumbers[i])};
-      updateNormalizedNumber(entry.number, entry.normalizedNumber);
+      String id = generatePriorityCallerId();
+      String number = String(priorityCallerNumbers[i]);
+      updateNormalizedNumber(number, number);  // Normalize in-place
+      PriorityCallerEntry entry{id, number};
       _priorityCallers.push_back(entry);
     }
   }
@@ -312,8 +313,10 @@ void DeviceConfig::initializeDefaults() {
     if (bn && *bn) {
       // Priority list takes precedence; do not add if seeded as priority (policy: no overlap)
       if (!isPriorityCaller(String(bn))) {
-        BlockedNumberEntry entry{String(bn), String("seed")};
-        updateNormalizedNumber(entry.number, entry.normalizedNumber);
+        String id = generateBlockedNumberId();
+        String number = String(bn);
+        updateNormalizedNumber(number, number);  // Normalize in-place
+        BlockedNumberEntry entry{id, number, String("seed")};
         _blockedNumbers.push_back(entry);
       }
     }
@@ -349,7 +352,8 @@ void DeviceConfig::setDndConfig(const DndConfig &config) {
 }
 
 bool DeviceConfig::addQuickDialEntry(const String &code, const String &number, const String &name) {
-  if (isCodeConflict(code)) {
+  // Allow empty code - it's now optional
+  if (!code.isEmpty() && isCodeConflict(code)) {
     return false;
   }
 
@@ -358,30 +362,58 @@ bool DeviceConfig::addQuickDialEntry(const String &code, const String &number, c
   String trimmedName = name;
   trimmedName.trim();
 
-  String normalizedNumber;
-  String normalizedCandidate = trimmedNumber;
-  if (!updateNormalizedNumber(normalizedCandidate, normalizedNumber)) {
+  String normalizedNumber = trimmedNumber;
+  if (!updateNormalizedNumber(normalizedNumber, normalizedNumber)) {
     Logger::warnln(F("Cannot add quick dial entry %s: normalization failed"),
                    trimmedNumber.c_str());
     return false;
   }
 
-  QuickDialEntry entry(code, normalizedCandidate, trimmedName, normalizedNumber);
+  // Generate unique ID
+  String id = generateQuickDialId();
+  QuickDialEntry entry(id, code, normalizedNumber, trimmedName);
   _quickDialEntries.push_back(entry);
   saveAndNotify(ConfigChangeType::QuickDial);
   return true;
 }
 
-bool DeviceConfig::removeQuickDialEntry(const String &code) {
+bool DeviceConfig::removeQuickDialById(const String &id) {
   auto it = std::find_if(_quickDialEntries.begin(),
                          _quickDialEntries.end(),
-                         [&code](const QuickDialEntry &entry) { return entry.code == code; });
+                         [&id](const QuickDialEntry &entry) { return entry.id == id; });
   if (it != _quickDialEntries.end()) {
     _quickDialEntries.erase(it);
     saveAndNotify(ConfigChangeType::QuickDial);
     return true;
   }
   return false;
+}
+
+QuickDialEntry *DeviceConfig::getQuickDialById(const String &id) {
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&id](const QuickDialEntry &entry) { return entry.id == id; });
+  if (it == _quickDialEntries.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
+const QuickDialEntry *DeviceConfig::getQuickDialById(const String &id) const {
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&id](const QuickDialEntry &entry) { return entry.id == id; });
+  if (it == _quickDialEntries.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
+bool DeviceConfig::hasQuickDialId(const String &id) const {
+  auto it = std::find_if(_quickDialEntries.begin(),
+                         _quickDialEntries.end(),
+                         [&id](const QuickDialEntry &entry) { return entry.id == id; });
+  return it != _quickDialEntries.end();
 }
 
 String DeviceConfig::getQuickDialNumber(const String &code) const {
@@ -391,7 +423,7 @@ String DeviceConfig::getQuickDialNumber(const String &code) const {
   if (it == _quickDialEntries.end()) {
     return String();
   }
-  return it->effectiveNumber();
+  return it->number;
 }
 
 bool DeviceConfig::hasQuickDialEntry(const String &code) const {
@@ -417,7 +449,7 @@ bool DeviceConfig::addBlockedNumber(const String &number, const String &name) {
 
   bool hasQuickDialNumber = std::any_of(
       _quickDialEntries.begin(), _quickDialEntries.end(), [&](const QuickDialEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
+        return entry.number.equalsIgnoreCase(normalizedCandidate);
       });
   if (hasQuickDialNumber) {
     Logger::warnln(F("Cannot block number %s: it is assigned to a quick dial entry"),
@@ -426,7 +458,7 @@ bool DeviceConfig::addBlockedNumber(const String &number, const String &name) {
   }
   auto it = std::find_if(
       _blockedNumbers.begin(), _blockedNumbers.end(), [&](const BlockedNumberEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
+        return entry.number.equalsIgnoreCase(normalizedCandidate);
       });
   if (it != _blockedNumbers.end()) {
     Logger::debugln(F("Blocked number already present: %s"), number.c_str());
@@ -436,29 +468,43 @@ bool DeviceConfig::addBlockedNumber(const String &number, const String &name) {
   String trimmedName = name;
   trimmedName.trim();
 
-  BlockedNumberEntry entry(normalizedCandidate, trimmedName, normalizedCandidate);
+  String id = generateBlockedNumberId();
+  BlockedNumberEntry entry(id, normalizedCandidate, trimmedName);
   _blockedNumbers.push_back(entry);
   saveAndNotify(ConfigChangeType::BlockedNumbers);
   return true;
 }
 
-bool DeviceConfig::removeBlockedNumber(const String &number) {
-  String trimmedNumber = number;
-  trimmedNumber.trim();
-  const String normalizedCandidate = normalizeNumber(trimmedNumber);
-  if (normalizedCandidate.isEmpty()) {
-    return false;
-  }
-  auto it = std::find_if(
-      _blockedNumbers.begin(), _blockedNumbers.end(), [&](const BlockedNumberEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
-      });
+bool DeviceConfig::removeBlockedNumberById(const String &id) {
+  auto it = std::find_if(_blockedNumbers.begin(),
+                         _blockedNumbers.end(),
+                         [&id](const BlockedNumberEntry &entry) { return entry.id == id; });
   if (it != _blockedNumbers.end()) {
     _blockedNumbers.erase(it);
     saveAndNotify(ConfigChangeType::BlockedNumbers);
     return true;
   }
   return false;
+}
+
+BlockedNumberEntry *DeviceConfig::getBlockedNumberById(const String &id) {
+  auto it = std::find_if(_blockedNumbers.begin(),
+                         _blockedNumbers.end(),
+                         [&id](const BlockedNumberEntry &entry) { return entry.id == id; });
+  if (it == _blockedNumbers.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
+const BlockedNumberEntry *DeviceConfig::getBlockedNumberById(const String &id) const {
+  auto it = std::find_if(_blockedNumbers.begin(),
+                         _blockedNumbers.end(),
+                         [&id](const BlockedNumberEntry &entry) { return entry.id == id; });
+  if (it == _blockedNumbers.end()) {
+    return nullptr;
+  }
+  return &(*it);
 }
 
 bool DeviceConfig::isIncomingCallBlocked(const String &number) const {
@@ -470,7 +516,7 @@ bool DeviceConfig::isIncomingCallBlocked(const String &number) const {
   }
   auto it = std::find_if(
       _blockedNumbers.begin(), _blockedNumbers.end(), [&](const BlockedNumberEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
+        return entry.number.equalsIgnoreCase(normalizedCandidate);
       });
   return it != _blockedNumbers.end();
 }
@@ -483,36 +529,30 @@ bool DeviceConfig::addPriorityCaller(const String &number) {
   }
   String trimmedNumber = number;
   trimmedNumber.trim();
-  const String normalizedCandidate = normalizeNumber(trimmedNumber);
-  if (normalizedCandidate.isEmpty()) {
+  const String normalizedNumber = normalizeNumber(trimmedNumber);
+  if (normalizedNumber.isEmpty()) {
     Logger::warnln(F("Cannot add priority caller %s: normalization failed"), number.c_str());
     return false;
   }
   auto it = std::find_if(
       _priorityCallers.begin(), _priorityCallers.end(), [&](const PriorityCallerEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
+        return entry.number.equalsIgnoreCase(normalizedNumber);
       });
   if (it != _priorityCallers.end()) {
     Logger::debugln(F("Priority caller already present: %s"), number.c_str());
     return false; // already present
   }
-  PriorityCallerEntry entry(normalizedCandidate, normalizedCandidate);
+  String id = generatePriorityCallerId();
+  PriorityCallerEntry entry(id, normalizedNumber);
   _priorityCallers.push_back(entry);
   saveAndNotify(ConfigChangeType::PriorityCallers);
   return true;
 }
 
-bool DeviceConfig::removePriorityCaller(const String &number) {
-  String trimmedNumber = number;
-  trimmedNumber.trim();
-  const String normalizedCandidate = normalizeNumber(trimmedNumber);
-  if (normalizedCandidate.isEmpty()) {
-    return false;
-  }
-  auto it = std::find_if(
-      _priorityCallers.begin(), _priorityCallers.end(), [&](const PriorityCallerEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
-      });
+bool DeviceConfig::removePriorityCallerById(const String &id) {
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&id](const PriorityCallerEntry &entry) { return entry.id == id; });
   if (it != _priorityCallers.end()) {
     _priorityCallers.erase(it);
     saveAndNotify(ConfigChangeType::PriorityCallers);
@@ -521,16 +561,36 @@ bool DeviceConfig::removePriorityCaller(const String &number) {
   return false;
 }
 
+PriorityCallerEntry *DeviceConfig::getPriorityCallerById(const String &id) {
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&id](const PriorityCallerEntry &entry) { return entry.id == id; });
+  if (it == _priorityCallers.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
+const PriorityCallerEntry *DeviceConfig::getPriorityCallerById(const String &id) const {
+  auto it = std::find_if(_priorityCallers.begin(),
+                         _priorityCallers.end(),
+                         [&id](const PriorityCallerEntry &entry) { return entry.id == id; });
+  if (it == _priorityCallers.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
 bool DeviceConfig::isPriorityCaller(const String &number) const {
   String trimmedNumber = number;
   trimmedNumber.trim();
-  const String normalizedCandidate = normalizeNumber(trimmedNumber);
-  if (normalizedCandidate.isEmpty()) {
+  const String normalizedNumber = normalizeNumber(trimmedNumber);
+  if (normalizedNumber.isEmpty()) {
     return false;
   }
   auto it = std::find_if(
       _priorityCallers.begin(), _priorityCallers.end(), [&](const PriorityCallerEntry &entry) {
-        return entry.matchesNormalized(normalizedCandidate);
+        return entry.number.equalsIgnoreCase(normalizedNumber);
       });
   return it != _priorityCallers.end();
 }
@@ -557,6 +617,49 @@ bool DeviceConfig::isCodeConflict(const String &code) const {
   return hasQuickDialEntry(code);
 }
 
+String DeviceConfig::generateQuickDialId() {
+  // Generate a simple unique ID using timestamp + random number
+  // Format: qd_<timestamp>_<random>
+  static uint32_t counter = 0;
+  counter++;
+
+  unsigned long timestamp = millis();
+  uint32_t randomVal = esp_random();
+
+  char idBuffer[32];
+  snprintf(idBuffer, sizeof(idBuffer), "qd_%lu_%08x_%u", timestamp, randomVal, counter);
+
+  return String(idBuffer);
+}
+
+String DeviceConfig::generateBlockedNumberId() {
+  // Format: bl_<timestamp>_<random>
+  static uint32_t counter = 0;
+  counter++;
+
+  unsigned long timestamp = millis();
+  uint32_t randomVal = esp_random();
+
+  char idBuffer[32];
+  snprintf(idBuffer, sizeof(idBuffer), "bl_%lu_%08x_%u", timestamp, randomVal, counter);
+
+  return String(idBuffer);
+}
+
+String DeviceConfig::generatePriorityCallerId() {
+  // Format: pr_%<timestamp>_<random>
+  static uint32_t counter = 0;
+  counter++;
+
+  unsigned long timestamp = millis();
+  uint32_t randomVal = esp_random();
+
+  char idBuffer[32];
+  snprintf(idBuffer, sizeof(idBuffer), "pr_%lu_%08x_%u", timestamp, randomVal, counter);
+
+  return String(idBuffer);
+}
+
 void DeviceConfig::setHomeAssistantUrl(const String &url) {
   if (_homeAssistantUrl != url) {
     _homeAssistantUrl = url;
@@ -580,13 +683,13 @@ String DeviceConfig::normalizeNumber(const String &number) const {
 
 void DeviceConfig::refreshNormalizedNumbers() {
   for (auto &entry : _quickDialEntries) {
-    updateNormalizedNumber(entry.number, entry.normalizedNumber);
+    updateNormalizedNumber(entry.number, entry.number);
   }
   for (auto &entry : _blockedNumbers) {
-    updateNormalizedNumber(entry.number, entry.normalizedNumber);
+    updateNormalizedNumber(entry.number, entry.number);
   }
   for (auto &entry : _priorityCallers) {
-    updateNormalizedNumber(entry.number, entry.normalizedNumber);
+    updateNormalizedNumber(entry.number, entry.number);
   }
 }
 

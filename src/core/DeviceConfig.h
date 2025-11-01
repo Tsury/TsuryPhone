@@ -34,72 +34,36 @@ struct DndConfig {
 };
 
 struct QuickDialEntry {
-  String code;
-  String number;
-  String normalizedNumber;
+  String id;                // Unique identifier (generated)
+  String code;              // Optional quick dial code (can be empty)
+  String number;            // Normalized E.164 format (e.g., "+972546662771")
   String name;
 
   QuickDialEntry() = default;
-  QuickDialEntry(const String &c,
+  QuickDialEntry(const String &i,
+                 const String &c,
                  const String &n,
-                 const String &nm = "",
-                 const String &normalized = "")
-      : code(c), number(n), normalizedNumber(normalized), name(nm) {}
-
-  bool hasNormalized() const {
-    return !normalizedNumber.isEmpty();
-  }
-
-  const String &effectiveNumber() const {
-    return normalizedNumber.isEmpty() ? number : normalizedNumber;
-  }
-
-  bool matchesNormalized(const String &candidate) const {
-    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
-  }
+                 const String &nm = "")
+      : id(i), code(c), number(n), name(nm) {}
 };
 
 struct BlockedNumberEntry {
-  String number;
-  String normalizedNumber;
+  String id;                // Unique identifier (generated)
+  String number;            // Normalized E.164 format
   String name;
 
   BlockedNumberEntry() = default;
-  BlockedNumberEntry(const String &n, const String &nm = "", const String &normalized = "")
-      : number(n), normalizedNumber(normalized), name(nm) {}
-
-  bool hasNormalized() const {
-    return !normalizedNumber.isEmpty();
-  }
-
-  const String &effectiveNumber() const {
-    return normalizedNumber.isEmpty() ? number : normalizedNumber;
-  }
-
-  bool matchesNormalized(const String &candidate) const {
-    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
-  }
+  BlockedNumberEntry(const String &i, const String &n, const String &nm = "")
+      : id(i), number(n), name(nm) {}
 };
 
 struct PriorityCallerEntry {
-  String number;
-  String normalizedNumber;
+  String id;                // Unique identifier (generated)
+  String number;            // Normalized E.164 format
 
   PriorityCallerEntry() = default;
-  PriorityCallerEntry(const String &n, const String &normalized = "")
-      : number(n), normalizedNumber(normalized) {}
-
-  bool hasNormalized() const {
-    return !normalizedNumber.isEmpty();
-  }
-
-  const String &effectiveNumber() const {
-    return normalizedNumber.isEmpty() ? number : normalizedNumber;
-  }
-
-  bool matchesNormalized(const String &candidate) const {
-    return hasNormalized() && normalizedNumber.equalsIgnoreCase(candidate);
-  }
+  PriorityCallerEntry(const String &i, const String &n)
+      : id(i), number(n) {}
 };
 
 class DeviceConfig {
@@ -139,16 +103,21 @@ public:
     return _quickDialEntries;
   }
   bool addQuickDialEntry(const String &code, const String &number, const String &name = "");
-  bool removeQuickDialEntry(const String &code);
+  bool removeQuickDialById(const String &id);
   String getQuickDialNumber(const String &code) const;
+  QuickDialEntry* getQuickDialById(const String &id);
+  const QuickDialEntry* getQuickDialById(const String &id) const;
   bool hasQuickDialEntry(const String &code) const;
+  bool hasQuickDialId(const String &id) const;
 
   // Blocked numbers
   const std::vector<BlockedNumberEntry> &getBlockedNumbers() const {
     return _blockedNumbers;
   }
   bool addBlockedNumber(const String &number, const String &name = "");
-  bool removeBlockedNumber(const String &number);
+  bool removeBlockedNumberById(const String &id);
+  BlockedNumberEntry* getBlockedNumberById(const String &id);
+  const BlockedNumberEntry* getBlockedNumberById(const String &id) const;
   bool isIncomingCallBlocked(const String &number) const;
 
   // Priority callers
@@ -156,7 +125,9 @@ public:
     return _priorityCallers;
   }
   bool addPriorityCaller(const String &number);
-  bool removePriorityCaller(const String &number);
+  bool removePriorityCallerById(const String &id);
+  PriorityCallerEntry* getPriorityCallerById(const String &id);
+  const PriorityCallerEntry* getPriorityCallerById(const String &id) const;
   bool isPriorityCaller(const String &number) const;
 
   // Default dialing code
@@ -190,6 +161,9 @@ public:
 private:
   void initializeDefaults();
   bool isCodeConflict(const String &code) const;
+  String generateQuickDialId();
+  String generateBlockedNumberId();
+  String generatePriorityCallerId();
   void notifyConfigChanged(ConfigChangeType changeType);
   void saveAndNotify(ConfigChangeType changeType);
   void refreshNormalizedNumbers();

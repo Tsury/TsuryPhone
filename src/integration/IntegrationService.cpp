@@ -510,11 +510,8 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
       const auto &addedEntry = entries.back();
       entry["id"] = addedEntry.id;
       entry["code"] = addedEntry.code;
-      entry["number"] = addedEntry.effectiveNumber();
+      entry["number"] = addedEntry.number;
       entry["name"] = addedEntry.name;
-      if (addedEntry.hasNormalized()) {
-        entry["normalizedNumber"] = addedEntry.normalizedNumber;
-      }
     }
 
     return IntegrationCallbackResult(true, resultData);
@@ -568,18 +565,14 @@ IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const Strin
       auto it = std::find_if(blockedEntries.begin(),
                              blockedEntries.end(),
                              [&](const BlockedNumberEntry &blockedEntry) {
-                               return blockedEntry.matchesNormalized(normalizedCandidate);
+                               return blockedEntry.number.equalsIgnoreCase(normalizedCandidate);
                              });
       if (it != blockedEntries.end()) {
         entry["id"] = it->id;
-        entry["number"] = it->effectiveNumber();
+        entry["number"] = it->number;
         entry["name"] = it->name;
-        if (it->hasNormalized()) {
-          entry["normalizedNumber"] = it->normalizedNumber;
-        }
       } else {
         entry["number"] = normalizedCandidate;
-        entry["normalizedNumber"] = normalizedCandidate;
       }
     }
 
@@ -641,17 +634,13 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
     auto it = std::find_if(priorityEntries.begin(),
                            priorityEntries.end(),
                            [&](const PriorityCallerEntry &priorityEntry) {
-                             return priorityEntry.matchesNormalized(normalizedCandidate);
+                             return priorityEntry.number.equalsIgnoreCase(normalizedCandidate);
                            });
     if (it != priorityEntries.end()) {
       entry["id"] = it->id;
-      entry["number"] = it->effectiveNumber();
-      if (it->hasNormalized()) {
-        entry["normalizedNumber"] = it->normalizedNumber;
-      }
+      entry["number"] = it->number;
     } else {
       entry["number"] = normalizedCandidate;
-      entry["normalizedNumber"] = normalizedCandidate;
     }
   }
   return IntegrationCallbackResult(true, resultData);
@@ -898,9 +887,6 @@ void IntegrationService::addPhone(JsonObject &doc) {
     entryObj["code"] = entry.code;
     entryObj["number"] = entry.number;
     entryObj["name"] = entry.name;
-    if (entry.hasNormalized()) {
-      entryObj["normalizedNumber"] = entry.normalizedNumber;
-    }
   }
 
   // Blocked numbers
@@ -910,22 +896,14 @@ void IntegrationService::addPhone(JsonObject &doc) {
     entryObj["id"] = entry.id;
     entryObj["number"] = entry.number;
     entryObj["name"] = entry.name;
-    if (entry.hasNormalized()) {
-      entryObj["normalizedNumber"] = entry.normalizedNumber;
-    }
   }
 
   // Priority callers
-  JsonArray priority = phone["priorityCallers"].to<JsonArray>();
   JsonArray priorityDetails = phone["priorityCallerDetails"].to<JsonArray>();
   for (const auto &entry : _config.getPriorityCallers()) {
-    priority.add(entry.number);
     JsonObject obj = priorityDetails.add<JsonObject>();
     obj["id"] = entry.id;
     obj["number"] = entry.number;
-    if (entry.hasNormalized()) {
-      obj["normalizedNumber"] = entry.normalizedNumber;
-    }
   }
 }
 

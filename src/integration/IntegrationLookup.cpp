@@ -16,14 +16,14 @@ namespace IntegrationLookup {
 
     const auto &quickDialEntries = config.getQuickDialEntries();
     for (const auto &entry : quickDialEntries) {
-      if (entry.matchesNormalized(normalizedTarget) && !entry.name.isEmpty()) {
+      if (entry.number.equalsIgnoreCase(normalizedTarget) && !entry.name.isEmpty()) {
         return entry.name;
       }
     }
 
     const auto &blockedNumbers = config.getBlockedNumbers();
     for (const auto &entry : blockedNumbers) {
-      if (entry.matchesNormalized(normalizedTarget) && !entry.name.isEmpty()) {
+      if (entry.number.equalsIgnoreCase(normalizedTarget) && !entry.name.isEmpty()) {
         return entry.name;
       }
     }
