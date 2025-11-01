@@ -160,6 +160,11 @@ void HAIntegration::setDialDigitCallback(
   _integrationService.setDialDigitCallback(callback);
 }
 
+void HAIntegration::setDeleteLastDigitCallback(
+    std::function<IntegrationCallbackResult()> callback) {
+  _integrationService.setDeleteLastDigitCallback(callback);
+}
+
 void HAIntegration::setSendDialedNumberCallback(
     std::function<IntegrationCallbackResult()> callback) {
   _integrationService.setSendDialedNumberCallback(callback);
@@ -239,6 +244,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleDialRequest(data["number"].as<String>());
         } else if (command == "dial_digit") {
           return handleDialDigitRequest(data);
+        } else if (command == "delete_last_digit") {
+          return handleDeleteLastDigitRequest();
         } else if (command == "send_dialed_number") {
           return handleSendDialedNumberRequest();
         } else if (command == "answer") {
@@ -503,6 +510,14 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
   return convertResult(result);
 }
 
+HAOperationResult HAIntegration::handleDeleteLastDigitRequest() {
+  IntegrationCallbackResult result = _integrationService.handleDeleteLastDigit();
+  if (result.success) {
+    INTL_INFO("Delete last digit success");
+  }
+  return convertResult(result);
+}
+
 HAOperationResult HAIntegration::handleSendDialedNumberRequest() {
   IntegrationCallbackResult result = _integrationService.handleSendDialedNumber();
   if (result.success) {
@@ -699,7 +714,8 @@ HAOperationResult HAIntegration::handleFactoryReset() {
 HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
 
-  String code = jsonObj["code"].as<String>();
+  // Code is now optional
+  String code = jsonObj["code"].is<const char *>() ? jsonObj["code"].as<String>() : "";
   String number = jsonObj["number"].as<String>();
   String name = jsonObj["name"].as<String>(); // Optional
 
@@ -709,10 +725,16 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
     // Broadcast structured payload for future extensibility
     JsonDocument payload;
     JsonObject obj = payload.to<JsonObject>();
-    obj["code"] = code;
+    if (!code.isEmpty()) {
+      obj["code"] = code;
+    }
     obj["number"] = number;
     if (!name.isEmpty()) {
       obj["name"] = name;
+    }
+    // Include the ID from the result data
+    if (result.data["entry"].is<JsonObject>() && result.data["entry"]["id"].is<const char*>()) {
+      obj["id"] = result.data["entry"]["id"].as<String>();
     }
     // Wrap object to JsonVariant for correct overload resolution
     broadcastStateChange("quick_dial.add", payload.as<JsonVariant>());
@@ -722,12 +744,22 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
 
 HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
-  String code = jsonObj["code"].as<String>();
+  
+  // Only support id (no backwards compat for code)
+  String id = jsonObj["id"].is<const char *>() ? jsonObj["id"].as<String>() : "";
 
-  IntegrationCallbackResult result = _integrationService.handleRemoveQuickDial(code);
+  if (id.isEmpty()) {
+    return HAOperationResult(false, "'id' is required");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleRemoveQuickDialById(id);
+  
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("quick_dial.remove", code);
+    JsonDocument payload;
+    JsonObject obj = payload.to<JsonObject>();
+    obj["id"] = id;
+    broadcastStateChange("quick_dial.remove", payload.as<JsonVariant>());
   }
   return haResult;
 }
@@ -795,24 +827,32 @@ HAOperationResult HAIntegration::handleAddPriorityCaller(const JsonVariant &json
 
 HAOperationResult HAIntegration::handleRemovePriorityCaller(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
-  String number = jsonObj["number"].as<String>();
+  String id = jsonObj["id"].as<String>();
 
-  IntegrationCallbackResult result = _integrationService.handleRemovePriorityCaller(number);
+  if (id.isEmpty()) {
+    return HAOperationResult(false, "'id' is required");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleRemovePriorityCallerById(id);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("priority.remove", number);
+    broadcastStateChange("priority.remove", id);
   }
   return haResult;
 }
 
 HAOperationResult HAIntegration::handleRemoveBlockedNumber(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
-  String number = jsonObj["number"].as<String>();
+  String id = jsonObj["id"].as<String>();
 
-  IntegrationCallbackResult result = _integrationService.handleRemoveBlockedNumber(number);
+  if (id.isEmpty()) {
+    return HAOperationResult(false, "'id' is required");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleRemoveBlockedNumberById(id);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
-    broadcastStateChange("blocked.remove", number);
+    broadcastStateChange("blocked.remove", id);
   }
   return haResult;
 }

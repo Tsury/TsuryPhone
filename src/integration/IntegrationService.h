@@ -28,6 +28,7 @@ public:
   // Device operation callbacks (set by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback);
+  void setDeleteLastDigitCallback(std::function<IntegrationCallbackResult()> callback);
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
@@ -40,6 +41,7 @@ public:
   // Core business logic methods - these contain the actual logic
   IntegrationCallbackResult handleDialRequest(const String &number);
   IntegrationCallbackResult handleDialDigit(uint8_t digit, bool deferValidation = false);
+  IntegrationCallbackResult handleDeleteLastDigit();
   IntegrationCallbackResult handleSendDialedNumber();
   IntegrationCallbackResult handleAnswerRequest();
   IntegrationCallbackResult handleHangupRequest();
@@ -59,15 +61,15 @@ public:
   // Quick dial management
   IntegrationCallbackResult
   handleAddQuickDial(const String &code, const String &number, const String &name = "");
-  IntegrationCallbackResult handleRemoveQuickDial(const String &code);
+  IntegrationCallbackResult handleRemoveQuickDialById(const String &id);
 
   // Blocked numbers management
   IntegrationCallbackResult handleAddBlockedNumber(const String &number, const String &name = "");
-  IntegrationCallbackResult handleRemoveBlockedNumber(const String &number);
+  IntegrationCallbackResult handleRemoveBlockedNumberById(const String &id);
 
   // Priority callers management
   IntegrationCallbackResult handleAddPriorityCaller(const String &number);
-  IntegrationCallbackResult handleRemovePriorityCaller(const String &number);
+  IntegrationCallbackResult handleRemovePriorityCallerById(const String &id);
 
   // Data operations
   IntegrationCallbackResult handleGetTsuryPhoneConfig();
@@ -177,6 +179,7 @@ private:
   // Device operation callbacks
   std::function<IntegrationCallbackResult(const String &)> _dialCallback;
   std::function<IntegrationCallbackResult(uint8_t, bool)> _dialDigitCallback;
+  std::function<IntegrationCallbackResult()> _deleteLastDigitCallback;
   std::function<IntegrationCallbackResult()> _sendDialedNumberCallback;
   std::function<IntegrationCallbackResult()> _answerCallback;
   std::function<IntegrationCallbackResult()> _hangupCallback;

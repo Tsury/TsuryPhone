@@ -112,8 +112,12 @@ void HAWebServer::setupRoutes() {
     handleDialDigit(req, json);
   });
 
-  _server.on("/api/call/send_dialed_number", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    handleSendDialedNumber(request);
+  _server.on("/api/call/delete_last_digit", HTTP_POST, [this](AsyncWebServerRequest *req) {
+    handleDeleteLastDigit(req);
+  });
+
+  _server.on("/api/call/send_dialed_number", HTTP_POST, [this](AsyncWebServerRequest *req) {
+    handleSendDialedNumber(req);
   });
 
   addJsonPostRoute(
@@ -315,6 +319,11 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
   commandData["digit"] = digit;
   commandData["deferValidation"] = deferValidation;
   executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
+}
+
+void HAWebServer::handleDeleteLastDigit(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Delete last digit request"));
+  executeCommand(request, "delete_last_digit", JsonVariant());
 }
 
 void HAWebServer::handleSendDialedNumber(AsyncWebServerRequest *request) {
@@ -636,12 +645,8 @@ void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVari
     sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
     return;
   }
-  if (!json["code"]) {
-    sendErrorResponse(request, "Missing required parameter: 'code'", 400, "WEB_MISSING_CODE");
-    return;
-  }
-  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
-    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+  if (!json["id"]) {
+    sendErrorResponse(request, "Missing required parameter: 'id'", 400, "WEB_MISSING_ID");
     return;
   }
 
@@ -745,12 +750,8 @@ void HAWebServer::handleRemovePriorityCaller(AsyncWebServerRequest *request, Jso
     sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
     return;
   }
-  if (!json["number"]) {
-    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
-    return;
-  }
-  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
-    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+  if (!json["id"]) {
+    sendErrorResponse(request, "Missing required parameter: 'id'", 400, "WEB_MISSING_ID");
     return;
   }
   Logger::infoln(F("HA API: Remove priority caller request"));
@@ -763,12 +764,8 @@ void HAWebServer::handleRemoveBlockedNumber(AsyncWebServerRequest *request, Json
     return;
   }
 
-  if (!json["number"]) {
-    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
-    return;
-  }
-  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
-    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+  if (!json["id"]) {
+    sendErrorResponse(request, "Missing required parameter: 'id'", 400, "WEB_MISSING_ID");
     return;
   }
 

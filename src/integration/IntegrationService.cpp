@@ -50,6 +50,11 @@ void IntegrationService::setDialDigitCallback(
   _dialDigitCallback = callback;
 }
 
+void IntegrationService::setDeleteLastDigitCallback(
+    std::function<IntegrationCallbackResult()> callback) {
+  _deleteLastDigitCallback = callback;
+}
+
 void IntegrationService::setSendDialedNumberCallback(
     std::function<IntegrationCallbackResult()> callback) {
   _sendDialedNumberCallback = callback;
@@ -113,6 +118,22 @@ IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, boo
                   "Dial digit %u failed: %s",
                   static_cast<unsigned>(digit),
                   result.errorMessage.c_str());
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleDeleteLastDigit() {
+  if (!_deleteLastDigitCallback) {
+    return IntegrationCallbackResult(
+        false, "Delete last digit callback not available", "WEB_SERVICE_UNAVAILABLE");
+  }
+
+  IntegrationCallbackResult result = _deleteLastDigitCallback();
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Delete last digit success");
+  } else {
+    INT_LOG_ERROR("CORE", "Delete last digit failed: %s", result.errorMessage.c_str());
   }
 
   return result;
@@ -460,11 +481,13 @@ IntegrationCallbackResult IntegrationService::handleSetDialingConfig(const JsonV
 IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &code,
                                                                  const String &number,
                                                                  const String &name) {
-  if (code.isEmpty() || number.isEmpty()) {
-    return IntegrationCallbackResult(false, "Code and number cannot be empty");
+  // Code is now optional - only number is required
+  if (number.isEmpty()) {
+    return IntegrationCallbackResult(false, "Number cannot be empty");
   }
 
-  if (_config.hasQuickDialEntry(code)) {
+  // Only check for code conflict if code is provided
+  if (!code.isEmpty() && _config.hasQuickDialEntry(code)) {
     return IntegrationCallbackResult(false, "Code already exists in quick dial entries");
   }
 
@@ -476,23 +499,22 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
     JsonDocument resultData;
     JsonObject data = resultData.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
-    entry["code"] = code;
-    entry["number"] = number;
-    entry["name"] = name;
+    
     String trimmedNumberStr = number;
     trimmedNumberStr.trim();
     const String normalizedCandidate = _config.normalizeNumber(trimmedNumberStr);
     const auto &entries = _config.getQuickDialEntries();
-    auto it = std::find_if(
-        entries.begin(), entries.end(), [&](const QuickDialEntry &qd) { return qd.code == code; });
-    if (it != entries.end()) {
-      entry["number"] = it->effectiveNumber();
-      if (it->hasNormalized()) {
-        entry["normalizedNumber"] = it->normalizedNumber;
+    
+    // Find the entry we just added (last one since we just pushed it)
+    if (!entries.empty()) {
+      const auto &addedEntry = entries.back();
+      entry["id"] = addedEntry.id;
+      entry["code"] = addedEntry.code;
+      entry["number"] = addedEntry.effectiveNumber();
+      entry["name"] = addedEntry.name;
+      if (addedEntry.hasNormalized()) {
+        entry["normalizedNumber"] = addedEntry.normalizedNumber;
       }
-    } else if (!normalizedCandidate.isEmpty()) {
-      entry["number"] = normalizedCandidate;
-      entry["normalizedNumber"] = normalizedCandidate;
     }
 
     return IntegrationCallbackResult(true, resultData);
@@ -501,12 +523,12 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
   }
 }
 
-IntegrationCallbackResult IntegrationService::handleRemoveQuickDial(const String &code) {
-  if (code.isEmpty()) {
-    return IntegrationCallbackResult(false, "Code cannot be empty");
+IntegrationCallbackResult IntegrationService::handleRemoveQuickDialById(const String &id) {
+  if (id.isEmpty()) {
+    return IntegrationCallbackResult(false, "ID cannot be empty");
   }
 
-  if (_config.removeQuickDialEntry(code)) {
+  if (_config.removeQuickDialById(id)) {
     // Publish config change event
     // Config change event emitted externally (C2)
 
@@ -548,9 +570,13 @@ IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const Strin
                              [&](const BlockedNumberEntry &blockedEntry) {
                                return blockedEntry.matchesNormalized(normalizedCandidate);
                              });
-      if (it != blockedEntries.end() && it->hasNormalized()) {
+      if (it != blockedEntries.end()) {
+        entry["id"] = it->id;
         entry["number"] = it->effectiveNumber();
-        entry["normalizedNumber"] = it->normalizedNumber;
+        entry["name"] = it->name;
+        if (it->hasNormalized()) {
+          entry["normalizedNumber"] = it->normalizedNumber;
+        }
       } else {
         entry["number"] = normalizedCandidate;
         entry["normalizedNumber"] = normalizedCandidate;
@@ -563,12 +589,12 @@ IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const Strin
   }
 }
 
-IntegrationCallbackResult IntegrationService::handleRemoveBlockedNumber(const String &number) {
-  if (number.isEmpty()) {
-    return IntegrationCallbackResult(false, "Number cannot be empty");
+IntegrationCallbackResult IntegrationService::handleRemoveBlockedNumberById(const String &id) {
+  if (id.isEmpty()) {
+    return IntegrationCallbackResult(false, "ID cannot be empty");
   }
 
-  if (_config.removeBlockedNumber(number)) {
+  if (_config.removeBlockedNumberById(id)) {
     // Publish config change event
     // Config change event emitted externally (C2)
 
@@ -617,9 +643,12 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
                            [&](const PriorityCallerEntry &priorityEntry) {
                              return priorityEntry.matchesNormalized(normalizedCandidate);
                            });
-    if (it != priorityEntries.end() && it->hasNormalized()) {
+    if (it != priorityEntries.end()) {
+      entry["id"] = it->id;
       entry["number"] = it->effectiveNumber();
-      entry["normalizedNumber"] = it->normalizedNumber;
+      if (it->hasNormalized()) {
+        entry["normalizedNumber"] = it->normalizedNumber;
+      }
     } else {
       entry["number"] = normalizedCandidate;
       entry["normalizedNumber"] = normalizedCandidate;
@@ -628,20 +657,20 @@ IntegrationCallbackResult IntegrationService::handleAddPriorityCaller(const Stri
   return IntegrationCallbackResult(true, resultData);
 }
 
-IntegrationCallbackResult IntegrationService::handleRemovePriorityCaller(const String &number) {
-  if (number.isEmpty()) {
-    INT_LOG_WARN("CORE", "Priority remove rejected: empty number");
-    return IntegrationCallbackResult(false, "Number cannot be empty");
+IntegrationCallbackResult IntegrationService::handleRemovePriorityCallerById(const String &id) {
+  if (id.isEmpty()) {
+    INT_LOG_WARN("CORE", "Priority remove rejected: empty ID");
+    return IntegrationCallbackResult(false, "ID cannot be empty");
   }
 
-  if (!_config.removePriorityCaller(number)) {
-    INT_LOG_WARN("CORE", "Priority remove failed (not found) %s", number.c_str());
+  if (!_config.removePriorityCallerById(id)) {
+    INT_LOG_WARN("CORE", "Priority remove failed (not found) %s", id.c_str());
     return IntegrationCallbackResult(false, "Priority caller not found");
   }
 
   INT_LOG_INFO("CORE",
                "Priority caller removed %s remaining=%u",
-               number.c_str(),
+               id.c_str(),
                (unsigned)_config.getPriorityCallers().size());
 
   return IntegrationCallbackResult(true);
@@ -865,6 +894,7 @@ void IntegrationService::addPhone(JsonObject &doc) {
   JsonArray quickDial = phone["quickDial"].to<JsonArray>();
   for (const auto &entry : _config.getQuickDialEntries()) {
     JsonObject entryObj = quickDial.add<JsonObject>();
+    entryObj["id"] = entry.id;
     entryObj["code"] = entry.code;
     entryObj["number"] = entry.number;
     entryObj["name"] = entry.name;
@@ -877,6 +907,7 @@ void IntegrationService::addPhone(JsonObject &doc) {
   JsonArray blocked = phone["blocked"].to<JsonArray>();
   for (const auto &entry : _config.getBlockedNumbers()) {
     JsonObject entryObj = blocked.add<JsonObject>();
+    entryObj["id"] = entry.id;
     entryObj["number"] = entry.number;
     entryObj["name"] = entry.name;
     if (entry.hasNormalized()) {
@@ -890,6 +921,7 @@ void IntegrationService::addPhone(JsonObject &doc) {
   for (const auto &entry : _config.getPriorityCallers()) {
     priority.add(entry.number);
     JsonObject obj = priorityDetails.add<JsonObject>();
+    obj["id"] = entry.id;
     obj["number"] = entry.number;
     if (entry.hasNormalized()) {
       obj["normalizedNumber"] = entry.normalizedNumber;

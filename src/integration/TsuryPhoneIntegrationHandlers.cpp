@@ -71,6 +71,37 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t 
   return IntegrationCallbackResult(true);
 }
 
+IntegrationCallbackResult TsuryPhone::handleIntegrationDeleteLastDigitRequest() {
+  Logger::infoln(F("Integration delete last digit request"));
+
+  // Check if phone is in valid state for deleting digits
+  if (_state.newAppState != AppState::Idle) {
+    String error = "Phone must be idle to delete digits";
+    Logger::errorln(F("Integration delete last digit request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_INVALID_STATE");
+  }
+
+  // Check if there are any digits to delete
+  size_t len = strlen(_state.currentDialingNumber);
+  if (len == 0) {
+    String error = "No digits to delete";
+    Logger::errorln(F("Integration delete last digit request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_EMPTY_BUFFER");
+  }
+
+  // Delete the last digit
+  _state.currentDialingNumber[len - 1] = '\0';
+  
+  Logger::infoln(F("Deleted last digit. Remaining: %s"), _state.currentDialingNumber);
+
+  // Notify integration of the updated dialing progress
+  if (_integrationManager) {
+    _integrationManager->updateDialingProgress(_state.currentDialingNumber);
+  }
+
+  return IntegrationCallbackResult(true, "Last digit deleted");
+}
+
 IntegrationCallbackResult TsuryPhone::handleIntegrationSendDialedNumberRequest() {
   Logger::infoln(F("Integration send dialed number request"));
 
