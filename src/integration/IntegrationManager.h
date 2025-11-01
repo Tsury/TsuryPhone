@@ -37,6 +37,7 @@ public:
   void setupTsuryPhoneCallbacks(
       std::function<IntegrationCallbackResult(const String &)> dialCallback,
       std::function<IntegrationCallbackResult(uint8_t, bool)> dialDigitCallback,
+      std::function<IntegrationCallbackResult()> deleteLastDigitCallback,
       std::function<IntegrationCallbackResult()> sendDialedNumberCallback,
       std::function<IntegrationCallbackResult()> answerCallback,
       std::function<IntegrationCallbackResult()> hangupCallback,
@@ -67,6 +68,7 @@ public:
   // Device operation callbacks - sets callbacks for all integrations
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback);
+  void setDeleteLastDigitCallback(std::function<IntegrationCallbackResult()> callback);
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);

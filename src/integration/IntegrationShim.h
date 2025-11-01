@@ -38,6 +38,7 @@ public:
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
+                                std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult(const String &, bool)>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult(VolumeMode)>,
@@ -46,6 +47,7 @@ public:
                                 std::function<void()>,
                                 std::function<void(ConfigChangeEvent)>) {}
   void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)>) {}
+  void setDeleteLastDigitCallback(std::function<IntegrationCallbackResult()>) {}
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()>) {}
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)>) {}
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)>) {}
