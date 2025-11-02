@@ -622,15 +622,19 @@ void HAWebServer::handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant
     return;
   }
 
-  if (!json["code"] || !json["number"]) {
+  // Code is optional, but number is required
+  if (!json["number"]) {
     sendErrorResponse(
-        request, "Missing required parameters: 'code' and 'number'", 400, "WEB_MISSING_CODE");
+        request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
     return;
   }
-  if (!IntegrationValidation::isValidCode(json["code"].as<String>())) {
+  
+  // Validate code if provided
+  if (json["code"] && !IntegrationValidation::isValidCode(json["code"].as<String>())) {
     sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
     return;
   }
+  
   if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
     sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
     return;
