@@ -733,7 +733,7 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
       obj["name"] = name;
     }
     // Include the ID from the result data
-    if (result.data["entry"].is<JsonObject>() && result.data["entry"]["id"].is<const char*>()) {
+    if (result.data["entry"].is<JsonObject>() && result.data["entry"]["id"].is<const char *>()) {
       obj["id"] = result.data["entry"]["id"].as<String>();
     }
     // Wrap object to JsonVariant for correct overload resolution
@@ -744,7 +744,7 @@ HAOperationResult HAIntegration::handleAddQuickDial(const JsonVariant &json) {
 
 HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
-  
+
   // Only support id (no backwards compat for code)
   String id = jsonObj["id"].is<const char *>() ? jsonObj["id"].as<String>() : "";
 
@@ -753,7 +753,7 @@ HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) 
   }
 
   IntegrationCallbackResult result = _integrationService.handleRemoveQuickDialById(id);
-  
+
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
     JsonDocument payload;

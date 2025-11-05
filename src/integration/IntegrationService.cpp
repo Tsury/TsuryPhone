@@ -499,12 +499,12 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
     JsonDocument resultData;
     JsonObject data = resultData.to<JsonObject>();
     JsonObject entry = data["entry"].to<JsonObject>();
-    
+
     String trimmedNumberStr = number;
     trimmedNumberStr.trim();
     const String normalizedCandidate = _config.normalizeNumber(trimmedNumberStr);
     const auto &entries = _config.getQuickDialEntries();
-    
+
     // Find the entry we just added (last one since we just pushed it)
     if (!entries.empty()) {
       const auto &addedEntry = entries.back();

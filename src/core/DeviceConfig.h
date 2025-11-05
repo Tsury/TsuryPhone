@@ -34,22 +34,19 @@ struct DndConfig {
 };
 
 struct QuickDialEntry {
-  String id;                // Unique identifier (generated)
-  String code;              // Optional quick dial code (can be empty)
-  String number;            // Normalized E.164 format (e.g., "+972546662771")
+  String id;     // Unique identifier (generated)
+  String code;   // Optional quick dial code (can be empty)
+  String number; // Normalized E.164 format (e.g., "+972546662771")
   String name;
 
   QuickDialEntry() = default;
-  QuickDialEntry(const String &i,
-                 const String &c,
-                 const String &n,
-                 const String &nm = "")
+  QuickDialEntry(const String &i, const String &c, const String &n, const String &nm = "")
       : id(i), code(c), number(n), name(nm) {}
 };
 
 struct BlockedNumberEntry {
-  String id;                // Unique identifier (generated)
-  String number;            // Normalized E.164 format
+  String id;     // Unique identifier (generated)
+  String number; // Normalized E.164 format
   String name;
 
   BlockedNumberEntry() = default;
@@ -58,12 +55,11 @@ struct BlockedNumberEntry {
 };
 
 struct PriorityCallerEntry {
-  String id;                // Unique identifier (generated)
-  String number;            // Normalized E.164 format
+  String id;     // Unique identifier (generated)
+  String number; // Normalized E.164 format
 
   PriorityCallerEntry() = default;
-  PriorityCallerEntry(const String &i, const String &n)
-      : id(i), number(n) {}
+  PriorityCallerEntry(const String &i, const String &n) : id(i), number(n) {}
 };
 
 class DeviceConfig {
@@ -105,8 +101,8 @@ public:
   bool addQuickDialEntry(const String &code, const String &number, const String &name = "");
   bool removeQuickDialById(const String &id);
   String getQuickDialNumber(const String &code) const;
-  QuickDialEntry* getQuickDialById(const String &id);
-  const QuickDialEntry* getQuickDialById(const String &id) const;
+  QuickDialEntry *getQuickDialById(const String &id);
+  const QuickDialEntry *getQuickDialById(const String &id) const;
   bool hasQuickDialEntry(const String &code) const;
   bool hasQuickDialId(const String &id) const;
 
@@ -116,8 +112,8 @@ public:
   }
   bool addBlockedNumber(const String &number, const String &name = "");
   bool removeBlockedNumberById(const String &id);
-  BlockedNumberEntry* getBlockedNumberById(const String &id);
-  const BlockedNumberEntry* getBlockedNumberById(const String &id) const;
+  BlockedNumberEntry *getBlockedNumberById(const String &id);
+  const BlockedNumberEntry *getBlockedNumberById(const String &id) const;
   bool isIncomingCallBlocked(const String &number) const;
 
   // Priority callers
@@ -126,8 +122,8 @@ public:
   }
   bool addPriorityCaller(const String &number);
   bool removePriorityCallerById(const String &id);
-  PriorityCallerEntry* getPriorityCallerById(const String &id);
-  const PriorityCallerEntry* getPriorityCallerById(const String &id) const;
+  PriorityCallerEntry *getPriorityCallerById(const String &id);
+  const PriorityCallerEntry *getPriorityCallerById(const String &id) const;
   bool isPriorityCaller(const String &number) const;
 
   // Default dialing code

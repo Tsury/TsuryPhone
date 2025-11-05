@@ -190,7 +190,7 @@ bool DeviceConfig::load() {
         qde.code = entryObj["code"].as<String>();
         qde.number = entryObj["number"].as<String>();
         qde.name = entryObj["name"].as<String>();
-        updateNormalizedNumber(qde.number, qde.number);  // Normalize in-place
+        updateNormalizedNumber(qde.number, qde.number); // Normalize in-place
         _quickDialEntries.push_back(qde);
       }
     }
@@ -210,7 +210,7 @@ bool DeviceConfig::load() {
         if (entryObj["name"].is<const char *>()) {
           bne.name = entryObj["name"].as<String>();
         }
-        updateNormalizedNumber(bne.number, bne.number);  // Normalize in-place
+        updateNormalizedNumber(bne.number, bne.number); // Normalize in-place
         _blockedNumbers.push_back(bne);
       }
     }
@@ -233,7 +233,7 @@ bool DeviceConfig::load() {
       PriorityCallerEntry entry;
       entry.id = obj["id"].as<String>();
       entry.number = obj["number"].as<String>();
-      updateNormalizedNumber(entry.number, entry.number);  // Normalize in-place
+      updateNormalizedNumber(entry.number, entry.number); // Normalize in-place
       if (!entry.number.isEmpty()) {
         _priorityCallers.push_back(entry);
       }
@@ -289,7 +289,7 @@ void DeviceConfig::initializeDefaults() {
     const PhoneBookEntry &seed = phoneBookEntries[i];
     String id = generateQuickDialId();
     String number = String(seed.number);
-    updateNormalizedNumber(number, number);  // Normalize in-place
+    updateNormalizedNumber(number, number); // Normalize in-place
     QuickDialEntry entry{id, String(seed.entry), number, String(seed.name)};
     _quickDialEntries.push_back(entry);
   }
@@ -300,7 +300,7 @@ void DeviceConfig::initializeDefaults() {
     if (!isBlockedNumber(priorityCallerNumbers[i])) { // defensive conflict guard
       String id = generatePriorityCallerId();
       String number = String(priorityCallerNumbers[i]);
-      updateNormalizedNumber(number, number);  // Normalize in-place
+      updateNormalizedNumber(number, number); // Normalize in-place
       PriorityCallerEntry entry{id, number};
       _priorityCallers.push_back(entry);
     }
@@ -315,7 +315,7 @@ void DeviceConfig::initializeDefaults() {
       if (!isPriorityCaller(String(bn))) {
         String id = generateBlockedNumberId();
         String number = String(bn);
-        updateNormalizedNumber(number, number);  // Normalize in-place
+        updateNormalizedNumber(number, number); // Normalize in-place
         BlockedNumberEntry entry{id, number, String("seed")};
         _blockedNumbers.push_back(entry);
       }
