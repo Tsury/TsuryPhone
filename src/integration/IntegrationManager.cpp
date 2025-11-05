@@ -276,6 +276,12 @@ void IntegrationManager::setVolumeModeCallback(
   }
 }
 
+void IntegrationManager::setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback) {
+  for (auto &integration : _integrations) {
+    integration->setToggleMuteCallback(callback);
+  }
+}
+
 void IntegrationManager::setCallBlockedCallback(std::function<void(const String &)> callback) {
   _callBlockedCallback = callback;
 }
@@ -857,6 +863,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
     std::function<IntegrationCallbackResult()> callWaitingCallback,
     std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
+    std::function<IntegrationCallbackResult()> toggleMuteCallback,
     std::function<void(const String &)> callBlockedCallback,
     std::function<void(bool)> maintenanceModeCallback,
     std::function<void()> factoryResetCallback,
@@ -874,6 +881,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
   setRingCallback(ringCallback);
   setCallWaitingCallback(callWaitingCallback);
   setVolumeModeCallback(volumeModeCallback);
+  setToggleMuteCallback(toggleMuteCallback);
   setCallBlockedCallback(callBlockedCallback);
   setMaintenanceModeChangedCallback(maintenanceModeCallback);
   setFactoryResetCallback(factoryResetCallback);

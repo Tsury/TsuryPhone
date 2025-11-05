@@ -202,6 +202,26 @@ void Modem::toggleVolume() {
   }
 }
 
+void Modem::toggleMute() {
+  if (_isMuted) {
+    unmute();
+  } else {
+    mute();
+  }
+}
+
+void Modem::mute() {
+  Logger::infoln(F("Muting microphone"));
+  sendCommand(F("+CMUT=1"));
+  _isMuted = true;
+}
+
+void Modem::unmute() {
+  Logger::infoln(F("Unmuting microphone"));
+  sendCommand(F("+CMUT=0"));
+  _isMuted = false;
+}
+
 void Modem::enqueueCall(const char *number) {
   if (_enqueuedCall[0] != '\0') {
     Logger::warnln(F("Call already enqueued!"));

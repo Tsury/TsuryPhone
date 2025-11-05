@@ -35,6 +35,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
+  void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
   void setFactoryResetCallback(std::function<void()> callback);
 
@@ -50,6 +51,7 @@ public:
   IntegrationCallbackResult handleRingOperation(const String &pattern, bool force = false);
   IntegrationCallbackResult handleSetVolumeMode(VolumeMode mode);
   IntegrationCallbackResult handleToggleVolumeMode();
+  IntegrationCallbackResult handleToggleMute();
 
   // Configuration management
   IntegrationCallbackResult handleSetDND(const JsonVariant &json);
@@ -62,6 +64,11 @@ public:
   IntegrationCallbackResult
   handleAddQuickDial(const String &code, const String &number, const String &name = "");
   IntegrationCallbackResult handleRemoveQuickDialById(const String &id);
+  IntegrationCallbackResult handleEditContact(const String &id,
+                                               const String &name,
+                                               const String &number,
+                                               const String &code,
+                                               bool isPriority);
 
   // Blocked numbers management
   IntegrationCallbackResult handleAddBlockedNumber(const String &number, const String &name = "");
@@ -186,6 +193,7 @@ private:
   std::function<IntegrationCallbackResult(const String &, bool)> _ringCallback;
   std::function<IntegrationCallbackResult()> _callWaitingCallback;
   std::function<IntegrationCallbackResult(VolumeMode)> _volumeModeCallback;
+  std::function<IntegrationCallbackResult()> _toggleMuteCallback;
   std::function<void(bool)> _maintenanceModeChangedCallback;
   std::function<void()> _factoryResetCallback;
   // Removed per C2: config change events now routed exclusively via IntegrationManager

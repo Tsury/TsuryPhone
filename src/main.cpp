@@ -76,6 +76,7 @@ void TsuryPhone::setup() {
       [this](VolumeMode mode) -> IntegrationCallbackResult {
         return handleIntegrationVolumeModeRequest(mode);
       },
+      [this]() -> IntegrationCallbackResult { return handleIntegrationToggleMuteRequest(); },
       [this](const String &number) { handleIntegrationCallBlocked(number); },
       [this](bool enabled) { handleIntegrationMaintenanceModeChanged(enabled); },
       [this]() { performFactoryReset(); },

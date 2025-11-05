@@ -64,6 +64,9 @@ public:
   setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) {
     (void)callback;
   }
+  virtual void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback) {
+    (void)callback;
+  }
   virtual void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) = 0;
   virtual void setFactoryResetCallback(std::function<void()> callback) = 0;
 

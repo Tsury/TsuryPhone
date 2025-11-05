@@ -95,6 +95,10 @@ void HAWebServer::setupRoutes() {
     handleToggleVolumeMode(request);
   });
 
+  _server.on("/api/call/toggle_mute", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleToggleMute(request);
+  });
+
   _server.on("/api/system/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetDevice(request);
   });
@@ -156,6 +160,10 @@ void HAWebServer::setupRoutes() {
   addJsonPostRoute(
       "/api/config/quick_dial_remove",
       [this](AsyncWebServerRequest *req, JsonVariant &json) { handleRemoveQuickDial(req, json); });
+
+  addJsonPostRoute(
+      "/api/config/edit_contact",
+      [this](AsyncWebServerRequest *req, JsonVariant &json) { handleEditContact(req, json); });
 
   addJsonPostRoute(
       "/api/config/webhook_add",
@@ -556,6 +564,13 @@ void HAWebServer::handleToggleVolumeMode(AsyncWebServerRequest *request) {
   executeCommand(request, "toggle_volume_mode", commandData.as<JsonVariant>());
 }
 
+void HAWebServer::handleToggleMute(AsyncWebServerRequest *request) {
+  Logger::infoln(F("HA API: Toggle mute request"));
+
+  JsonDocument commandData;
+  executeCommand(request, "toggle_mute", commandData.as<JsonVariant>());
+}
+
 void HAWebServer::onWebSocketEvent(AsyncWebSocket *server,
                                    AsyncWebSocketClient *client,
                                    AwsEventType type,
@@ -624,17 +639,16 @@ void HAWebServer::handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant
 
   // Code is optional, but number is required
   if (!json["number"]) {
-    sendErrorResponse(
-        request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
     return;
   }
-  
+
   // Validate code if provided
   if (json["code"] && !IntegrationValidation::isValidCode(json["code"].as<String>())) {
     sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
     return;
   }
-  
+
   if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
     sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
     return;
@@ -656,6 +670,51 @@ void HAWebServer::handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVari
 
   Logger::infoln(F("HA API: Remove quick dial request"));
   executeCommand(request, "quick_dial_remove", json);
+}
+
+void HAWebServer::handleEditContact(AsyncWebServerRequest *request, JsonVariant &json) {
+  if (!json.is<JsonObject>()) {
+    sendErrorResponse(request, "Invalid JSON object", 400, "WEB_INVALID_JSON");
+    return;
+  }
+
+  // Required fields
+  if (!json["id"]) {
+    sendErrorResponse(request, "Missing required parameter: 'id'", 400, "WEB_MISSING_ID");
+    return;
+  }
+  if (!json["name"]) {
+    sendErrorResponse(request, "Missing required parameter: 'name'", 400, "WEB_MISSING_NAME");
+    return;
+  }
+  if (!json["number"]) {
+    sendErrorResponse(request, "Missing required parameter: 'number'", 400, "WEB_MISSING_NUMBER");
+    return;
+  }
+
+  // Validate name
+  String name = json["name"].as<String>();
+  name.trim();
+  if (name.isEmpty()) {
+    sendErrorResponse(request, "name cannot be empty", 400, "WEB_INVALID_NAME");
+    return;
+  }
+  json["name"] = name;
+
+  // Validate number
+  if (!IntegrationValidation::isValidNumber(json["number"].as<String>())) {
+    sendErrorResponse(request, "Invalid number format", 400, "WEB_INVALID_NUMBER");
+    return;
+  }
+
+  // Validate code if provided (optional)
+  if (json["code"] && !IntegrationValidation::isValidCode(json["code"].as<String>())) {
+    sendErrorResponse(request, "Invalid code format", 400, "WEB_INVALID_CODE");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Edit contact request"));
+  executeCommand(request, "edit_contact", json);
 }
 
 void HAWebServer::handleAddWebhookAction(AsyncWebServerRequest *request, JsonVariant &json) {

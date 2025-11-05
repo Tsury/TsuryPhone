@@ -70,6 +70,10 @@ void IntegrationService::setVolumeModeCallback(
   _volumeModeCallback = callback;
 }
 
+void IntegrationService::setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback) {
+  _toggleMuteCallback = callback;
+}
+
 void IntegrationService::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
   _maintenanceModeChangedCallback = callback;
 }
@@ -258,6 +262,23 @@ IntegrationCallbackResult IntegrationService::handleToggleVolumeMode() {
   const VolumeMode target =
       (current == VolumeMode::Speaker) ? VolumeMode::Earpiece : VolumeMode::Speaker;
   return handleSetVolumeMode(target);
+}
+
+IntegrationCallbackResult IntegrationService::handleToggleMute() {
+  INT_LOG_INFO("CORE", "Mute toggle request");
+
+  if (!_toggleMuteCallback) {
+    return IntegrationCallbackResult(false, "Mute callback not available");
+  }
+
+  IntegrationCallbackResult result = _toggleMuteCallback();
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Mute toggle success");
+  } else {
+    INT_LOG_ERROR("CORE", "Mute toggle failed %s", result.errorMessage.c_str());
+  }
+
+  return result;
 }
 
 IntegrationCallbackResult IntegrationService::handleRingOperation(const String &pattern,
@@ -533,6 +554,35 @@ IntegrationCallbackResult IntegrationService::handleRemoveQuickDialById(const St
   } else {
     return IntegrationCallbackResult(false, "Failed to remove quick dial entry or entry not found");
   }
+}
+
+IntegrationCallbackResult IntegrationService::handleEditContact(const String &id,
+                                                                 const String &name,
+                                                                 const String &number,
+                                                                 const String &code,
+                                                                 bool isPriority) {
+  if (id.isEmpty()) {
+    return IntegrationCallbackResult(false, "ID cannot be empty");
+  }
+  if (name.isEmpty()) {
+    return IntegrationCallbackResult(false, "Name cannot be empty");
+  }
+  if (number.isEmpty()) {
+    return IntegrationCallbackResult(false, "Number cannot be empty");
+  }
+
+  // The edit_contact service is handled entirely by the integration layer (HA).
+  // The firmware just provides validation and logging.
+  // HA integration will:
+  // 1. Remove the old contact
+  // 2. Add the new contact with updated details
+  // 3. Update priority list if needed
+  
+  INT_LOG_INFO("CORE", "Edit contact request validated: id=%s, name=%s, number=%s, code=%s, priority=%s",
+               id.c_str(), name.c_str(), number.c_str(), code.c_str(), isPriority ? "yes" : "no");
+  
+  // Return success - actual edit is delegated to HA integration layer
+  return IntegrationCallbackResult(true);
 }
 
 IntegrationCallbackResult IntegrationService::handleAddBlockedNumber(const String &number,
@@ -923,6 +973,7 @@ void IntegrationService::addPhoneStateInfo(JsonObject &obj) {
   obj["volumeMode"] = String(volumeModeToString(_state.volumeMode));
   obj["volumeModeCode"] = static_cast<int>(_state.volumeMode);
   obj["isSpeakerMode"] = (_state.volumeMode == VolumeMode::Speaker);
+  obj["isMuted"] = _state.callState.active.isMuted;
 
   // Add dialing buffer number if present (distinct from active call)
   if (_state.currentDialingNumber[0] != '\0') {

@@ -32,6 +32,7 @@ struct CallLeg {
   bool rangAtLeastOnce;
   bool otherPartyDropped;
   bool isIncoming;
+  bool isMuted;
   unsigned long startedAtMs;
   char number[kSmallBufferSize];
 
@@ -49,6 +50,7 @@ struct CallLeg {
     rangAtLeastOnce = false;
     otherPartyDropped = false;
     isIncoming = false;
+    isMuted = false;
     startedAtMs = 0UL;
     number[0] = '\0';
   }

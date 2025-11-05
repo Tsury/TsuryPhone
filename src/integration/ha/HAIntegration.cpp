@@ -192,6 +192,10 @@ void HAIntegration::setVolumeModeCallback(
   _integrationService.setVolumeModeCallback(callback);
 }
 
+void HAIntegration::setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback) {
+  _integrationService.setToggleMuteCallback(callback);
+}
+
 void HAIntegration::setMaintenanceModeChangedCallback(std::function<void(bool)> callback) {
   _integrationService.setMaintenanceModeChangedCallback(callback);
 }
@@ -270,6 +274,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleSetVolumeMode(data);
         } else if (command == "toggle_volume_mode") {
           return handleToggleVolumeMode();
+        } else if (command == "toggle_mute") {
+          return handleToggleMute();
         } else if (command == "ring") {
           return handleRingOperation(data);
         } else if (command == "reset") {
@@ -280,6 +286,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleAddQuickDial(data);
         } else if (command == "quick_dial_remove") {
           return handleRemoveQuickDial(data);
+        } else if (command == "edit_contact") {
+          return handleEditContact(data);
         } else if (command == "blocked_add") {
           return handleAddBlockedNumber(data);
         } else if (command == "blocked_remove") {
@@ -691,6 +699,18 @@ HAOperationResult HAIntegration::handleToggleVolumeMode() {
   return haResult;
 }
 
+HAOperationResult HAIntegration::handleToggleMute() {
+  IntegrationCallbackResult result = _integrationService.handleToggleMute();
+  HAOperationResult haResult = convertResult(result);
+
+  if (haResult.success) {
+    JsonDocument doc = _integrationService.buildCurrentPhoneStateEvent("mute");
+    haResult.data = doc;
+  }
+
+  return haResult;
+}
+
 HAOperationResult HAIntegration::handleResetDevice() {
   IntegrationCallbackResult result = _integrationService.handleResetDevice();
   if (result.success) {
@@ -760,6 +780,44 @@ HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) 
     JsonObject obj = payload.to<JsonObject>();
     obj["id"] = id;
     broadcastStateChange("quick_dial.remove", payload.as<JsonVariant>());
+  }
+  return haResult;
+}
+
+HAOperationResult HAIntegration::handleEditContact(const JsonVariant &json) {
+  JsonObject jsonObj = json.as<JsonObject>();
+
+  String id = jsonObj["id"].as<String>();
+  String name = jsonObj["name"].as<String>();
+  String number = jsonObj["number"].as<String>();
+  String code = jsonObj["code"] | "";  // Optional
+  bool isPriority = jsonObj["priority"] | false;  // Optional, default false
+
+  if (id.isEmpty()) {
+    return HAOperationResult(false, "'id' is required");
+  }
+  if (name.isEmpty()) {
+    return HAOperationResult(false, "'name' is required");
+  }
+  if (number.isEmpty()) {
+    return HAOperationResult(false, "'number' is required");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleEditContact(
+      id, name, number, code, isPriority);
+
+  HAOperationResult haResult = convertResult(result);
+  if (haResult.success) {
+    JsonDocument payload;
+    JsonObject obj = payload.to<JsonObject>();
+    obj["id"] = id;
+    obj["name"] = name;
+    obj["number"] = number;
+    if (!code.isEmpty()) {
+      obj["code"] = code;
+    }
+    obj["priority"] = isPriority;
+    broadcastStateChange("contact.edit", payload.as<JsonVariant>());
   }
   return haResult;
 }

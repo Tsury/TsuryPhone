@@ -53,6 +53,7 @@ public:
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) override;
   void
   setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) override;
+  void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback) override;
   void setFactoryResetCallback(std::function<void()> callback) override;
 
@@ -81,10 +82,12 @@ public:
   HAOperationResult handleRingOperation(const JsonVariant &data);
   HAOperationResult handleSetVolumeMode(const JsonVariant &data);
   HAOperationResult handleToggleVolumeMode();
+  HAOperationResult handleToggleMute();
   HAOperationResult handleResetDevice();
   HAOperationResult handleFactoryReset();
   HAOperationResult handleAddQuickDial(const JsonVariant &data);
   HAOperationResult handleRemoveQuickDial(const JsonVariant &data);
+  HAOperationResult handleEditContact(const JsonVariant &data);
   HAOperationResult handleDialQuickDial(const JsonVariant &data);
   HAOperationResult handleToggleCallWaiting();
   HAOperationResult handleAddBlockedNumber(const JsonVariant &data);

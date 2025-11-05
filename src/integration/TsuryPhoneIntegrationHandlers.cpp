@@ -91,7 +91,7 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDeleteLastDigitRequest() 
 
   // Delete the last digit
   _state.currentDialingNumber[len - 1] = '\0';
-  
+
   Logger::infoln(F("Deleted last digit. Remaining: %s"), _state.currentDialingNumber);
 
   // Notify integration of the updated dialing progress
@@ -284,6 +284,66 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationVolumeModeRequest(VolumeM
   }
 
   _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kVolumeToggleToneDurationMs);
+
+  return IntegrationCallbackResult(true);
+}
+
+IntegrationCallbackResult TsuryPhone::handleIntegrationToggleMuteRequest() {
+  Logger::infoln(F("Integration toggle mute request"));
+
+  if (_state.newAppState != AppState::InCall) {
+    String error = "Mute toggle requires an active call (current state: " +
+                   String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration toggle mute request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "PHONE_NOT_IN_CALL");
+  }
+
+  _modem.toggleMute();
+
+  // Update the mute state in the active call
+  _state.callState.active.isMuted = _modem.isMuted();
+
+  Logger::infoln(F("Microphone is now %s"), _modem.isMuted() ? "muted" : "unmuted");
+
+  return IntegrationCallbackResult(true);
+}
+
+IntegrationCallbackResult TsuryPhone::handleIntegrationEditContactRequest(const String &id,
+                                                                           const String &name,
+                                                                           const String &number,
+                                                                           const String &code,
+                                                                           bool isPriority) {
+  Logger::infoln(F("Integration edit contact request: id=%s, name=%s, number=%s, code=%s, "
+                   "priority=%s"),
+                 id.c_str(),
+                 name.c_str(),
+                 number.c_str(),
+                 code.c_str(),
+                 isPriority ? "yes" : "no");
+
+  // Validation - name and number are required
+  if (name.isEmpty()) {
+    String error = "Contact name is required";
+    Logger::errorln(F("Integration edit contact request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_INVALID_NAME");
+  }
+
+  if (number.isEmpty()) {
+    String error = "Contact number is required";
+    Logger::errorln(F("Integration edit contact request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_INVALID_NUMBER");
+  }
+
+  // The integration layer (HA) is responsible for:
+  // 1. Validating that the contact ID exists
+  // 2. Removing the old contact entry
+  // 3. Adding the new contact entry with updated details
+  // 4. Managing priority list updates
+  //
+  // The firmware just provides this handler for logging and future firmware-side validation
+  // This keeps the firmware logic minimal and pushes complexity to the integration layer
+
+  Logger::infoln(F("Contact edit request validated and delegated to integration layer"));
 
   return IntegrationCallbackResult(true);
 }

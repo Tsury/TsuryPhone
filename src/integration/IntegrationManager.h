@@ -44,6 +44,7 @@ public:
       std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
       std::function<IntegrationCallbackResult()> callWaitingCallback,
       std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
+      std::function<IntegrationCallbackResult()> toggleMuteCallback,
       std::function<void(const String &)> callBlockedCallback,
       std::function<void(bool)> maintenanceModeCallback,
       std::function<void()> factoryResetCallback,
@@ -75,6 +76,7 @@ public:
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
+  void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback);
   void setMaintenanceModeChangedCallback(std::function<void(bool)> callback);
   void setFactoryResetCallback(std::function<void()> callback);
 

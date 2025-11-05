@@ -56,6 +56,7 @@ private:
   void handleDialQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
   void handleToggleCallWaiting(AsyncWebServerRequest *request);
   void handleToggleVolumeMode(AsyncWebServerRequest *request);
+  void handleToggleMute(AsyncWebServerRequest *request);
 
   void handleSetDND(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetMaintenanceMode(AsyncWebServerRequest *request, JsonVariant &json);
@@ -70,6 +71,7 @@ private:
 
   void handleAddQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
   void handleRemoveQuickDial(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleEditContact(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAddBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleRemoveBlockedNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleAddPriorityCaller(AsyncWebServerRequest *request, JsonVariant &json);

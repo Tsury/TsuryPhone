@@ -79,6 +79,13 @@ public:
     return _volumeMode;
   }
 
+  void toggleMute();
+  void mute();
+  void unmute();
+  bool isMuted() const {
+    return _isMuted;
+  }
+
 private:
   void initModem();
   void hardResetModem();
@@ -120,6 +127,7 @@ private:
   bool _isPlayingAudio = false;
   bool _lastTimeCheckedLine = false;
   bool _waitingForKeepAlive = false;
+  bool _isMuted = false;
 
   uint32_t _lastAudioStopMillis = 0UL;
   uint32_t _lastKeepAliveSent = 0UL;
