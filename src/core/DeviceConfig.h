@@ -36,7 +36,7 @@ struct DndConfig {
 struct QuickDialEntry {
   String id;     // Unique identifier (generated)
   String code;   // Optional quick dial code (can be empty)
-  String number; // Normalized E.164 format (e.g., "+972546662771")
+  String number; // Normalized E.164 format (e.g., "+972123456789")
   String name;
 
   QuickDialEntry() = default;
