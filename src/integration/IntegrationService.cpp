@@ -1588,6 +1588,13 @@ JsonDocument IntegrationService::buildCurrentCallEvent(const String &eventType,
     addPhoneStateInfo(obj);
   } else if (eventType == "blocked") {
     obj["number"] = callNumber;
+    
+    // Resolve contact name for blocked calls
+    String callerName = resolveCallerName(callNumber);
+    if (!callerName.isEmpty()) {
+      obj["currentCallName"] = callerName;
+    }
+    
     obj["isIncoming"] = true;
     obj["callStartTs"] = _currentCallStartTs; // may be 0 if blocked pre-start
   }
