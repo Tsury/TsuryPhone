@@ -278,6 +278,42 @@ void Modem::rejectCallWaiting(CallState &callState) {
   }
 }
 
+bool Modem::sendDTMFTone(char digit) {
+  Logger::infoln(F("Sending DTMF tone: %c"), digit);
+
+  // Validate digit (should already be validated by caller, but double-check)
+  if ((digit < '0' || digit > '9') && digit != '*' && digit != '#') {
+    Logger::errorln(F("Invalid DTMF digit: %c"), digit);
+    return false;
+  }
+
+  // AT+CLDTMF: Play local DTMF tone for user feedback
+  // Format: AT+CLDTMF=<path>,<tone>,<timeBase>,<n>
+  // path=0: output to channel (earpiece/speaker)
+  // timeBase=100ms units
+  // n=1: play once
+  char cldtmfCmd[32];
+  snprintf(cldtmfCmd, sizeof(cldtmfCmd), "+CLDTMF=0,\"%c\",1,1", digit);
+  sendCommand(cldtmfCmd);
+
+  // Small delay to ensure local feedback starts before remote transmission
+  delay(20);
+
+  // AT+VTS: Send DTMF tone to remote party during call
+  // Duration is fixed at ~150ms per A76XX spec
+  // Special chars * and # need to be quoted
+  char vtsCmd[16];
+  if (digit == '*' || digit == '#') {
+    snprintf(vtsCmd, sizeof(vtsCmd), "+VTS=\"%c\"", digit);
+  } else {
+    snprintf(vtsCmd, sizeof(vtsCmd), "+VTS=%c", digit);
+  }
+  sendCommand(vtsCmd);
+
+  Logger::infoln(F("DTMF tone %c sent successfully"), digit);
+  return true;
+}
+
 void Modem::clearCallWaitingState(CallState &callState) {
   callState.clearWaiting();
 }

@@ -71,6 +71,35 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t 
   return IntegrationCallbackResult(true);
 }
 
+IntegrationCallbackResult TsuryPhone::handleIntegrationSendDTMFRequest(char digit) {
+  Logger::infoln(F("Integration send DTMF request: %c"), digit);
+
+  // Validate DTMF digit
+  if ((digit < '0' || digit > '9') && digit != '*' && digit != '#') {
+    String error = "DTMF digit must be one of: 0-9, *, #";
+    Logger::errorln(F("Integration send DTMF request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_INVALID_DIGIT");
+  }
+
+  // Check if we're in an active call
+  if (_state.newAppState != AppState::InCall) {
+    String error = "Phone must be in active call to send DTMF (state: " + 
+                   String(appStateToString(_state.newAppState)) + ")";
+    Logger::errorln(F("Integration send DTMF request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_NO_ACTIVE_CALL");
+  }
+
+  // Send DTMF tone via modem
+  if (!_modem.sendDTMFTone(digit)) {
+    String error = "Failed to send DTMF tone";
+    Logger::errorln(F("Integration send DTMF request: %s"), error.c_str());
+    return IntegrationCallbackResult(false, error, "WEB_MODEM_ERROR");
+  }
+
+  Logger::infoln(F("DTMF tone %c sent successfully"), digit);
+  return IntegrationCallbackResult(true);
+}
+
 IntegrationCallbackResult TsuryPhone::handleIntegrationDeleteLastDigitRequest() {
   Logger::infoln(F("Integration delete last digit request"));
 

@@ -50,6 +50,11 @@ void IntegrationService::setDialDigitCallback(
   _dialDigitCallback = callback;
 }
 
+void IntegrationService::setSendDTMFCallback(
+    std::function<IntegrationCallbackResult(char)> callback) {
+  _sendDTMFCallback = callback;
+}
+
 void IntegrationService::setDeleteLastDigitCallback(
     std::function<IntegrationCallbackResult()> callback) {
   _deleteLastDigitCallback = callback;
@@ -122,6 +127,27 @@ IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, boo
                   "Dial digit %u failed: %s",
                   static_cast<unsigned>(digit),
                   result.errorMessage.c_str());
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleSendDTMF(char digit) {
+  // Validate DTMF digit
+  if ((digit < '0' || digit > '9') && digit != '*' && digit != '#') {
+    return IntegrationCallbackResult(false, "DTMF digit must be one of: 0-9, *, #", "WEB_INVALID_DIGIT");
+  }
+
+  if (!_sendDTMFCallback) {
+    return IntegrationCallbackResult(
+        false, "Send DTMF callback not available", "WEB_SERVICE_UNAVAILABLE");
+  }
+
+  IntegrationCallbackResult result = _sendDTMFCallback(digit);
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Send DTMF success: %c", digit);
+  } else {
+    INT_LOG_ERROR("CORE", "Send DTMF %c failed: %s", digit, result.errorMessage.c_str());
   }
 
   return result;

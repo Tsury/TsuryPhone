@@ -61,6 +61,10 @@ public:
   void switchToCallWaiting();
   void rejectCallWaiting(CallState &callState);
 
+  // DTMF tone generation during active calls (integration-only, not triggered by rotary dial)
+  // Sends both local audio feedback (AT+CLDTMF) and remote DTMF signal (AT+VTS)
+  bool sendDTMFTone(char digit);
+
   void enqueueTone(const Tone toneId, const int duration);
   void stopTone();
   void enqueueMp3(const char *file, const int repeat = 0);

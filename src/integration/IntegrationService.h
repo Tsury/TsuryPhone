@@ -28,6 +28,7 @@ public:
   // Device operation callbacks (set by main application)
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback);
   void setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback);
+  void setSendDTMFCallback(std::function<IntegrationCallbackResult(char)> callback);
   void setDeleteLastDigitCallback(std::function<IntegrationCallbackResult()> callback);
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback);
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
@@ -42,6 +43,7 @@ public:
   // Core business logic methods - these contain the actual logic
   IntegrationCallbackResult handleDialRequest(const String &number);
   IntegrationCallbackResult handleDialDigit(uint8_t digit, bool deferValidation = false);
+  IntegrationCallbackResult handleSendDTMF(char digit);
   IntegrationCallbackResult handleDeleteLastDigit();
   IntegrationCallbackResult handleSendDialedNumber();
   IntegrationCallbackResult handleAnswerRequest();
@@ -186,6 +188,7 @@ private:
   // Device operation callbacks
   std::function<IntegrationCallbackResult(const String &)> _dialCallback;
   std::function<IntegrationCallbackResult(uint8_t, bool)> _dialDigitCallback;
+  std::function<IntegrationCallbackResult(char)> _sendDTMFCallback;
   std::function<IntegrationCallbackResult()> _deleteLastDigitCallback;
   std::function<IntegrationCallbackResult()> _sendDialedNumberCallback;
   std::function<IntegrationCallbackResult()> _answerCallback;

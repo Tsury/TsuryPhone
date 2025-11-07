@@ -49,6 +49,7 @@ private:
 
   void handleDialNumber(AsyncWebServerRequest *request, JsonVariant &json);
   void handleDialDigit(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleSendDTMF(AsyncWebServerRequest *request, JsonVariant &json);
   void handleDeleteLastDigit(AsyncWebServerRequest *request);
   void handleSendDialedNumber(AsyncWebServerRequest *request);
   void handleAnswerCall(AsyncWebServerRequest *request);

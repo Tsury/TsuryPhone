@@ -26,6 +26,7 @@ public:
   IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
   IntegrationCallbackResult handleIntegrationDialDigitRequest(uint8_t digit,
                                                               bool deferValidation = false);
+  IntegrationCallbackResult handleIntegrationSendDTMFRequest(char digit);
   IntegrationCallbackResult handleIntegrationDeleteLastDigitRequest();
   IntegrationCallbackResult handleIntegrationSendDialedNumberRequest();
   IntegrationCallbackResult handleIntegrationAnswerRequest();

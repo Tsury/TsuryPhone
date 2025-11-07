@@ -229,6 +229,13 @@ void IntegrationManager::setDialDigitCallback(
   }
 }
 
+void IntegrationManager::setSendDTMFCallback(
+    std::function<IntegrationCallbackResult(char)> callback) {
+  for (auto &integration : _integrations) {
+    integration->setSendDTMFCallback(callback);
+  }
+}
+
 void IntegrationManager::setDeleteLastDigitCallback(
     std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
@@ -856,6 +863,7 @@ void IntegrationManager::notifyConfigChange(ConfigChangeEvent event) {
 void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult(const String &)> dialCallback,
     std::function<IntegrationCallbackResult(uint8_t, bool)> dialDigitCallback,
+    std::function<IntegrationCallbackResult(char)> sendDTMFCallback,
     std::function<IntegrationCallbackResult()> deleteLastDigitCallback,
     std::function<IntegrationCallbackResult()> sendDialedNumberCallback,
     std::function<IntegrationCallbackResult()> answerCallback,
@@ -874,6 +882,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
   // Set up device operation callbacks for all integrations
   setDialCallback(dialCallback);
   setDialDigitCallback(dialDigitCallback);
+  setSendDTMFCallback(sendDTMFCallback);
   setDeleteLastDigitCallback(deleteLastDigitCallback);
   setSendDialedNumberCallback(sendDialedNumberCallback);
   setAnswerCallback(answerCallback);

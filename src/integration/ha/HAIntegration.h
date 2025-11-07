@@ -44,6 +44,7 @@ public:
   void setDialCallback(std::function<IntegrationCallbackResult(const String &)> callback) override;
   void
   setDialDigitCallback(std::function<IntegrationCallbackResult(uint8_t, bool)> callback) override;
+  void setSendDTMFCallback(std::function<IntegrationCallbackResult(char)> callback) override;
   void setDeleteLastDigitCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setSendDialedNumberCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback) override;
@@ -70,6 +71,7 @@ public:
   // HA-specific command handlers (thin wrappers around business logic)
   HAOperationResult handleDialRequest(const String &number);
   HAOperationResult handleDialDigitRequest(const JsonVariant &data);
+  HAOperationResult handleSendDTMFRequest(const JsonVariant &data);
   HAOperationResult handleDeleteLastDigitRequest();
   HAOperationResult handleSendDialedNumberRequest();
   HAOperationResult handleAnswerRequest();

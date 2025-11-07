@@ -35,6 +35,7 @@ public:
   void process() {}
   void setupTsuryPhoneCallbacks(std::function<IntegrationCallbackResult(const String &)>,
                                 std::function<IntegrationCallbackResult(uint8_t, bool)>,
+                                std::function<IntegrationCallbackResult(char)>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,
                                 std::function<IntegrationCallbackResult()>,

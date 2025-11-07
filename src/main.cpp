@@ -65,6 +65,9 @@ void TsuryPhone::setup() {
       [this](uint8_t digit, bool deferValidation) -> IntegrationCallbackResult {
         return handleIntegrationDialDigitRequest(digit, deferValidation);
       },
+      [this](char digit) -> IntegrationCallbackResult {
+        return handleIntegrationSendDTMFRequest(digit);
+      },
       [this]() -> IntegrationCallbackResult { return handleIntegrationDeleteLastDigitRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationSendDialedNumberRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationAnswerRequest(); },

@@ -160,6 +160,10 @@ void HAIntegration::setDialDigitCallback(
   _integrationService.setDialDigitCallback(callback);
 }
 
+void HAIntegration::setSendDTMFCallback(std::function<IntegrationCallbackResult(char)> callback) {
+  _integrationService.setSendDTMFCallback(callback);
+}
+
 void HAIntegration::setDeleteLastDigitCallback(
     std::function<IntegrationCallbackResult()> callback) {
   _integrationService.setDeleteLastDigitCallback(callback);
@@ -248,6 +252,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleDialRequest(data["number"].as<String>());
         } else if (command == "dial_digit") {
           return handleDialDigitRequest(data);
+        } else if (command == "send_dtmf") {
+          return handleSendDTMFRequest(data);
         } else if (command == "delete_last_digit") {
           return handleDeleteLastDigitRequest();
         } else if (command == "send_dialed_number") {
@@ -514,6 +520,33 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
       _integrationService.handleDialDigit(static_cast<uint8_t>(digit), deferValidation);
   if (result.success) {
     INTL_INFO("Dial digit success %d (defer: %s)", digit, deferValidation ? "yes" : "no");
+  }
+  return convertResult(result);
+}
+
+HAOperationResult HAIntegration::handleSendDTMFRequest(const JsonVariant &data) {
+  JsonVariant digitVariant = data["digit"];
+  if (digitVariant.isNull()) {
+    return HAOperationResult(false, "Missing 'digit' parameter");
+  }
+
+  if (!digitVariant.is<String>() && !digitVariant.is<const char *>()) {
+    return HAOperationResult(false, "DTMF digit must be a string (0-9, *, or #)");
+  }
+
+  String digit = digitVariant.as<String>();
+  if (digit.length() != 1) {
+    return HAOperationResult(false, "DTMF digit must be exactly one character");
+  }
+
+  char dtmfChar = digit[0];
+  if ((dtmfChar < '0' || dtmfChar > '9') && dtmfChar != '*' && dtmfChar != '#') {
+    return HAOperationResult(false, "DTMF digit must be one of: 0-9, *, #");
+  }
+
+  IntegrationCallbackResult result = _integrationService.handleSendDTMF(dtmfChar);
+  if (result.success) {
+    INTL_INFO("Send DTMF success: %c", dtmfChar);
   }
   return convertResult(result);
 }

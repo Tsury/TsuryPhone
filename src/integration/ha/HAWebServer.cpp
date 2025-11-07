@@ -116,6 +116,10 @@ void HAWebServer::setupRoutes() {
     handleDialDigit(req, json);
   });
 
+  addJsonPostRoute("/api/call/send_dtmf", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSendDTMF(req, json);
+  });
+
   _server.on("/api/call/delete_last_digit", HTTP_POST, [this](AsyncWebServerRequest *req) {
     handleDeleteLastDigit(req);
   });
@@ -327,6 +331,31 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
   commandData["digit"] = digit;
   commandData["deferValidation"] = deferValidation;
   executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
+}
+
+void HAWebServer::handleSendDTMF(AsyncWebServerRequest *request, JsonVariant &json) {
+  JsonVariant digitVariant = json["digit"];
+  if (digitVariant.isNull()) {
+    sendErrorResponse(request, "Missing 'digit' parameter", 400, "WEB_MISSING_DIGIT");
+    return;
+  }
+
+  if (!digitVariant.is<String>() && !digitVariant.is<const char *>()) {
+    sendErrorResponse(request, "DTMF digit must be a string (0-9, *, or #)", 400, "WEB_INVALID_DIGIT");
+    return;
+  }
+
+  String digit = digitVariant.as<String>();
+  if (digit.length() != 1 || ((digit[0] < '0' || digit[0] > '9') && digit[0] != '*' && digit[0] != '#')) {
+    sendErrorResponse(request, "DTMF digit must be one of: 0-9, *, #", 400, "WEB_INVALID_DIGIT");
+    return;
+  }
+
+  Logger::infoln(F("HA API: Send DTMF request - %s"), digit.c_str());
+
+  JsonDocument commandData;
+  commandData["digit"] = digit;
+  executeCommand(request, "send_dtmf", commandData.as<JsonVariant>());
 }
 
 void HAWebServer::handleDeleteLastDigit(AsyncWebServerRequest *request) {
