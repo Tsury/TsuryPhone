@@ -501,13 +501,24 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
     return HAOperationResult(false, "Missing 'digit' parameter");
   }
 
-  if (!digitVariant.is<int>()) {
-    return HAOperationResult(false, "Digit must be between 0 and 9");
-  }
-
-  int digit = digitVariant.as<int>();
-  if (digit < 0 || digit > 9) {
-    return HAOperationResult(false, "Digit must be between 0 and 9");
+  char digitChar;
+  
+  // Handle '+' for international dialing
+  if (digitVariant.is<const char*>()) {
+    const char* digitStr = digitVariant.as<const char*>();
+    if (strcmp(digitStr, "+") == 0) {
+      digitChar = '+';
+    } else {
+      return HAOperationResult(false, "Digit must be 0-9 or '+'");
+    }
+  } else if (digitVariant.is<int>()) {
+    int digit = digitVariant.as<int>();
+    if (digit < 0 || digit > 9) {
+      return HAOperationResult(false, "Digit must be 0-9 or '+'");
+    }
+    digitChar = '0' + digit;  // Convert int to ASCII char
+  } else {
+    return HAOperationResult(false, "Digit must be 0-9 or '+'");
   }
 
   // Check for deferValidation parameter (default false)
@@ -517,9 +528,9 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
   }
 
   IntegrationCallbackResult result =
-      _integrationService.handleDialDigit(static_cast<uint8_t>(digit), deferValidation);
+      _integrationService.handleDialDigit(digitChar, deferValidation);
   if (result.success) {
-    INTL_INFO("Dial digit success %d (defer: %s)", digit, deferValidation ? "yes" : "no");
+    INTL_INFO("Dial digit success %c (defer: %s)", digitChar, deferValidation ? "yes" : "no");
   }
   return convertResult(result);
 }

@@ -307,14 +307,26 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
     return;
   }
 
-  if (!digitVariant.is<int>()) {
-    sendErrorResponse(request, "Digit must be between 0 and 9", 400, "WEB_INVALID_DIGIT");
-    return;
-  }
-
-  int digit = digitVariant.as<int>();
-  if (digit < 0 || digit > 9) {
-    sendErrorResponse(request, "Digit must be between 0 and 9", 400, "WEB_INVALID_DIGIT");
+  char digitChar;
+  
+  // Handle '+' for international dialing
+  if (digitVariant.is<const char*>()) {
+    const char* digitStr = digitVariant.as<const char*>();
+    if (strcmp(digitStr, "+") == 0) {
+      digitChar = '+';
+    } else {
+      sendErrorResponse(request, "Digit must be 0-9 or '+'", 400, "WEB_INVALID_DIGIT");
+      return;
+    }
+  } else if (digitVariant.is<int>()) {
+    int digit = digitVariant.as<int>();
+    if (digit < 0 || digit > 9) {
+      sendErrorResponse(request, "Digit must be 0-9 or '+'", 400, "WEB_INVALID_DIGIT");
+      return;
+    }
+    digitChar = '0' + digit;  // Convert int to ASCII char
+  } else {
+    sendErrorResponse(request, "Digit must be 0-9 or '+'", 400, "WEB_INVALID_DIGIT");
     return;
   }
 
@@ -325,10 +337,15 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
   }
 
   Logger::infoln(
-      F("HA API: Dial digit request - %d (defer: %s)"), digit, deferValidation ? "yes" : "no");
+      F("HA API: Dial digit request - %c (defer: %s)"), digitChar, deferValidation ? "yes" : "no");
 
   JsonDocument commandData;
-  commandData["digit"] = digit;
+  // Store as string for '+' or as int for digits
+  if (digitChar == '+') {
+    commandData["digit"] = "+";
+  } else {
+    commandData["digit"] = digitChar - '0';  // Convert ASCII back to int
+  }
   commandData["deferValidation"] = deferValidation;
   executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
 }

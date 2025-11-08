@@ -46,7 +46,7 @@ void IntegrationService::setRingCallback(
 }
 
 void IntegrationService::setDialDigitCallback(
-    std::function<IntegrationCallbackResult(uint8_t, bool)> callback) {
+    std::function<IntegrationCallbackResult(char, bool)> callback) {
   _dialDigitCallback = callback;
 }
 
@@ -106,9 +106,10 @@ IntegrationCallbackResult IntegrationService::handleDialRequest(const String &nu
   return result;
 }
 
-IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, bool deferValidation) {
-  if (digit > 9) {
-    return IntegrationCallbackResult(false, "Digit must be between 0 and 9", "WEB_INVALID_DIGIT");
+IntegrationCallbackResult IntegrationService::handleDialDigit(char digit, bool deferValidation) {
+  // Validate digit: 0-9 or '+'
+  if (digit != '+' && (digit < '0' || digit > '9')) {
+    return IntegrationCallbackResult(false, "Digit must be 0-9 or '+'", "WEB_INVALID_DIGIT");
   }
 
   if (!_dialDigitCallback) {
@@ -119,8 +120,8 @@ IntegrationCallbackResult IntegrationService::handleDialDigit(uint8_t digit, boo
   IntegrationCallbackResult result = _dialDigitCallback(digit, deferValidation);
   if (result.success) {
     INT_LOG_INFO("CORE",
-                 "Dial digit success %u (defer: %s)",
-                 static_cast<unsigned>(digit),
+                 "Dial digit success %c (defer: %s)",
+                 digit,
                  deferValidation ? "yes" : "no");
   } else {
     INT_LOG_ERROR("CORE",

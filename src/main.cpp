@@ -357,36 +357,40 @@ void TsuryPhone::processStateIdle() {
   const int dialedDigit = _rotaryDial.getDialedDigit();
   if (dialedDigit >= 0) {
     // RotaryDial already appended the digit to the state buffer; avoid double-appending here.
-    handleDialedDigitInput(static_cast<uint8_t>(dialedDigit), false, false);
+    handleDialedDigitInput(static_cast<char>('0' + dialedDigit), false, false);
   }
 }
 
-bool TsuryPhone::handleDialedDigitInput(uint8_t digit,
+bool TsuryPhone::handleDialedDigitInput(char digit,
                                         bool appendToState,
                                         bool fromIntegration,
                                         bool skipValidation) {
-  if (digit > 9) {
+  // Validate: 0-9 or '+'
+  if (digit != '+' && (digit < '0' || digit > '9')) {
     return false;
   }
 
   if (appendToState) {
     size_t len = strlen(_state.currentDialingNumber);
     if (len >= sizeof(_state.currentDialingNumber) - 1) {
-      Logger::warnln(F("Dial buffer full, cannot append digit %u"), static_cast<unsigned>(digit));
+      Logger::warnln(F("Dial buffer full, cannot append digit %c"), digit);
       return false;
     }
-    _state.currentDialingNumber[len] = static_cast<char>('0' + digit);
+    _state.currentDialingNumber[len] = digit;
     _state.currentDialingNumber[len + 1] = '\0';
   }
 
   _modem.stopTone();
 
-  Logger::infoln(F("%s dialed digit: %u"),
+  Logger::infoln(F("%s dialed digit: %c"),
                  fromIntegration ? "Integration" : "Rotary",
-                 static_cast<unsigned>(digit));
+                 digit);
   Logger::infoln(F("Dialed number: %s"), _state.currentDialingNumber);
 
-  _modem.enqueueMp3(dialedDigitsToMp3s[digit]);
+  // Only play MP3 for digits 0-9, not for '+'
+  if (digit >= '0' && digit <= '9') {
+    _modem.enqueueMp3(dialedDigitsToMp3s[digit - '0']);
+  }
 
   // If skipValidation is true, just update state and return (for send mode)
   if (skipValidation) {

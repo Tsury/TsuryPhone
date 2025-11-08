@@ -36,14 +36,15 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationDialRequest(const String 
   return IntegrationCallbackResult(false, error);
 }
 
-IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(uint8_t digit,
+IntegrationCallbackResult TsuryPhone::handleIntegrationDialDigitRequest(char digit,
                                                                         bool deferValidation) {
-  Logger::infoln(F("Integration dial digit request: %u (defer: %s)"),
-                 static_cast<unsigned>(digit),
+  Logger::infoln(F("Integration dial digit request: %c (defer: %s)"),
+                 digit,
                  deferValidation ? "yes" : "no");
 
-  if (digit > 9) {
-    String error = "Digit must be between 0 and 9";
+  // Validate digit: 0-9 or '+'
+  if (digit != '+' && (digit < '0' || digit > '9')) {
+    String error = "Digit must be 0-9 or '+'";
     Logger::errorln(F("Integration dial digit request: %s"), error.c_str());
     return IntegrationCallbackResult(false, error, "WEB_INVALID_DIGIT");
   }

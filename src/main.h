@@ -24,7 +24,7 @@ public:
 #ifdef HOME_ASSISTANT_INTEGRATION
   // Integration callbacks (compiled only when integration is enabled)
   IntegrationCallbackResult handleIntegrationDialRequest(const String &number);
-  IntegrationCallbackResult handleIntegrationDialDigitRequest(uint8_t digit,
+  IntegrationCallbackResult handleIntegrationDialDigitRequest(char digit,
                                                               bool deferValidation = false);
   IntegrationCallbackResult handleIntegrationSendDTMFRequest(char digit);
   IntegrationCallbackResult handleIntegrationDeleteLastDigitRequest();
@@ -68,7 +68,7 @@ private:
   void processStateInCall();
   void processStateInvalidNumber();
 
-  bool handleDialedDigitInput(uint8_t digit,
+  bool handleDialedDigitInput(char digit,
                               bool appendToState,
                               bool fromIntegration,
                               bool skipValidation = false);
