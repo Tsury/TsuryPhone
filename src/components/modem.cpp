@@ -288,12 +288,13 @@ bool Modem::sendDTMFTone(char digit) {
   }
 
   // AT+CLDTMF: Play local DTMF tone for user feedback
-  // Format: AT+CLDTMF=<path>,<tone>,<timeBase>,<n>
-  // path=0: output to channel (earpiece/speaker)
-  // timeBase=100ms units
-  // n=1: play once
+  // Format: AT+CLDTMF=<n>,<DTMF string>,<timeBase>,<path>
+  // n=1: number of times to play (1-100)
+  // DTMF string: "0-9,A-D,*,#" (quoted)
+  // timeBase=100: duration in ms (50-500, default 100)
+  // path=0: local output to earpiece/speaker
   char cldtmfCmd[32];
-  snprintf(cldtmfCmd, sizeof(cldtmfCmd), "+CLDTMF=0,\"%c\",1,1", digit);
+  snprintf(cldtmfCmd, sizeof(cldtmfCmd), "+CLDTMF=1,\"%c\",100,0", digit);
   sendCommand(cldtmfCmd);
 
   // Small delay to ensure local feedback starts before remote transmission
