@@ -294,7 +294,7 @@ bool Modem::sendDTMFTone(char digit) {
   // timeBase=100: duration in ms (50-500, default 100)
   // path=0: local output to earpiece/speaker
   char cldtmfCmd[32];
-  snprintf(cldtmfCmd, sizeof(cldtmfCmd), "+CLDTMF=1,\"%c\",100,0", digit);
+  snprintf(cldtmfCmd, sizeof(cldtmfCmd), "+CLDTMF=1,\"%c\",150,0", digit);
   sendCommand(cldtmfCmd);
 
   // Small delay to ensure local feedback starts before remote transmission
