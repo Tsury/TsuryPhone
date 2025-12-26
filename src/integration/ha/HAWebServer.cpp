@@ -550,14 +550,15 @@ void HAWebServer::handleSetAudioConfig(AsyncWebServerRequest *request, JsonVaria
 
   bool hasValidParam = false;
   if (json["earpieceVolume"].is<int>() || json["earpieceGain"].is<int>() ||
-      json["speakerVolume"].is<int>() || json["speakerGain"].is<int>()) {
+      json["speakerVolume"].is<int>() || json["speakerGain"].is<int>() ||
+      json["ringerCycleDuration"].is<int>()) {
     hasValidParam = true;
   }
 
   if (!hasValidParam) {
     sendErrorResponse(request,
                       "At least one audio parameter must be provided: earpieceVolume, "
-                      "earpieceGain, speakerVolume, or speakerGain",
+                      "earpieceGain, speakerVolume, speakerGain, or ringerCycleDuration",
                       400,
                       "WEB_AUDIO_PARAM_REQUIRED");
     return;
