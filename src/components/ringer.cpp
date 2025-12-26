@@ -43,6 +43,10 @@ void Ringer::startRinging(const String &pattern, bool ignoreDnd) {
     return;
   }
 
+  Logger::infoln(F("Starting ringer with pattern: %s (cycle: %d ms)"),
+                 pattern.c_str(),
+                 _cycleDuration);
+
   resetPattern();
   parsePattern(pattern);
   _pattern.active = true;
@@ -67,12 +71,16 @@ void Ringer::process(State &state) {
       _pattern.currentRepeat++;
 
       if (_pattern.currentRepeat >= _pattern.repeatCount) {
+        Logger::debugln(F("Ringer pattern complete"));
         markRingComplete(state);
         return;
       }
       // Reset for next repeat
       _pattern.index = 0;
       _pattern.startTime = millis();
+      Logger::debugln(F("Ringer repeating pattern (repeat %d/%d)"),
+                      _pattern.currentRepeat + 1,
+                      _pattern.repeatCount);
     }
 
     uint32_t currentDuration = _pattern.durations[_pattern.index];
@@ -84,6 +92,11 @@ void Ringer::process(State &state) {
 
       if (_pattern.index < _pattern.durations.size()) {
         shouldRing = (_pattern.index % 2 == 0);
+        Logger::debugln(F("Ringer segment %d/%d (duration: %d ms, ringing: %s)"),
+                        _pattern.index + 1,
+                        _pattern.durations.size(),
+                        _pattern.durations[_pattern.index],
+                        shouldRing ? "yes" : "no");
       }
     }
 
@@ -154,6 +167,7 @@ void Ringer::updateRingState() {
 void Ringer::setCycleDuration(int duration) {
   if (duration > 0) {
     _cycleDuration = duration;
+    Logger::infoln(F("Ringer cycle duration set to %d ms"), _cycleDuration);
   }
 }
 

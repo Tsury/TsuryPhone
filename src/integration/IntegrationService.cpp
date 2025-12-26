@@ -434,6 +434,7 @@ IntegrationCallbackResult IntegrationService::handleSetAudioConfig(const JsonVar
     if (duration >= 1) {
       audioConfig.ringerCycleDuration = duration;
       changed = true;
+      INT_LOG_INFO("CORE", "Updating ringer cycle duration to %d ms", duration);
     } else {
       return IntegrationCallbackResult(false, "Ringer cycle duration must be positive");
     }
