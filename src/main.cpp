@@ -46,7 +46,7 @@ void TsuryPhone::setup() {
   _deviceConfig.init();
   _wifi.init();
   _modem.init();
-  _ringer.init();
+  _ringer.init(_deviceConfig.getAudioConfig().ringerCycleDuration);
   _rotaryDial.init();
   _hookSwitch.init();
   _state.isHookOff = _hookSwitch.isOffHook();

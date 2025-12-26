@@ -6,11 +6,10 @@
 #include <cstring>
 
 namespace {
-  const constexpr int kRingCycleDuration = 30;
   const constexpr uint32_t kDefaultRingDurationMs = 2000;
 }
 
-void Ringer::init() const {
+void Ringer::init(int cycleDuration) {
   Logger::infoln(F("Initializing ringer..."));
 
   pinMode(kRingerIn1Pin, OUTPUT);
@@ -18,6 +17,7 @@ void Ringer::init() const {
   pinMode(kRingerInhPin, OUTPUT);
 
   setRingerEnabled(false);
+  setCycleDuration(cycleDuration);
 
   Logger::infoln(F("Ringer initialized!"));
 }
@@ -137,17 +137,23 @@ void Ringer::initializeRinging() {
   _ringing = true;
   _ringStartTime = millis();
   _pattern.startTime = millis();
-  _lastCycleTime = millis() + kRingCycleDuration;
+  _lastCycleTime = millis() + _cycleDuration;
   _ringState = false;
   _pattern.index = 0;
   _pattern.currentRepeat = 0;
 }
 
 void Ringer::updateRingState() {
-  if (millis() - _lastCycleTime >= kRingCycleDuration) {
+  if (millis() - _lastCycleTime >= _cycleDuration) {
     _ringState = !_ringState;
     _lastCycleTime = millis();
     setRingerPins(_ringState, !_ringState);
+  }
+}
+
+void Ringer::setCycleDuration(int duration) {
+  if (duration > 0) {
+    _cycleDuration = duration;
   }
 }
 

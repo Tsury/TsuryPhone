@@ -391,6 +391,7 @@ void TsuryPhone::onAudioConfigChanged() {
   } else {
     _modem.setSpeakerVolume();
   }
+  _ringer.setCycleDuration(_deviceConfig.getAudioConfig().ringerCycleDuration);
 }
 
 void TsuryPhone::handleIntegrationMaintenanceModeChanged(const bool enabled) {
@@ -418,5 +419,7 @@ void TsuryPhone::handleIntegrationConfigChanged(ConfigChangeEvent event) {
     break;
   }
 }
+
+
 
 #endif // HOME_ASSISTANT_INTEGRATION

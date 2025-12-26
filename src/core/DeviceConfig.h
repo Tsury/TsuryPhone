@@ -22,6 +22,7 @@ struct AudioConfig {
   int earpieceGain = 7;
   int speakerVolume = 7;
   int speakerGain = 7;
+  int ringerCycleDuration = 30;
 };
 
 struct DndConfig {

@@ -46,6 +46,7 @@ bool DeviceConfig::save() {
   audio["earpieceGain"] = _audioConfig.earpieceGain;
   audio["speakerVolume"] = _audioConfig.speakerVolume;
   audio["speakerGain"] = _audioConfig.speakerGain;
+  audio["ringerCycleDuration"] = _audioConfig.ringerCycleDuration;
 
   // DND config
   JsonObject dnd = doc["dnd"].to<JsonObject>();
@@ -146,6 +147,9 @@ bool DeviceConfig::load() {
     }
     if (audio["speakerGain"].is<int>()) {
       _audioConfig.speakerGain = audio["speakerGain"];
+    }
+    if (audio["ringerCycleDuration"].is<int>()) {
+      _audioConfig.ringerCycleDuration = audio["ringerCycleDuration"];
     }
   }
 

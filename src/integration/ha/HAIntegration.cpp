@@ -812,10 +812,6 @@ HAOperationResult HAIntegration::handleRemoveQuickDial(const JsonVariant &json) 
   // Only support id (no backwards compat for code)
   String id = jsonObj["id"].is<const char *>() ? jsonObj["id"].as<String>() : "";
 
-  if (id.isEmpty()) {
-    return HAOperationResult(false, "'id' is required");
-  }
-
   IntegrationCallbackResult result = _integrationService.handleRemoveQuickDialById(id);
 
   HAOperationResult haResult = convertResult(result);
@@ -836,16 +832,6 @@ HAOperationResult HAIntegration::handleEditContact(const JsonVariant &json) {
   String number = jsonObj["number"].as<String>();
   String code = jsonObj["code"] | "";  // Optional
   bool isPriority = jsonObj["priority"] | false;  // Optional, default false
-
-  if (id.isEmpty()) {
-    return HAOperationResult(false, "'id' is required");
-  }
-  if (name.isEmpty()) {
-    return HAOperationResult(false, "'name' is required");
-  }
-  if (number.isEmpty()) {
-    return HAOperationResult(false, "'number' is required");
-  }
 
   IntegrationCallbackResult result = _integrationService.handleEditContact(
       id, name, number, code, isPriority);
@@ -931,10 +917,6 @@ HAOperationResult HAIntegration::handleRemovePriorityCaller(const JsonVariant &j
   JsonObject jsonObj = json.as<JsonObject>();
   String id = jsonObj["id"].as<String>();
 
-  if (id.isEmpty()) {
-    return HAOperationResult(false, "'id' is required");
-  }
-
   IntegrationCallbackResult result = _integrationService.handleRemovePriorityCallerById(id);
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {
@@ -946,10 +928,6 @@ HAOperationResult HAIntegration::handleRemovePriorityCaller(const JsonVariant &j
 HAOperationResult HAIntegration::handleRemoveBlockedNumber(const JsonVariant &json) {
   JsonObject jsonObj = json.as<JsonObject>();
   String id = jsonObj["id"].as<String>();
-
-  if (id.isEmpty()) {
-    return HAOperationResult(false, "'id' is required");
-  }
 
   IntegrationCallbackResult result = _integrationService.handleRemoveBlockedNumberById(id);
   HAOperationResult haResult = convertResult(result);
@@ -968,6 +946,13 @@ HAOperationResult HAIntegration::handleAddWebhookAction(const JsonVariant &json)
 
   if (code.isEmpty() || webhookId.isEmpty()) {
     return HAOperationResult(false, "Code and webhook ID cannot be empty");
+  }
+
+  // Validate code is numeric only (rotary phone dial codes)
+  for (unsigned int i = 0; i < code.length(); i++) {
+    if (!isdigit(code[i])) {
+      return HAOperationResult(false, "Code must contain only digits (0-9)");
+    }
   }
 
   if (_haConfig.isCodeConflict(code)) {
@@ -1006,6 +991,13 @@ HAOperationResult HAIntegration::handleRemoveWebhookAction(const JsonVariant &js
 
   if (code.isEmpty()) {
     return HAOperationResult(false, "Code cannot be empty");
+  }
+
+  // Validate code is numeric only (rotary phone dial codes)
+  for (unsigned int i = 0; i < code.length(); i++) {
+    if (!isdigit(code[i])) {
+      return HAOperationResult(false, "Code must contain only digits (0-9)");
+    }
   }
 
   if (_haConfig.removeWebhookAction(code)) {

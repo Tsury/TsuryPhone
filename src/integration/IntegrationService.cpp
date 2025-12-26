@@ -429,6 +429,16 @@ IntegrationCallbackResult IntegrationService::handleSetAudioConfig(const JsonVar
     }
   }
 
+  if (json["ringerCycleDuration"].is<int>()) {
+    int duration = json["ringerCycleDuration"];
+    if (duration >= 1) {
+      audioConfig.ringerCycleDuration = duration;
+      changed = true;
+    } else {
+      return IntegrationCallbackResult(false, "Ringer cycle duration must be positive");
+    }
+  }
+
   if (json["speakerGain"].is<int>()) {
     int gain = json["speakerGain"];
     if (gain >= 1 && gain <= 7) {
@@ -457,6 +467,7 @@ IntegrationCallbackResult IntegrationService::handleSetAudioConfig(const JsonVar
   audio["earpieceGain"] = currentAudioConfig.earpieceGain;
   audio["speakerVolume"] = currentAudioConfig.speakerVolume;
   audio["speakerGain"] = currentAudioConfig.speakerGain;
+  audio["ringerCycleDuration"] = currentAudioConfig.ringerCycleDuration;
 
   return IntegrationCallbackResult(true, resultData);
 }
@@ -532,6 +543,15 @@ IntegrationCallbackResult IntegrationService::handleAddQuickDial(const String &c
   // Code is now optional - only number is required
   if (number.isEmpty()) {
     return IntegrationCallbackResult(false, "Number cannot be empty");
+  }
+
+  // Validate code is numeric only if provided (rotary phone dial codes)
+  if (!code.isEmpty()) {
+    for (unsigned int i = 0; i < code.length(); i++) {
+      if (!isdigit(code[i])) {
+        return IntegrationCallbackResult(false, "Code must contain only digits (0-9)");
+      }
+    }
   }
 
   // Only check for code conflict if code is provided
@@ -878,6 +898,7 @@ void IntegrationService::addConfig(JsonObject &doc) {
   audio["earpieceGain"] = audioConfig.earpieceGain;
   audio["speakerVolume"] = audioConfig.speakerVolume;
   audio["speakerGain"] = audioConfig.speakerGain;
+  audio["ringerCycleDuration"] = audioConfig.ringerCycleDuration;
 
   // DND config
   const DndConfig &dndConfig = _config.getDndConfig();

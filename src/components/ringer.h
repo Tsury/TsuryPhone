@@ -23,13 +23,15 @@ struct RingPattern {
 
 class Ringer {
 public:
-  void init() const;
+  void init(int cycleDuration);
   void process(State &state);
 
   void startRinging();
   void startRinging(uint32_t duration);
   void startRinging(const String &pattern, bool ignoreDnd = false);
   void stopRinging();
+
+  void setCycleDuration(int duration);
 
 private:
   void setRingerEnabled(const bool enabled) const;
@@ -46,6 +48,7 @@ private:
 
   uint32_t _ringStartTime = 0UL;
   uint32_t _lastCycleTime = 0UL;
+  int _cycleDuration = 30;
 
   // Pattern support
   RingPattern _pattern;
