@@ -78,13 +78,20 @@ void Ringer::process(State &state) {
       // Reset for next repeat
       _pattern.index = 0;
       _pattern.startTime = millis();
+      
+      // Reset phase for next repeat
+      _lastCycleTime = millis();
+      _ringState = false;
+      _isCoasting = false;
+      setRingerPins(_ringState, !_ringState);
+
       Logger::debugln(F("Ringer repeating pattern (repeat %d/%d)"),
                       _pattern.currentRepeat + 1,
                       _pattern.repeatCount);
     }
 
     uint32_t currentDuration = _pattern.durations[_pattern.index];
-    bool shouldRing = (_pattern.index % 2 == 0); // Ring on odd indices (0, 2, 4...)
+    bool shouldRing = (_pattern.index % 2 == 0); // Ring on even indices (0, 2, 4...)
 
     if (millis() - _pattern.startTime >= currentDuration) {
       _pattern.index++;
@@ -92,6 +99,14 @@ void Ringer::process(State &state) {
 
       if (_pattern.index < _pattern.durations.size()) {
         shouldRing = (_pattern.index % 2 == 0);
+
+        if (shouldRing) {
+          _lastCycleTime = millis();
+          _ringState = false;
+          _isCoasting = false;
+          setRingerPins(_ringState, !_ringState);
+        }
+
         Logger::debugln(F("Ringer segment %d/%d (duration: %d ms, ringing: %s)"),
                         _pattern.index + 1,
                         _pattern.durations.size(),
@@ -106,6 +121,7 @@ void Ringer::process(State &state) {
     } else {
       // During wait periods, ensure ringer is off
       setRingerPins(false, false);
+      _isCoasting = false;
     }
   } else {
     // Original simple ringing logic
@@ -146,27 +162,42 @@ void Ringer::setRingerEnabled(const bool enabled) const {
 }
 
 void Ringer::initializeRinging() {
+  setRingerPins(false, false);
   setRingerEnabled(true);
   _ringing = true;
   _ringStartTime = millis();
   _pattern.startTime = millis();
-  _lastCycleTime = millis() + _cycleDuration;
+  _lastCycleTime = millis();
   _ringState = false;
+  _isCoasting = false;
+  setRingerPins(_ringState, !_ringState);
   _pattern.index = 0;
   _pattern.currentRepeat = 0;
 }
 
 void Ringer::updateRingState() {
+  if (_isCoasting) {
+    if ((uint32_t)(micros() - _coastStartUs) >= 1000) {
+      _isCoasting = false;
+      setRingerPins(_ringState, !_ringState);
+    }
+    return;
+  }
+
   if (millis() - _lastCycleTime >= _cycleDuration) {
     _ringState = !_ringState;
     _lastCycleTime = millis();
-    setRingerPins(_ringState, !_ringState);
+
+    // Dead time insertion: Coast for 1ms before switching
+    setRingerPins(false, false);
+    _isCoasting = true;
+    _coastStartUs = micros();
   }
 }
 
 void Ringer::setCycleDuration(int duration) {
   if (duration > 0) {
-    _cycleDuration = duration;
+    _cycleDuration = std::max(duration, 1);
     Logger::infoln(F("Ringer cycle duration set to %d ms"), _cycleDuration);
   }
 }

@@ -48,6 +48,8 @@ private:
 
   uint32_t _ringStartTime = 0UL;
   uint32_t _lastCycleTime = 0UL;
+  uint32_t _coastStartUs = 0UL;
+  bool _isCoasting = false;
   int _cycleDuration = 30;
 
   // Pattern support
