@@ -75,6 +75,7 @@ void TsuryPhone::setup() {
       [this](const String &pattern, bool bypassDnd) -> IntegrationCallbackResult {
         return handleIntegrationRingRequest(pattern, bypassDnd);
       },
+      [this]() -> IntegrationCallbackResult { return handleIntegrationStopRingRequest(); },
       [this]() -> IntegrationCallbackResult { return handleIntegrationCallWaitingRequest(); },
       [this](VolumeMode mode) -> IntegrationCallbackResult {
         return handleIntegrationVolumeModeRequest(mode);

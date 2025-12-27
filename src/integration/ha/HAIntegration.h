@@ -51,6 +51,7 @@ public:
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback) override;
   void
   setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback) override;
+  void setStopRingCallback(std::function<IntegrationCallbackResult()> callback) override;
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) override;
   void
   setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) override;
@@ -82,6 +83,7 @@ public:
   HAOperationResult handleSetRingPattern(const JsonVariant &data);
   HAOperationResult handleSetDialingConfig(const JsonVariant &data);
   HAOperationResult handleRingOperation(const JsonVariant &data);
+  HAOperationResult handleStopRingOperation();
   HAOperationResult handleSetVolumeMode(const JsonVariant &data);
   HAOperationResult handleToggleVolumeMode();
   HAOperationResult handleToggleMute();

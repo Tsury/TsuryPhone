@@ -33,6 +33,7 @@ public:
   IntegrationCallbackResult handleIntegrationHangupRequest();
   IntegrationCallbackResult handleIntegrationRingRequest(const String &pattern,
                                                          bool bypassDnd = false);
+  IntegrationCallbackResult handleIntegrationStopRingRequest();
   IntegrationCallbackResult handleIntegrationCallWaitingRequest();
   IntegrationCallbackResult handleIntegrationVolumeModeRequest(VolumeMode mode);
   IntegrationCallbackResult handleIntegrationToggleMuteRequest();

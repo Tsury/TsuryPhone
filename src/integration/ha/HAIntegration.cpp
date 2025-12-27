@@ -187,6 +187,10 @@ void HAIntegration::setRingCallback(
   _integrationService.setRingCallback(callback);
 }
 
+void HAIntegration::setStopRingCallback(std::function<IntegrationCallbackResult()> callback) {
+  _integrationService.setStopRingCallback(callback);
+}
+
 void HAIntegration::setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) {
   _integrationService.setCallWaitingCallback(callback);
 }
@@ -284,6 +288,8 @@ void HAIntegration::setupWebServerCallbacks() {
           return handleToggleMute();
         } else if (command == "ring") {
           return handleRingOperation(data);
+        } else if (command == "stop_ring") {
+          return handleStopRingOperation();
         } else if (command == "reset") {
           return handleResetDevice();
         } else if (command == "factory_reset") {
@@ -683,6 +689,17 @@ HAOperationResult HAIntegration::handleRingOperation(const JsonVariant &json) {
     return HAOperationResult(true);
   } else {
     INTL_ERROR("Ring failed %s (force=%s)", result.errorMessage.c_str(), force ? "true" : "false");
+    return HAOperationResult(false, result.errorMessage);
+  }
+}
+
+HAOperationResult HAIntegration::handleStopRingOperation() {
+  IntegrationCallbackResult result = _integrationService.handleStopRingOperation();
+  if (result.success) {
+    INTL_INFO("Stop ring success");
+    return HAOperationResult(true);
+  } else {
+    INTL_ERROR("Stop ring failed %s", result.errorMessage.c_str());
     return HAOperationResult(false, result.errorMessage);
   }
 }

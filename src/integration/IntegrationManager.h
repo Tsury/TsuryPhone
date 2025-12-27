@@ -43,6 +43,7 @@ public:
       std::function<IntegrationCallbackResult()> answerCallback,
       std::function<IntegrationCallbackResult()> hangupCallback,
       std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
+      std::function<IntegrationCallbackResult()> stopRingCallback,
       std::function<IntegrationCallbackResult()> callWaitingCallback,
       std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
       std::function<IntegrationCallbackResult()> toggleMuteCallback,
@@ -76,6 +77,7 @@ public:
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
+  void setStopRingCallback(std::function<IntegrationCallbackResult()> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
   void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback);

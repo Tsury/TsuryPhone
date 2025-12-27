@@ -269,6 +269,12 @@ void IntegrationManager::setRingCallback(
   }
 }
 
+void IntegrationManager::setStopRingCallback(std::function<IntegrationCallbackResult()> callback) {
+  for (auto &integration : _integrations) {
+    integration->setStopRingCallback(callback);
+  }
+}
+
 void IntegrationManager::setCallWaitingCallback(
     std::function<IntegrationCallbackResult()> callback) {
   for (auto &integration : _integrations) {
@@ -869,6 +875,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
     std::function<IntegrationCallbackResult()> answerCallback,
     std::function<IntegrationCallbackResult()> hangupCallback,
     std::function<IntegrationCallbackResult(const String &, bool)> ringCallback,
+    std::function<IntegrationCallbackResult()> stopRingCallback,
     std::function<IntegrationCallbackResult()> callWaitingCallback,
     std::function<IntegrationCallbackResult(VolumeMode)> volumeModeCallback,
     std::function<IntegrationCallbackResult()> toggleMuteCallback,
@@ -888,6 +895,7 @@ void IntegrationManager::setupTsuryPhoneCallbacks(
   setAnswerCallback(answerCallback);
   setHangupCallback(hangupCallback);
   setRingCallback(ringCallback);
+  setStopRingCallback(stopRingCallback);
   setCallWaitingCallback(callWaitingCallback);
   setVolumeModeCallback(volumeModeCallback);
   setToggleMuteCallback(toggleMuteCallback);

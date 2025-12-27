@@ -191,6 +191,11 @@ void HAWebServer::setupRoutes() {
     handleRingOperation(req, json);
   });
 
+  _server.on("/api/system/stop_ring", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    JsonDocument empty;
+    executeCommand(request, "stop_ring", empty.as<JsonVariant>());
+  });
+
   // Priority callers
   addJsonPostRoute("/api/config/priority_add",
                    [this](AsyncWebServerRequest *req, JsonVariant &json) {

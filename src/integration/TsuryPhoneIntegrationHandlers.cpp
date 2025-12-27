@@ -276,6 +276,12 @@ IntegrationCallbackResult TsuryPhone::handleIntegrationRingRequest(const String 
   return IntegrationCallbackResult(false, error);
 }
 
+IntegrationCallbackResult TsuryPhone::handleIntegrationStopRingRequest() {
+  Logger::infoln(F("Integration stop ring request"));
+  _ringer.stopRinging();
+  return IntegrationCallbackResult(true);
+}
+
 IntegrationCallbackResult TsuryPhone::handleIntegrationCallWaitingRequest() {
   Logger::infoln(F("Integration call waiting request"));
   if (_state.newAppState == AppState::InCall && _state.callState.hasCallWaiting()) {

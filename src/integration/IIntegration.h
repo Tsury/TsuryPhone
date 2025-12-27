@@ -61,6 +61,7 @@ public:
   virtual void setHangupCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void
   setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback) = 0;
+  virtual void setStopRingCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback) = 0;
   virtual void
   setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback) {

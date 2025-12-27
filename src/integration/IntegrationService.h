@@ -34,6 +34,7 @@ public:
   void setAnswerCallback(std::function<IntegrationCallbackResult()> callback);
   void setHangupCallback(std::function<IntegrationCallbackResult()> callback);
   void setRingCallback(std::function<IntegrationCallbackResult(const String &, bool)> callback);
+  void setStopRingCallback(std::function<IntegrationCallbackResult()> callback);
   void setCallWaitingCallback(std::function<IntegrationCallbackResult()> callback);
   void setVolumeModeCallback(std::function<IntegrationCallbackResult(VolumeMode)> callback);
   void setToggleMuteCallback(std::function<IntegrationCallbackResult()> callback);
@@ -51,6 +52,7 @@ public:
   IntegrationCallbackResult handleDialQuickDial(const String &code);
   IntegrationCallbackResult handleToggleCallWaiting();
   IntegrationCallbackResult handleRingOperation(const String &pattern, bool force = false);
+  IntegrationCallbackResult handleStopRingOperation();
   IntegrationCallbackResult handleSetVolumeMode(VolumeMode mode);
   IntegrationCallbackResult handleToggleVolumeMode();
   IntegrationCallbackResult handleToggleMute();
@@ -194,6 +196,7 @@ private:
   std::function<IntegrationCallbackResult()> _answerCallback;
   std::function<IntegrationCallbackResult()> _hangupCallback;
   std::function<IntegrationCallbackResult(const String &, bool)> _ringCallback;
+  std::function<IntegrationCallbackResult()> _stopRingCallback;
   std::function<IntegrationCallbackResult()> _callWaitingCallback;
   std::function<IntegrationCallbackResult(VolumeMode)> _volumeModeCallback;
   std::function<IntegrationCallbackResult()> _toggleMuteCallback;

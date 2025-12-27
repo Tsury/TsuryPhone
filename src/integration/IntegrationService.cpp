@@ -45,6 +45,10 @@ void IntegrationService::setRingCallback(
   _ringCallback = callback;
 }
 
+void IntegrationService::setStopRingCallback(std::function<IntegrationCallbackResult()> callback) {
+  _stopRingCallback = callback;
+}
+
 void IntegrationService::setDialDigitCallback(
     std::function<IntegrationCallbackResult(char, bool)> callback) {
   _dialDigitCallback = callback;
@@ -324,6 +328,23 @@ IntegrationCallbackResult IntegrationService::handleRingOperation(const String &
   } else {
     INT_LOG_ERROR(
         "CORE", "Ring failed %s (force=%s)", result.errorMessage.c_str(), force ? "true" : "false");
+  }
+
+  return result;
+}
+
+IntegrationCallbackResult IntegrationService::handleStopRingOperation() {
+  INT_LOG_INFO("CORE", "Stop ring operation");
+
+  if (!_stopRingCallback) {
+    return IntegrationCallbackResult(false, "Stop ring callback not available");
+  }
+
+  IntegrationCallbackResult result = _stopRingCallback();
+  if (result.success) {
+    INT_LOG_INFO("CORE", "Stop ring success");
+  } else {
+    INT_LOG_ERROR("CORE", "Stop ring failed %s", result.errorMessage.c_str());
   }
 
   return result;
