@@ -5,8 +5,8 @@
       "path": "../ha-tsuryphone-frontend"
     },
     {
-      "name": "ha-tsuryphone-cc",
-      "path": "../ha-tsuryphone-cc"
+      "name": "ha-tsuryphone",
+      "path": "../ha-tsuryphone"
     },
     {
       "name": "TsuryPhone",
