@@ -4,9 +4,9 @@ The generator consumes the files in this folder to seed the firmware's factory p
 
 ```
 +972
-211,0545689234,Amit
-212,0522347784,Almog
-213,0505479357,Dina
+211,0500000001,Alice
+212,0500000002,Bob
+213,0500000003,Carol
 ```
 
 - The **first non-empty, non-comment line** defines the default dialing code. Only digits
