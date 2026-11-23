@@ -1,0 +1,15 @@
+{
+  "verify": "python3 tests/test_modem_audio_queue.py",
+  "verify_rules": [
+    {
+      "paths": [
+        ".harness/factory.json",
+        "src/common/ringBuffer.h",
+        "tests/test_modem_audio_queue.py",
+        "tests/modem_audio_queue.cpp",
+        "tests/fixtures/arduino/Arduino.h"
+      ],
+      "verify": "python3 tests/test_modem_audio_queue.py"
+    }
+  ]
+}
