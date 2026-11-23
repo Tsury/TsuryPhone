@@ -1,5 +1,32 @@
 {
   "verify": "python3 tests/test_modem_audio_queue.py",
+  "lint": "python3 -B scripts/lint.py",
+  "lint_rules": [
+    {
+      "paths": [
+        "tests/*.py",
+        "phoneBook/*.py",
+        "mp3/*.py"
+      ],
+      "lint": "python3 -B scripts/lint.py {files}"
+    },
+    {
+      "paths": [
+        "src/*.cpp",
+        "src/*.h",
+        "tests/*.cpp",
+        "tests/*.h",
+        "mp3/*.cpp"
+      ],
+      "lint": "python3 -B scripts/lint.py {files}"
+    },
+    {
+      "paths": [
+        "schemas/*.json"
+      ],
+      "lint": "python3 -B scripts/lint.py {files}"
+    }
+  ],
   "verify_rules": [
     {
       "paths": [
@@ -10,6 +37,14 @@
         "tests/fixtures/arduino/Arduino.h"
       ],
       "verify": "python3 tests/test_modem_audio_queue.py"
+    },
+    {
+      "paths": [
+        ".harness/checks.json",
+        "scripts/lint.py",
+        "scripts/factory_lint_check.py"
+      ],
+      "verify": "python3 -B -c \"from scripts.factory_lint_check import check\" && python3 -B scripts/lint.py"
     }
   ]
 }

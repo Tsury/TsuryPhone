@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "checks": [
+    {
+      "bootstrap": true,
+      "key": "proof-gate-guard",
+      "state": "blocking"
+    },
+    {
+      "configuration": {},
+      "configuration_files": [
+        ".clang-format",
+        ".harness/factory.json"
+      ],
+      "digest": "d635e44ce67055d621f935fc8fcac0dc313b1ad4f188f56e0c8c5a0ff3ea0f56",
+      "entry_point": "scripts.factory_lint_check:check",
+      "events": {
+        "kinds": [
+          "factory-lint"
+        ],
+        "required_inputs": [
+          "input.command",
+          "input.exit_status"
+        ]
+      },
+      "implementation": [
+        "scripts/factory_lint_check.py",
+        "scripts/lint.py"
+      ],
+      "key": "factory-lint",
+      "mistake": {
+        "unavailable": "The missing factory lint command reported in https://github.com/Tsury/TsuryPhone/issues/2 produced no lint outcome to replay."
+      },
+      "state": "report-only"
+    }
+  ]
+}
