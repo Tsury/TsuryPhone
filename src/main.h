@@ -1,14 +1,14 @@
 #pragma once
 
-#include "common\consts.h"
-#include "common\timeManager.h"
-#include "common\wifi.h"
-#include "components\hookSwitch.h"
-#include "components\modem.h"
-#include "components\ringer.h"
-#include "components\rotaryDial.h"
-#include "core\DeviceConfig.h"
-#include "core\NumberHandler.h"
+#include "common/consts.h"
+#include "common/timeManager.h"
+#include "common/wifi.h"
+#include "components/hookSwitch.h"
+#include "components/modem.h"
+#include "components/ringer.h"
+#include "components/rotaryDial.h"
+#include "core/DeviceConfig.h"
+#include "core/NumberHandler.h"
 #include <Arduino.h>
 #include <memory>
 

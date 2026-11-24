@@ -19,6 +19,7 @@ $TSURYPHONE_INPUTS/
 ## Build
 
 ```sh
+uv tool install platformio   # once, if `pio` is missing
 python3 scripts/generate.py
 pio run -e releaseHA
 ```
