@@ -18,6 +18,7 @@ namespace {
   const constexpr int kResetToneDuration = 500;
   const constexpr int kWifiPortalToneDuration = 500;
   const constexpr int kToggleVolumeToneDuration = 75;
+  const constexpr int kToneModeBeepDuration = 75;
   const constexpr int kCallWaitingToneDuration = 500;
   const constexpr int kInvalidNumberMp3RepeatCount = 100;
 
@@ -513,13 +514,20 @@ void TsuryPhone::processStateInCall() {
 
   const int dialedDigit = _rotaryDial.getDialedDigit();
 
-  if (dialedDigit == 1) {
+  if (dialedDigit >= 0 && _state.callState.active.isToneMode) {
+    _modem.sendDTMFTone(static_cast<char>('0' + dialedDigit));
+  } else if (dialedDigit == 1) {
     Logger::infoln(F("Toggling volume..."));
     _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToggleVolumeToneDuration);
     _modem.toggleVolume();
   } else if (dialedDigit == 2 && _state.callState.hasCallWaiting()) {
     _state.callState.promoteWaitingToActive(millis());
     _modem.switchToCallWaiting();
+  } else if (dialedDigit == 3) {
+    Logger::infoln(F("Tone mode on"));
+    _state.callState.active.isToneMode = true;
+    _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToneModeBeepDuration);
+    _modem.enqueueTone(Tone::PositiveAcknowledgeTone, kToneModeBeepDuration);
   }
 
   if (_state.callState.hasCallWaiting() && !_state.callState.playedCallWaitingTone) {

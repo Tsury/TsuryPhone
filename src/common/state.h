@@ -33,6 +33,7 @@ struct CallLeg {
   bool otherPartyDropped;
   bool isIncoming;
   bool isMuted;
+  bool isToneMode; // Dialed digits send DTMF tones for this call
   unsigned long startedAtMs;
   char number[kSmallBufferSize];
 
@@ -51,6 +52,7 @@ struct CallLeg {
     otherPartyDropped = false;
     isIncoming = false;
     isMuted = false;
+    isToneMode = false;
     startedAtMs = 0UL;
     number[0] = '\0';
   }
