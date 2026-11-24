@@ -5,6 +5,7 @@
 #include "core/BuildSecrets.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <algorithm>
 
@@ -15,6 +16,8 @@ namespace {
   const constexpr uint32_t kDeleteScanIntervalMs = 2000UL;
   const constexpr uint16_t kHttpTimeoutMs = 5000;
   const constexpr uint32_t kDeliveryTaskStack = 8192;
+  const char *const kPrefsNamespace = "sms";
+  const char *const kPrefsIdRecords = "ids";
 
   class Lock {
   public:
@@ -60,6 +63,17 @@ namespace {
 SmsForwarder::SmsForwarder(Modem &modem) : _modem(modem) {}
 
 void SmsForwarder::begin() {
+  Preferences prefs;
+  if (prefs.begin(kPrefsNamespace, true)) {
+    const size_t bytes = prefs.getBytesLength(kPrefsIdRecords);
+    if (bytes > 0 && bytes % sizeof(SmsIdRecord) == 0) {
+      std::vector<SmsIdRecord> records(bytes / sizeof(SmsIdRecord));
+      prefs.getBytes(kPrefsIdRecords, records.data(), bytes);
+      _queue.restoreIdRecords(records);
+    }
+    prefs.end();
+  }
+
   _lock = xSemaphoreCreateMutex();
   xTaskCreate(deliveryTask, "smsDelivery", kDeliveryTaskStack, this, 1, &_task);
   _modem.setSmsListener(this);
@@ -100,6 +114,29 @@ void SmsForwarder::process(const String &homeAssistantUrl) {
   if (online && _deliveryState.load() == 0) {
     startDelivery(homeAssistantUrl, now);
   }
+  saveIdRecords();
+}
+
+void SmsForwarder::saveIdRecords() {
+  std::vector<SmsIdRecord> records;
+  {
+    Lock lock(_lock);
+    if (!_queue.takeIdRecordsChanged()) {
+      return;
+    }
+    records = _queue.idRecords();
+  }
+  Preferences prefs;
+  if (!prefs.begin(kPrefsNamespace, false)) {
+    Logger::warnln(F("SMS: message IDs not saved"));
+    return;
+  }
+  if (records.empty()) {
+    prefs.remove(kPrefsIdRecords);
+  } else {
+    prefs.putBytes(kPrefsIdRecords, records.data(), records.size() * sizeof(SmsIdRecord));
+  }
+  prefs.end();
 }
 
 void SmsForwarder::listStorage(uint32_t now) {
@@ -141,6 +178,7 @@ void SmsForwarder::startDelivery(const String &homeAssistantUrl, uint32_t now) {
   if (msg == nullptr) {
     return;
   }
+  _queue.markPosted(msg->id);
 
   String base = homeAssistantUrl;
   if (base.endsWith("/")) {

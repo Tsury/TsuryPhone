@@ -1,5 +1,6 @@
 #include "smsPdu.h"
 
+#include <AceTime.h>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -268,22 +269,34 @@ bool decodeSmsDeliverPdu(const char *hex, int tpduLength, SmsPdu &out) {
   const uint8_t dcs = pdu[pos++];
   const uint8_t *scts = &pdu[pos];
   pos += 7;
+  const unsigned year = 2000 + swappedBcd(scts[0]);
+  const unsigned month = swappedBcd(scts[1]);
+  const unsigned day = swappedBcd(scts[2]);
+  const unsigned hour = swappedBcd(scts[3]);
+  const unsigned minute = swappedBcd(scts[4]);
+  const unsigned second = swappedBcd(scts[5]);
   const uint8_t tz = scts[6];
   const int tzQuarters = (tz & 0x07) * 10 + (tz >> 4);
+  const int offsetSeconds = ((tz & 0x08) ? -1 : 1) * tzQuarters * 15 * 60;
   char sentAt[32];
   std::snprintf(sentAt,
                 sizeof(sentAt),
-                "20%02u-%02u-%02uT%02u:%02u:%02u%c%02d:%02d",
-                swappedBcd(scts[0]),
-                swappedBcd(scts[1]),
-                swappedBcd(scts[2]),
-                swappedBcd(scts[3]),
-                swappedBcd(scts[4]),
-                swappedBcd(scts[5]),
+                "%04u-%02u-%02uT%02u:%02u:%02u%c%02d:%02d",
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
                 (tz & 0x08) ? '-' : '+',
                 tzQuarters / 4,
                 (tzQuarters % 4) * 15);
   out.sentAt = sentAt;
+  const int64_t unixSeconds =
+      ace_time::OffsetDateTime::forComponents(
+          year, month, day, hour, minute, second, ace_time::TimeOffset::forSeconds(offsetSeconds))
+          .toUnixSeconds64();
+  out.sentAtSeconds = unixSeconds == ace_time::PlainDate::kInvalidUnixSeconds64 ? 0 : unixSeconds;
 
   const size_t udl = pdu[pos++];
   const uint8_t *ud = &pdu[pos];

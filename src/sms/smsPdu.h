@@ -8,6 +8,8 @@ struct SmsPdu {
   std::string sender;
   // Service centre time stamp as ISO 8601 with offset, e.g. 2026-11-24T10:15:30+02:00.
   std::string sentAt;
+  // The same instant as seconds since 1970 UTC; 0 when the time stamp is not a valid date.
+  int64_t sentAtSeconds = 0;
   std::string text;
 
   // Concatenation header (8-bit or 16-bit reference). total == 1 for a single message.

@@ -20,6 +20,15 @@ struct SmsLocation {
 struct SmsPart {
   std::string text;
   std::string sentAt;
+  int64_t sentAtSeconds;
+};
+
+// The ID of a multi-part message first posted incomplete. Parts that arrive later, and a storage
+// rescan after a restart, reuse it, so Home Assistant replaces that notification.
+struct SmsIdRecord {
+  uint64_t group = 0;        // Sender, reference and part count.
+  int64_t anchorSeconds = 0; // Earliest part time stamp at the first post.
+  char id[18] = {};
 };
 
 struct SmsMessage {
@@ -30,6 +39,8 @@ struct SmsMessage {
   std::map<uint8_t, SmsPart> parts;
   std::vector<SmsLocation> locations;
   uint32_t firstSeenMs = 0;
+  // Once posted, the ID stays fixed when parts join.
+  bool posted = false;
 
   std::string revision;
   std::string acknowledgedRevision;
@@ -64,6 +75,8 @@ public:
   // Next message whose current revision should be (re)posted now, or nullptr. The pointer is
   // valid until the queue changes.
   const SmsMessage *nextDue(uint32_t nowMs) const;
+  // Fixes the message's ID before its first post.
+  void markPosted(const std::string &id);
   // Records a delivery attempt; the next one waits for the capped backoff.
   void scheduleRetry(const std::string &id, uint32_t nowMs);
   // Makes every pending message due now (Wi-Fi came back).
@@ -77,6 +90,20 @@ public:
 
   static std::string joinedText(const SmsMessage &msg);
 
+  // Records loaded from flash at start-up, before any part is added.
+  void restoreIdRecords(const std::vector<SmsIdRecord> &records) {
+    _idRecords = records;
+  }
+  const std::vector<SmsIdRecord> &idRecords() const {
+    return _idRecords;
+  }
+  // True once after the ID records changed and need saving.
+  bool takeIdRecordsChanged() {
+    const bool changed = _idRecordsChanged;
+    _idRecordsChanged = false;
+    return changed;
+  }
+
   size_t size() const {
     return _messages.size();
   }
@@ -87,4 +114,6 @@ private:
   void dropFinished();
 
   std::vector<SmsMessage> _messages;
+  std::vector<SmsIdRecord> _idRecords;
+  bool _idRecordsChanged = false;
 };

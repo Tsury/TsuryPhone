@@ -16,59 +16,35 @@ namespace {
   // apart. The window keeps a reused 8-bit reference from joining an old incomplete message.
   const constexpr int64_t kConcatWindowSeconds = 60 * 60;
 
-  // Seconds since 1970 for the decoder's "20YY-MM-DDTHH:MM:SS+HH:MM" form.
-  bool epochSeconds(const std::string &stamp, int64_t &out) {
-    int y, mo, d, h, mi, s, oh, om;
-    char sign;
-    if (std::sscanf(stamp.c_str(),
-                    "%4d-%2d-%2dT%2d:%2d:%2d%c%2d:%2d",
-                    &y,
-                    &mo,
-                    &d,
-                    &h,
-                    &mi,
-                    &s,
-                    &sign,
-                    &oh,
-                    &om) != 9 ||
-        (sign != '+' && sign != '-')) {
-      return false;
-    }
-    // Days from civil date (proleptic Gregorian calendar).
-    y -= mo <= 2;
-    const int64_t era = y / 400;
-    const int64_t yoe = y - era * 400;
-    const int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    const int64_t days = era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
-    const int64_t offset = (sign == '-' ? -1 : 1) * (oh * 3600 + om * 60);
-    out = days * 86400 + h * 3600 + mi * 60 + s - offset;
-    return true;
+  bool withinConcatWindow(int64_t a, int64_t b) {
+    return (a > b ? a - b : b - a) <= kConcatWindowSeconds;
   }
 
-  bool withinConcatWindow(const std::string &a, const std::string &b) {
-    int64_t ta, tb;
-    if (!epochSeconds(a, ta) || !epochSeconds(b, tb)) {
-      return a == b;
-    }
-    return (ta > tb ? ta - tb : tb - ta) <= kConcatWindowSeconds;
+  uint64_t groupKey(const std::string &sender, uint16_t concatRef, uint8_t total) {
+    return fnv1a64(sender + "|" + std::to_string(concatRef) + "|" + std::to_string(total));
   }
 
-  // IDs and revisions start with a letter so Home Assistant templates keep them as strings.
-  // A multi-part ID uses its smallest part time stamp, so a storage rescan after a restart finds
-  // the same ID whatever order the parts are listed in.
-  std::string messageId(const SmsMessage &msg) {
+  const SmsPart &earliestPart(const SmsMessage &msg) {
     const SmsPart *earliest = &msg.parts.begin()->second;
     for (const auto &part : msg.parts) {
-      if (part.second.sentAt < earliest->sentAt) {
+      if (part.second.sentAtSeconds < earliest->sentAtSeconds) {
         earliest = &part.second;
       }
     }
+    return *earliest;
+  }
+
+  // IDs and revisions start with a letter so Home Assistant templates keep them as strings.
+  // A multi-part ID uses its earliest part time stamp, so a storage rescan after a restart finds
+  // the same ID whatever order the parts are listed in.
+  std::string messageId(const SmsMessage &msg) {
+    const SmsPart &earliest = earliestPart(msg);
     std::string key = msg.sender + "|";
     if (msg.total > 1) {
       key +=
-          std::to_string(msg.concatRef) + "|" + std::to_string(msg.total) + "|" + earliest->sentAt;
+          std::to_string(msg.concatRef) + "|" + std::to_string(msg.total) + "|" + earliest.sentAt;
     } else {
-      key += earliest->sentAt + "|" + earliest->text;
+      key += earliest.sentAt + "|" + earliest.text;
     }
     char id[20];
     std::snprintf(id, sizeof(id), "m%016llx", static_cast<unsigned long long>(fnv1a64(key)));
@@ -90,7 +66,7 @@ namespace {
       return false;
     }
     for (const auto &part : msg.parts) {
-      if (!withinConcatWindow(part.second.sentAt, pdu.sentAt)) {
+      if (!withinConcatWindow(part.second.sentAtSeconds, pdu.sentAtSeconds)) {
         return false;
       }
     }
@@ -132,14 +108,24 @@ bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
     msg.total = pdu.concatTotal;
     msg.firstSeenMs = nowMs;
     msg.nextAttemptMs = nowMs;
+    const uint64_t group = groupKey(pdu.sender, pdu.concatRef, pdu.concatTotal);
+    for (const SmsIdRecord &record : _idRecords) {
+      if (record.group == group && withinConcatWindow(record.anchorSeconds, pdu.sentAtSeconds)) {
+        msg.id = record.id;
+        msg.posted = true;
+        break;
+      }
+    }
     _messages.push_back(msg);
     it = _messages.end() - 1;
   }
 
   it->locations.push_back(loc);
   if (it->parts.count(pdu.concatSeq) == 0) {
-    it->parts[pdu.concatSeq] = SmsPart{pdu.text, pdu.sentAt};
-    it->id = messageId(*it);
+    it->parts[pdu.concatSeq] = SmsPart{pdu.text, pdu.sentAt, pdu.sentAtSeconds};
+    if (!it->posted) {
+      it->id = messageId(*it);
+    }
     refreshRevision(*it);
   }
   return true;
@@ -179,6 +165,28 @@ const SmsMessage *SmsQueue::nextDue(uint32_t nowMs) const {
     }
   }
   return best;
+}
+
+void SmsQueue::markPosted(const std::string &id) {
+  for (SmsMessage &msg : _messages) {
+    if (msg.id != id || msg.posted) {
+      continue;
+    }
+    msg.posted = true;
+    if (msg.complete()) {
+      // Every part is in storage until deletion, so a rescan recomputes this ID.
+      continue;
+    }
+    if (_idRecords.size() >= kMaxMessages) {
+      _idRecords.erase(_idRecords.begin());
+    }
+    SmsIdRecord record;
+    record.group = groupKey(msg.sender, msg.concatRef, msg.total);
+    record.anchorSeconds = earliestPart(msg).sentAtSeconds;
+    std::snprintf(record.id, sizeof(record.id), "%s", msg.id.c_str());
+    _idRecords.push_back(record);
+    _idRecordsChanged = true;
+  }
 }
 
 void SmsQueue::scheduleRetry(const std::string &id, uint32_t nowMs) {
@@ -263,6 +271,18 @@ void SmsQueue::dropFinished() {
                                          msg.locations.end(),
                                          [](const SmsLocation &loc) { return loc.index < 0; }),
                           msg.locations.end());
+    }
+  }
+  for (const SmsMessage &msg : _messages) {
+    if (!msg.deleting || !msg.locations.empty()) {
+      continue;
+    }
+    const auto record = std::find_if(_idRecords.begin(),
+                                     _idRecords.end(),
+                                     [&msg](const SmsIdRecord &r) { return msg.id == r.id; });
+    if (record != _idRecords.end()) {
+      _idRecords.erase(record);
+      _idRecordsChanged = true;
     }
   }
   _messages.erase(
