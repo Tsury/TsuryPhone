@@ -45,6 +45,18 @@
         "scripts/factory_lint_check.py"
       ],
       "verify": "python3 -B -c \"from scripts.factory_lint_check import check\" && python3 -B scripts/lint.py"
+    },
+    {
+      "paths": [
+        "src/*.h",
+        "src/*.cpp",
+        "scripts/generate.py",
+        "phoneBook/generate.py",
+        "mp3/generate.py",
+        "platformio.ini",
+        "partitions.csv"
+      ],
+      "verify": "python3 -B scripts/generate.py && pio run -s -e releaseHA"
     }
   ]
 }
