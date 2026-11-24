@@ -4,7 +4,8 @@
 #include "common/state.h"
 #include <Arduino.h>
 
-const constexpr int kInvalidDialedDigit = 99;
+// Negative so callers can test a dialed digit with `>= 0`.
+const constexpr int kInvalidDialedDigit = -1;
 
 class RotaryDial {
 public:
@@ -23,5 +24,5 @@ private:
   uint32_t _inDialChangeTime = 0UL;
   uint32_t _pulseChangeTime = 0UL;
 
-  char _dialedDigit = kInvalidDialedDigit;
+  int _dialedDigit = kInvalidDialedDigit;
 };

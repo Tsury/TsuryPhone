@@ -34,7 +34,8 @@ void RotaryDial::process(State &state) {
       } else {
         Logger::infoln(F("End of dial"));
 
-        if (_counter > 0) {
+        // A rotary dial sends 1-10 pulses; ignore other counts so callers only see 0-9.
+        if (_counter > 0 && _counter <= 10) {
           if (_counter == 10) {
             _counter = 0;
           }
