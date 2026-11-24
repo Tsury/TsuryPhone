@@ -24,6 +24,21 @@ namespace {
     return fnv1a64(sender + "|" + std::to_string(concatRef) + "|" + std::to_string(total));
   }
 
+  uint64_t partFingerprint(const SmsPdu &pdu) {
+    return fnv1a64(pdu.sentAt + "|" + pdu.text,
+                   groupKey(pdu.sender, pdu.concatRef, pdu.concatTotal) ^ pdu.concatSeq);
+  }
+
+  bool sameSlot(const SmsDeleteRecord &record, const std::string &bank, int index) {
+    return record.index == index && bank == record.bank;
+  }
+
+  bool recorded(const std::vector<SmsDeleteRecord> &records, const SmsLocation &loc) {
+    return std::any_of(records.begin(), records.end(), [&loc](const SmsDeleteRecord &r) {
+      return r.fingerprint == loc.fingerprint && sameSlot(r, loc.bank, loc.index);
+    });
+  }
+
   const SmsPart &earliestPart(const SmsMessage &msg) {
     const SmsPart *earliest = &msg.parts.begin()->second;
     for (const auto &part : msg.parts) {
@@ -93,13 +108,21 @@ bool SmsQueue::tracks(const std::string &bank, int index) const {
   return false;
 }
 
-bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
-  auto it = std::find_if(_messages.begin(), _messages.end(), [&pdu](const SmsMessage &msg) {
-    return belongsTo(msg, pdu);
+bool SmsQueue::add(const SmsLocation &found, const SmsPdu &pdu, uint32_t nowMs) {
+  SmsLocation loc = found;
+  loc.fingerprint = partFingerprint(pdu);
+  // A part left in storage by a delete interrupted by a restart goes straight back to deletion.
+  const bool acknowledged = recorded(_deleteRecords, loc);
+  auto it = std::find_if(_messages.begin(), _messages.end(), [&](const SmsMessage &msg) {
+    if (!acknowledged) {
+      return belongsTo(msg, pdu);
+    }
+    return msg.deleting && msg.sender == pdu.sender && msg.total == pdu.concatTotal &&
+           msg.concatRef == pdu.concatRef;
   });
 
   if (it == _messages.end()) {
-    if (full()) {
+    if (full() && !acknowledged) {
       return false;
     }
     SmsMessage msg;
@@ -108,6 +131,7 @@ bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
     msg.total = pdu.concatTotal;
     msg.firstSeenMs = nowMs;
     msg.nextAttemptMs = nowMs;
+    msg.deleting = acknowledged;
     const uint64_t group = groupKey(pdu.sender, pdu.concatRef, pdu.concatTotal);
     for (const SmsIdRecord &record : _idRecords) {
       if (record.group == group && withinConcatWindow(record.anchorSeconds, pdu.sentAtSeconds)) {
@@ -121,6 +145,9 @@ bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
   }
 
   it->locations.push_back(loc);
+  if (it->deleting) {
+    recordDelete(loc);
+  }
   if (it->parts.count(pdu.concatSeq) == 0) {
     it->parts[pdu.concatSeq] = SmsPart{pdu.text, pdu.sentAt, pdu.sentAtSeconds};
     if (!it->posted) {
@@ -185,7 +212,7 @@ void SmsQueue::markPosted(const std::string &id) {
     record.anchorSeconds = earliestPart(msg).sentAtSeconds;
     std::snprintf(record.id, sizeof(record.id), "%s", msg.id.c_str());
     _idRecords.push_back(record);
-    _idRecordsChanged = true;
+    _recordsChanged = true;
   }
 }
 
@@ -222,14 +249,43 @@ SmsAckResult SmsQueue::acknowledge(const std::string &id, const std::string &rev
       return SmsAckResult::PartialAcknowledged;
     }
     msg.deleting = true;
+    for (const SmsLocation &loc : msg.locations) {
+      recordDelete(loc);
+    }
+    // The delete records now cover every stored part, so no rescan needs the ID.
+    const auto record = std::find_if(_idRecords.begin(),
+                                     _idRecords.end(),
+                                     [&msg](const SmsIdRecord &r) { return msg.id == r.id; });
+    if (record != _idRecords.end()) {
+      _idRecords.erase(record);
+      _recordsChanged = true;
+    }
     dropFinished();
     return SmsAckResult::Deleting;
   }
   return SmsAckResult::Unknown;
 }
 
+void SmsQueue::recordDelete(const SmsLocation &loc) {
+  if (loc.index < 0 || recorded(_deleteRecords, loc)) {
+    return;
+  }
+  if (_deleteRecords.size() >= kMaxDeleteRecords) {
+    _deleteRecords.erase(_deleteRecords.begin());
+  }
+  SmsDeleteRecord record;
+  record.fingerprint = loc.fingerprint;
+  record.index = static_cast<int16_t>(loc.index);
+  std::snprintf(record.bank, sizeof(record.bank), "%s", loc.bank.c_str());
+  _deleteRecords.push_back(record);
+  _recordsChanged = true;
+}
+
 std::vector<SmsLocation> SmsQueue::takePendingDeletes() {
   std::vector<SmsLocation> result;
+  if (_recordsChanged) {
+    return result;
+  }
   for (SmsMessage &msg : _messages) {
     if (!msg.deleting) {
       continue;
@@ -253,6 +309,13 @@ void SmsQueue::onDeleted(const std::string &bank, int index, bool ok) {
       if (it->sameSlot(bank, index)) {
         if (ok) {
           msg.locations.erase(it);
+          const auto before = _deleteRecords.size();
+          _deleteRecords.erase(
+              std::remove_if(_deleteRecords.begin(),
+                             _deleteRecords.end(),
+                             [&](const SmsDeleteRecord &r) { return sameSlot(r, bank, index); }),
+              _deleteRecords.end());
+          _recordsChanged = _recordsChanged || _deleteRecords.size() != before;
         } else {
           it->deleteRequested = false;
         }
@@ -271,18 +334,6 @@ void SmsQueue::dropFinished() {
                                          msg.locations.end(),
                                          [](const SmsLocation &loc) { return loc.index < 0; }),
                           msg.locations.end());
-    }
-  }
-  for (const SmsMessage &msg : _messages) {
-    if (!msg.deleting || !msg.locations.empty()) {
-      continue;
-    }
-    const auto record = std::find_if(_idRecords.begin(),
-                                     _idRecords.end(),
-                                     [&msg](const SmsIdRecord &r) { return msg.id == r.id; });
-    if (record != _idRecords.end()) {
-      _idRecords.erase(record);
-      _idRecordsChanged = true;
     }
   }
   _messages.erase(

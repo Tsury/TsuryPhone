@@ -36,7 +36,7 @@ private:
   void enqueueDeletes();
   void startDelivery(const String &homeAssistantUrl, uint32_t now);
   void finishDelivery(uint32_t now);
-  void saveIdRecords();
+  void saveRecords();
   static void deliveryTask(void *arg);
 
   Modem &_modem;

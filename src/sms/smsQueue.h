@@ -10,6 +10,8 @@
 struct SmsLocation {
   std::string bank;
   int index = -1;
+  // The stored part's identity: sender, reference, part number and count, time stamp and text.
+  uint64_t fingerprint = 0;
   bool deleteRequested = false;
 
   bool sameSlot(const std::string &otherBank, int otherIndex) const {
@@ -29,6 +31,15 @@ struct SmsIdRecord {
   uint64_t group = 0;        // Sender, reference and part count.
   int64_t anchorSeconds = 0; // Earliest part time stamp at the first post.
   char id[18] = {};
+};
+
+// A stored part of a message whose complete revision Home Assistant acknowledged. It is saved
+// before the part's delete, so a restart mid-deletion resumes the delete instead of posting the
+// remaining parts again under the acknowledged ID.
+struct SmsDeleteRecord {
+  uint64_t fingerprint = 0;
+  int16_t index = -1;
+  char bank[4] = {};
 };
 
 struct SmsMessage {
@@ -60,6 +71,7 @@ enum class SmsAckResult { Unknown, StaleRevision, PartialAcknowledged, Deleting 
 class SmsQueue {
 public:
   static const size_t kMaxMessages = 24;
+  static const size_t kMaxDeleteRecords = 64;
   static const uint32_t kIncompleteForwardMs = 10UL * 60UL * 1000UL;
   static const uint32_t kRetryBaseMs = 5000UL;
   static const uint32_t kRetryMaxMs = 60000UL;
@@ -85,23 +97,33 @@ public:
   SmsAckResult acknowledge(const std::string &id, const std::string &revision);
 
   // Storage slots of acknowledged messages that still need a delete; marks them requested.
+  // Empty while saved records lag behind, so no delete runs before its record is saved.
   std::vector<SmsLocation> takePendingDeletes();
   void onDeleted(const std::string &bank, int index, bool ok);
 
   static std::string joinedText(const SmsMessage &msg);
 
   // Records loaded from flash at start-up, before any part is added.
-  void restoreIdRecords(const std::vector<SmsIdRecord> &records) {
-    _idRecords = records;
+  void restoreRecords(const std::vector<SmsIdRecord> &ids,
+                      const std::vector<SmsDeleteRecord> &deletes) {
+    _idRecords = ids;
+    _deleteRecords = deletes;
   }
   const std::vector<SmsIdRecord> &idRecords() const {
     return _idRecords;
   }
-  // True once after the ID records changed and need saving.
-  bool takeIdRecordsChanged() {
-    const bool changed = _idRecordsChanged;
-    _idRecordsChanged = false;
+  const std::vector<SmsDeleteRecord> &deleteRecords() const {
+    return _deleteRecords;
+  }
+  // True once after the records changed and need saving. A failed save calls
+  // markRecordsUnsaved, which holds deletes back until a later save succeeds.
+  bool takeRecordsChanged() {
+    const bool changed = _recordsChanged;
+    _recordsChanged = false;
     return changed;
+  }
+  void markRecordsUnsaved() {
+    _recordsChanged = true;
   }
 
   size_t size() const {
@@ -112,8 +134,10 @@ private:
   bool deliverable(const SmsMessage &msg, uint32_t nowMs) const;
   void refreshRevision(SmsMessage &msg);
   void dropFinished();
+  void recordDelete(const SmsLocation &loc);
 
   std::vector<SmsMessage> _messages;
   std::vector<SmsIdRecord> _idRecords;
-  bool _idRecordsChanged = false;
+  std::vector<SmsDeleteRecord> _deleteRecords;
+  bool _recordsChanged = false;
 };

@@ -18,6 +18,7 @@ namespace {
   const constexpr uint32_t kDeliveryTaskStack = 8192;
   const char *const kPrefsNamespace = "sms";
   const char *const kPrefsIdRecords = "ids";
+  const char *const kPrefsDeleteRecords = "deletes";
 
   class Lock {
   public:
@@ -31,6 +32,25 @@ namespace {
   private:
     SemaphoreHandle_t _mutex;
   };
+
+  template <typename Record> std::vector<Record> readRecords(Preferences &prefs, const char *key) {
+    const size_t bytes = prefs.getBytesLength(key);
+    std::vector<Record> records;
+    if (bytes > 0 && bytes % sizeof(Record) == 0) {
+      records.resize(bytes / sizeof(Record));
+      prefs.getBytes(key, records.data(), bytes);
+    }
+    return records;
+  }
+
+  template <typename Record>
+  bool writeRecords(Preferences &prefs, const char *key, const std::vector<Record> &records) {
+    if (records.empty()) {
+      return !prefs.isKey(key) || prefs.remove(key);
+    }
+    const size_t bytes = records.size() * sizeof(Record);
+    return prefs.putBytes(key, records.data(), bytes) == bytes;
+  }
 
   std::string slotKey(const char *bank, int index) {
     return std::string(bank) + ":" + std::to_string(index);
@@ -65,12 +85,8 @@ SmsForwarder::SmsForwarder(Modem &modem) : _modem(modem) {}
 void SmsForwarder::begin() {
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, true)) {
-    const size_t bytes = prefs.getBytesLength(kPrefsIdRecords);
-    if (bytes > 0 && bytes % sizeof(SmsIdRecord) == 0) {
-      std::vector<SmsIdRecord> records(bytes / sizeof(SmsIdRecord));
-      prefs.getBytes(kPrefsIdRecords, records.data(), bytes);
-      _queue.restoreIdRecords(records);
-    }
+    _queue.restoreRecords(readRecords<SmsIdRecord>(prefs, kPrefsIdRecords),
+                          readRecords<SmsDeleteRecord>(prefs, kPrefsDeleteRecords));
     prefs.end();
   }
 
@@ -86,6 +102,8 @@ void SmsForwarder::process(const String &homeAssistantUrl) {
   if (_deliveryState.load() == 2) {
     finishDelivery(now);
   }
+  // Before the delete scan, so deletes held for a record save can go out in this pass.
+  saveRecords();
 
   {
     Lock lock(_lock);
@@ -114,29 +132,30 @@ void SmsForwarder::process(const String &homeAssistantUrl) {
   if (online && _deliveryState.load() == 0) {
     startDelivery(homeAssistantUrl, now);
   }
-  saveIdRecords();
 }
 
-void SmsForwarder::saveIdRecords() {
-  std::vector<SmsIdRecord> records;
+void SmsForwarder::saveRecords() {
+  std::vector<SmsIdRecord> ids;
+  std::vector<SmsDeleteRecord> deletes;
   {
     Lock lock(_lock);
-    if (!_queue.takeIdRecordsChanged()) {
+    if (!_queue.takeRecordsChanged()) {
       return;
     }
-    records = _queue.idRecords();
+    ids = _queue.idRecords();
+    deletes = _queue.deleteRecords();
   }
   Preferences prefs;
-  if (!prefs.begin(kPrefsNamespace, false)) {
-    Logger::warnln(F("SMS: message IDs not saved"));
-    return;
-  }
-  if (records.empty()) {
-    prefs.remove(kPrefsIdRecords);
-  } else {
-    prefs.putBytes(kPrefsIdRecords, records.data(), records.size() * sizeof(SmsIdRecord));
-  }
+  // Delete records first: they take precedence over a stale ID record after a restart.
+  const bool saved = prefs.begin(kPrefsNamespace, false) &&
+                     writeRecords(prefs, kPrefsDeleteRecords, deletes) &&
+                     writeRecords(prefs, kPrefsIdRecords, ids);
   prefs.end();
+  if (!saved) {
+    Logger::warnln(F("SMS: message records not saved; deletes wait"));
+    Lock lock(_lock);
+    _queue.markRecordsUnsaved();
+  }
 }
 
 void SmsForwarder::listStorage(uint32_t now) {
