@@ -51,8 +51,6 @@ automation:
           data:
             tag: "{{ message_id }}"
             confirmation: true
-            message_id: "{{ message_id }}"
-            revision: "{{ revision }}"
             priority: high
             ttl: 0
             channel: TsuryPhone SMS
@@ -62,8 +60,8 @@ automation:
             event_data:
               # The Companion app's own device ID (not the HA device registry ID).
               device_id: !secret tsuryphone_sms_pixel_app_device_id
-              message_id: "{{ message_id }}"
-              revision: "{{ revision }}"
+              # The push relay drops custom data keys; the received event keeps the tag.
+              tag: "{{ message_id }}"
         timeout: "00:02:00"
         continue_on_timeout: false
       - action: rest_command.tsuryphone_sms_ack

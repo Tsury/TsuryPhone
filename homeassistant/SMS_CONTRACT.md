@@ -67,21 +67,24 @@ automation:
 - Webhook trigger, `local_only: true`, POST only; mode `parallel`;
   `trace: stored_traces: 0`.
 - Notifies `notify.mobile_app_pixel_8` only, never `notify.our_phones`, with
-  `tag` = message ID, `confirmation: true`, and the message ID and revision in the
-  notification data.
+  `tag` = message ID and `confirmation: true`.
 - Waits up to 2 minutes for `mobile_app_notification_received` with the Pixel's
-  `device_id`, that message ID and that exact revision. No acknowledgement on
-  timeout; the phone posts again.
-- Then calls the acknowledgement route.
+  `device_id` and `tag` = that message ID. No acknowledgement on timeout; the
+  phone posts again.
+- Then acknowledges the revision it notified.
 
-`mobile_app_notification_received` fields, checked against the Home Assistant
-Android app source on 2026-11-24 (`MessagingManager.kt` and
-`IntegrationRepositoryImpl.fireEvent`): the event data is the flat notification
-data (`message`, `title`, and every key of the inner `data` block, such as
-`message_id` and `revision`) plus `device_id`. That `device_id` is the
+`mobile_app_notification_received` fields, observed on the live Pixel 8 on
+2026-11-24: `message`, `title`, `tag`, `channel`, `confirmation`, `webhook_id` and
+`device_id`. The push relay keeps only the keys it knows, so custom data keys such
+as a message ID or revision never reach the event. That `device_id` is the
 Companion app's own device ID from its registration, not the HA device registry
-ID. HA core passes the event data through unchanged. The app sends the event only
-when `confirmation: true` is set.
+ID. The app sends the event only when `confirmation: true` is set.
+
+The match has no revision, so one received event releases every waiting run for
+that message. The phone answers 409 for a stale revision. If the received event of
+a partial revision arrives after the complete revision was posted, the complete
+revision is acknowledged before the Pixel confirms it; its notification has the
+same tag and normally arrives within seconds.
 
 ## Live proof: Wi-Fi suspend
 
