@@ -51,12 +51,13 @@
         "src/*.h",
         "src/*.cpp",
         "scripts/generate.py",
+        "scripts/build_flags.py",
         "phoneBook/generate.py",
         "mp3/generate.py",
         "platformio.ini",
         "partitions.csv"
       ],
-      "verify": "python3 -B scripts/generate.py && pio run -s -e releaseHA"
+      "verify": "python3 -B scripts/generate.py && TSURYPHONE_OTA_PASSWORD_SHA256=6d397920601179bfee73d0f5b09eae83563dcf88d710a757ebaf6fdceef5196d pio run -s -e releaseHA"
     }
   ]
 }

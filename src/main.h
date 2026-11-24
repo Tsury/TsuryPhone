@@ -38,10 +38,10 @@ public:
   IntegrationCallbackResult handleIntegrationVolumeModeRequest(VolumeMode mode);
   IntegrationCallbackResult handleIntegrationToggleMuteRequest();
   IntegrationCallbackResult handleIntegrationEditContactRequest(const String &id,
-                                                                 const String &name,
-                                                                 const String &number,
-                                                                 const String &code,
-                                                                 bool isPriority);
+                                                                const String &name,
+                                                                const String &number,
+                                                                const String &code,
+                                                                bool isPriority);
   void handleIntegrationCallBlocked(const String &number);
   void handleIntegrationMaintenanceModeChanged(const bool enabled);
   void handleIntegrationConfigChanged(ConfigChangeEvent event);
@@ -78,6 +78,7 @@ private:
   void performFactoryReset();
 
   void onMaintenanceModeChanged(const bool enabled);
+  bool isCallOrRinging() const;
 
   DeviceConfig _deviceConfig;
   State _state;

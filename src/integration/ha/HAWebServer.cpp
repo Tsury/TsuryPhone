@@ -7,6 +7,7 @@
 #include "../../common/timeManager.h"
 #include "../../config.h"
 #include "../../core/DeviceConfig.h"
+#include "../../core/FirmwareUpdate.h"
 #include "../IntegrationService.h" // For INTEGRATION_EVENT_SCHEMA_VERSION
 #include "../Validation.h"
 #include "../core/DeviceStats.h"
@@ -106,6 +107,18 @@ void HAWebServer::setupRoutes() {
   _server.on("/api/system/factory_reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleFactoryReset(request);
   });
+
+  // Multipart firmware upload; HTTP Basic auth with the OTA password (any user name).
+  _server.on(
+      "/api/system/firmware",
+      HTTP_POST,
+      [this](AsyncWebServerRequest *request) { handleFirmwareUploadDone(request); },
+      [this](AsyncWebServerRequest *request,
+             const String & /*filename*/,
+             size_t index,
+             uint8_t *data,
+             size_t len,
+             bool final) { handleFirmwareUploadChunk(request, index, data, len, final); });
 
   // JSON POST routes using helper function
   addJsonPostRoute("/api/call/dial", [this](AsyncWebServerRequest *req, JsonVariant &json) {
@@ -313,10 +326,10 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
   }
 
   char digitChar;
-  
+
   // Handle '+' for international dialing
-  if (digitVariant.is<const char*>()) {
-    const char* digitStr = digitVariant.as<const char*>();
+  if (digitVariant.is<const char *>()) {
+    const char *digitStr = digitVariant.as<const char *>();
     if (strcmp(digitStr, "+") == 0) {
       digitChar = '+';
     } else {
@@ -329,7 +342,7 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
       sendErrorResponse(request, "Digit must be 0-9 or '+'", 400, "WEB_INVALID_DIGIT");
       return;
     }
-    digitChar = '0' + digit;  // Convert int to ASCII char
+    digitChar = '0' + digit; // Convert int to ASCII char
   } else {
     sendErrorResponse(request, "Digit must be 0-9 or '+'", 400, "WEB_INVALID_DIGIT");
     return;
@@ -349,7 +362,7 @@ void HAWebServer::handleDialDigit(AsyncWebServerRequest *request, JsonVariant &j
   if (digitChar == '+') {
     commandData["digit"] = "+";
   } else {
-    commandData["digit"] = digitChar - '0';  // Convert ASCII back to int
+    commandData["digit"] = digitChar - '0'; // Convert ASCII back to int
   }
   commandData["deferValidation"] = deferValidation;
   executeCommand(request, "dial_digit", commandData.as<JsonVariant>());
@@ -363,12 +376,14 @@ void HAWebServer::handleSendDTMF(AsyncWebServerRequest *request, JsonVariant &js
   }
 
   if (!digitVariant.is<String>() && !digitVariant.is<const char *>()) {
-    sendErrorResponse(request, "DTMF digit must be a string (0-9, *, or #)", 400, "WEB_INVALID_DIGIT");
+    sendErrorResponse(
+        request, "DTMF digit must be a string (0-9, *, or #)", 400, "WEB_INVALID_DIGIT");
     return;
   }
 
   String digit = digitVariant.as<String>();
-  if (digit.length() != 1 || ((digit[0] < '0' || digit[0] > '9') && digit[0] != '*' && digit[0] != '#')) {
+  if (digit.length() != 1 ||
+      ((digit[0] < '0' || digit[0] > '9') && digit[0] != '*' && digit[0] != '#')) {
     sendErrorResponse(request, "DTMF digit must be one of: 0-9, *, #", 400, "WEB_INVALID_DIGIT");
     return;
   }
@@ -966,6 +981,77 @@ void HAWebServer::handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &js
 
   Logger::infoln(F("HA API: Set HA URL request"));
   executeCommand(request, "ha_url", json);
+}
+
+void HAWebServer::handleFirmwareUploadChunk(
+    AsyncWebServerRequest *request, size_t index, uint8_t *data, size_t len, bool final) {
+  using Outcome = FirmwareUpdate::UploadOutcome;
+  FirmwareUpdate &update = FirmwareUpdate::instance();
+  // The outcome lives in the request; the server frees _tempObject with the request.
+  if (index == 0 && request->_tempObject == nullptr) {
+    Outcome *outcome = static_cast<Outcome *>(malloc(sizeof(Outcome)));
+    if (outcome == nullptr) {
+      return;
+    }
+    const AsyncWebHeader *auth = request->getHeader("Authorization");
+    *outcome = update.beginUpload(auth != nullptr ? auth->value() : String(), request);
+    request->_tempObject = outcome;
+    if (*outcome == Outcome::Writing) {
+      request->onDisconnect([request]() { FirmwareUpdate::instance().abortUpload(request); });
+    }
+  }
+  Outcome *outcome = static_cast<Outcome *>(request->_tempObject);
+  if (outcome == nullptr || *outcome != Outcome::Writing) {
+    return; // Rejected uploads never reach flash.
+  }
+  if (len > 0 && !update.writeUpload(request, data, len)) {
+    *outcome = Outcome::Failed;
+    return;
+  }
+  if (final) {
+    *outcome = update.finishUpload(request) ? Outcome::Installed : Outcome::Failed;
+  }
+}
+
+void HAWebServer::handleFirmwareUploadDone(AsyncWebServerRequest *request) {
+  using Outcome = FirmwareUpdate::UploadOutcome;
+  FirmwareUpdate &update = FirmwareUpdate::instance();
+  const Outcome *stored = static_cast<const Outcome *>(request->_tempObject);
+  Outcome outcome = stored != nullptr ? *stored : Outcome::None;
+  if (outcome == Outcome::None) {
+    const AsyncWebHeader *auth = request->getHeader("Authorization");
+    outcome = update.isAuthorized(auth != nullptr ? auth->value() : String())
+                  ? Outcome::None
+                  : Outcome::Unauthorized;
+  }
+
+  switch (outcome) {
+  case Outcome::Installed: {
+    JsonDocument doc;
+    doc["success"] = true;
+    doc["restarting"] = true;
+    sendJsonResponse(request, doc);
+    break;
+  }
+  case Outcome::Unauthorized:
+    sendErrorResponse(request, "Wrong or missing password", 401, "OTA_UNAUTHORIZED");
+    break;
+  case Outcome::Busy:
+    sendErrorResponse(request, "Call active or phone ringing", 409, "OTA_BUSY");
+    break;
+  case Outcome::InProgress:
+    sendErrorResponse(request, "Another upload is in progress", 409, "OTA_IN_PROGRESS");
+    break;
+  case Outcome::Failed:
+  case Outcome::Writing:
+    update.abortUpload(request);
+    sendErrorResponse(request, "Update failed: " + update.lastUploadError(), 500, "OTA_FAILED");
+    break;
+  case Outcome::None:
+  default:
+    sendErrorResponse(request, "No firmware file in the request", 400, "OTA_NO_FILE");
+    break;
+  }
 }
 
 void HAWebServer::handleDiagnostics(AsyncWebServerRequest *request) {

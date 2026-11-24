@@ -2,6 +2,7 @@
 
 #include "HAIntegration.h"
 #include "../../common/logger.h"
+#include "../../core/FirmwareUpdate.h"
 #include "../IntegrationLog.h"
 #include "../IntegrationLookup.h"
 #include "../IntegrationManager.h"
@@ -36,6 +37,8 @@ bool HAIntegration::init() {
   }
 
   setupWebServerCallbacks();
+  FirmwareUpdate::instance().setHomeAssistantUrlProvider(
+      [this]() { return _haConfig.getHomeAssistantUrl(); });
 
   if (!_webServer.init()) {
     Logger::errorln(F("Failed to initialize HA web server"));
@@ -508,10 +511,10 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
   }
 
   char digitChar;
-  
+
   // Handle '+' for international dialing
-  if (digitVariant.is<const char*>()) {
-    const char* digitStr = digitVariant.as<const char*>();
+  if (digitVariant.is<const char *>()) {
+    const char *digitStr = digitVariant.as<const char *>();
     if (strcmp(digitStr, "+") == 0) {
       digitChar = '+';
     } else {
@@ -522,7 +525,7 @@ HAOperationResult HAIntegration::handleDialDigitRequest(const JsonVariant &data)
     if (digit < 0 || digit > 9) {
       return HAOperationResult(false, "Digit must be 0-9 or '+'");
     }
-    digitChar = '0' + digit;  // Convert int to ASCII char
+    digitChar = '0' + digit; // Convert int to ASCII char
   } else {
     return HAOperationResult(false, "Digit must be 0-9 or '+'");
   }
@@ -847,11 +850,11 @@ HAOperationResult HAIntegration::handleEditContact(const JsonVariant &json) {
   String id = jsonObj["id"].as<String>();
   String name = jsonObj["name"].as<String>();
   String number = jsonObj["number"].as<String>();
-  String code = jsonObj["code"] | "";  // Optional
-  bool isPriority = jsonObj["priority"] | false;  // Optional, default false
+  String code = jsonObj["code"] | "";            // Optional
+  bool isPriority = jsonObj["priority"] | false; // Optional, default false
 
-  IntegrationCallbackResult result = _integrationService.handleEditContact(
-      id, name, number, code, isPriority);
+  IntegrationCallbackResult result =
+      _integrationService.handleEditContact(id, name, number, code, isPriority);
 
   HAOperationResult haResult = convertResult(result);
   if (haResult.success) {

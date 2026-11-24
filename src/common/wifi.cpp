@@ -1,4 +1,5 @@
 #include "wifi.h"
+#include "../core/FirmwareUpdate.h"
 #include "config.h"
 #include "logger.h"
 #include <cstdio>
@@ -35,6 +36,9 @@ void Wifi::init() {
   _wifiManager.setConfigPortalBlocking(false);
   _wifiManager.setConfigPortalTimeout(0); // Disable auto timeout, we'll manage it manually
   _wifiManager.setSaveConfigCallback([this]() { onWifiConnected(); });
+  // Runs before WiFiManager adds its routes, so the authorized upload handlers take precedence.
+  _wifiManager.setWebServerCallback(
+      [this]() { FirmwareUpdate::instance().attachPortal(*_wifiManager.server); });
 
   if (_wifiManager.autoConnect(_config.getWifiSsid().c_str())) {
     onWifiConnected();

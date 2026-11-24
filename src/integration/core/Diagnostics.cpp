@@ -2,6 +2,7 @@
 
 #include "Diagnostics.h"
 #include "../../core/DeviceConfig.h"
+#include "../../core/FirmwareUpdate.h"
 #include "../../integration/core/DeviceStats.h"
 #include "../IntegrationService.h" // For schema version constant
 
@@ -21,6 +22,8 @@ void populateCoreDiagnostics(JsonObject root, DeviceConfig &config, DeviceStats 
   metrics["calls.talkTimeSeconds"] = cs.totalTalkTimeSeconds;
   metrics["system.heapFree"] = stats.getFreeHeap();
   metrics["system.rssi"] = stats.getRSSI();
+
+  FirmwareUpdate::instance().populateDiagnostics(root["firmware"].to<JsonObject>());
 }
 
 #endif // HOME_ASSISTANT_INTEGRATION

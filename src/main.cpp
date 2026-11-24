@@ -1,6 +1,7 @@
 #include "main.h"
 #include "common/logger.h"
 #include "common/string.h"
+#include "core/FirmwareUpdate.h"
 #include "generated/mp3.h"
 
 namespace {
@@ -43,6 +44,7 @@ TsuryPhone::TsuryPhone()
 void TsuryPhone::setup() {
   Serial.begin(kSerialBaudRate);
   Logger::infoln(F("TsuryPhone starting..."));
+  FirmwareUpdate::instance().setBusyCheck([this]() { return isCallOrRinging(); });
   _deviceConfig.init();
   _wifi.init();
   _modem.init();
@@ -133,6 +135,7 @@ void TsuryPhone::loop() {
   if (_integrationManager && due(_lastIntegration, kIntegrationIntervalMs, now)) {
     _integrationManager->process();
   }
+  FirmwareUpdate::instance().process(_state);
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.active.rangAtLeastOnce;
   if (afterFirstRing || _state.prevAppState != _state.newAppState) {
     onStateChanged();
@@ -383,9 +386,7 @@ bool TsuryPhone::handleDialedDigitInput(char digit,
 
   _modem.stopTone();
 
-  Logger::infoln(F("%s dialed digit: %c"),
-                 fromIntegration ? "Integration" : "Rotary",
-                 digit);
+  Logger::infoln(F("%s dialed digit: %c"), fromIntegration ? "Integration" : "Rotary", digit);
   Logger::infoln(F("Dialed number: %s"), _state.currentDialingNumber);
 
   // Only play MP3 for digits 0-9, not for '+'
@@ -507,6 +508,20 @@ void TsuryPhone::processStateInCall() {
   }
 
   _state.currentDialingNumber[0] = '\0';
+}
+
+bool TsuryPhone::isCallOrRinging() const {
+  switch (_state.newAppState) {
+  case AppState::IncomingCall:
+  case AppState::IncomingCallRing:
+  case AppState::InCall:
+  case AppState::Dialing:
+    return true;
+  default:
+    break;
+  }
+  return _state.callState.active.isValid() || _state.callState.hasCallWaiting() ||
+         _ringer.isRinging();
 }
 
 void TsuryPhone::onMaintenanceModeChanged(const bool enabled) {

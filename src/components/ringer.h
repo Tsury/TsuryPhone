@@ -30,6 +30,9 @@ public:
   void startRinging(uint32_t duration);
   void startRinging(const String &pattern, bool ignoreDnd = false);
   void stopRinging();
+  bool isRinging() const {
+    return _ringing;
+  }
 
   void setCycleDuration(int duration);
 

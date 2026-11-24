@@ -1,3 +1,4 @@
+#include "core/FirmwareUpdate.h"
 #include "main.h"
 
 TsuryPhone &getApp() {
@@ -6,6 +7,8 @@ TsuryPhone &getApp() {
 }
 
 void setup() {
+  // Before anything else can hang: arms the rollback reset timer for a pending image.
+  FirmwareUpdate::instance().beginBoot();
   getApp().setup();
 }
 

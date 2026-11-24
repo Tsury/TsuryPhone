@@ -81,6 +81,9 @@ private:
   void handleRemoveWebhookAction(AsyncWebServerRequest *request, JsonVariant &json);
   void handleSetHAUrl(AsyncWebServerRequest *request, JsonVariant &json);
   void handleDiagnostics(AsyncWebServerRequest *request); // /api/diagnostics
+  void handleFirmwareUploadChunk(
+      AsyncWebServerRequest *request, size_t index, uint8_t *data, size_t len, bool final);
+  void handleFirmwareUploadDone(AsyncWebServerRequest *request);
 
   void onWebSocketEvent(AsyncWebSocket *server,
                         AsyncWebSocketClient *client,
