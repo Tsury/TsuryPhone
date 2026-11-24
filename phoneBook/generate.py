@@ -101,9 +101,6 @@ def normalize_phone_number(
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PB_FILE = os.path.join(SCRIPT_DIR, "pb.txt")
-PRIORITY_FILE = os.path.join(SCRIPT_DIR, "priority.txt")
-BLOCKED_FILE = os.path.join(SCRIPT_DIR, "blocked.txt")
 
 
 def escape_c_string(value: str) -> str:
@@ -118,13 +115,19 @@ def main():
         required=True,
         help="Full path and filename for the generated file",
     )
+    parser.add_argument(
+        "--input-dir",
+        default=SCRIPT_DIR,
+        help="Folder with pb.txt, priority.txt and blocked.txt (default: script folder)",
+    )
     args = parser.parse_args()
+    pb_path = os.path.join(args.input_dir, "pb.txt")
 
     # Always generate phoneBook.h (legacy behavior) and additionally
     # priority_callers.h + blocked_numbers.h in the SAME output directory.
 
     # Read phone book entries
-    with open(PB_FILE, "r", encoding="utf-8") as pb_file:
+    with open(pb_path, "r", encoding="utf-8") as pb_file:
         lines = pb_file.readlines()
 
     default_code = ""
@@ -160,7 +163,7 @@ def main():
         entries.append((code, normalized_number, name))
 
     if not entries:
-        print("No phone book entries found in", PB_FILE)
+        print("No phone book entries found in", pb_path)
         sys.exit(1)
 
     phonebook_header_content = generate_phonebook_header(entries, default_code)
@@ -175,8 +178,8 @@ def main():
     print("Generated", output_path)
 
     # Read priority & blocked lists (optional seed files)
-    priority_numbers = read_number_list(PRIORITY_FILE, default_code)
-    blocked_numbers = read_number_list(BLOCKED_FILE, default_code)
+    priority_numbers = read_number_list(os.path.join(args.input_dir, "priority.txt"), default_code)
+    blocked_numbers = read_number_list(os.path.join(args.input_dir, "blocked.txt"), default_code)
 
     # Conflict detection: intersection must be empty; if not, fail generation.
     conflict = set(priority_numbers) & set(blocked_numbers)

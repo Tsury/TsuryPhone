@@ -35,6 +35,10 @@ def main():
         default="mp3.h",
         help="Output main app header file name (default: mp3.h).",
     )
+    parser.add_argument(
+        "--numbers",
+        help="Call number to MP3 mapping file (default: numbers.txt next to the script).",
+    )
     args = parser.parse_args()
 
     folder = args.folder
@@ -57,8 +61,7 @@ def main():
         sys.exit(1)
 
     # Look for a numbers.txt file that maps call numbers to MP3 base names.
-    # Now expected next to the script instead of inside the MP3 folder.
-    numbers_filename = os.path.join(script_dir, "numbers.txt")
+    numbers_filename = args.numbers or os.path.join(script_dir, "numbers.txt")
     call_dict = {}  # mapping: call number -> base name
     if os.path.isfile(numbers_filename):
         with open(numbers_filename, "r") as nf:
