@@ -75,8 +75,6 @@ public:
   std::vector<SmsLocation> takePendingDeletes();
   void onDeleted(const std::string &bank, int index, bool ok);
 
-  // JSON body for the Home Assistant webhook.
-  static std::string payload(const SmsMessage &msg);
   static std::string joinedText(const SmsMessage &msg);
 
   size_t size() const {

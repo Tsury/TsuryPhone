@@ -12,52 +12,89 @@ namespace {
     return hash;
   }
 
+  // Parts of one message are sent together, so their service-centre time stamps lie seconds
+  // apart. The window keeps a reused 8-bit reference from joining an old incomplete message.
+  const constexpr int64_t kConcatWindowSeconds = 60 * 60;
+
+  // Seconds since 1970 for the decoder's "20YY-MM-DDTHH:MM:SS+HH:MM" form.
+  bool epochSeconds(const std::string &stamp, int64_t &out) {
+    int y, mo, d, h, mi, s, oh, om;
+    char sign;
+    if (std::sscanf(stamp.c_str(),
+                    "%4d-%2d-%2dT%2d:%2d:%2d%c%2d:%2d",
+                    &y,
+                    &mo,
+                    &d,
+                    &h,
+                    &mi,
+                    &s,
+                    &sign,
+                    &oh,
+                    &om) != 9 ||
+        (sign != '+' && sign != '-')) {
+      return false;
+    }
+    // Days from civil date (proleptic Gregorian calendar).
+    y -= mo <= 2;
+    const int64_t era = y / 400;
+    const int64_t yoe = y - era * 400;
+    const int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const int64_t days = era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+    const int64_t offset = (sign == '-' ? -1 : 1) * (oh * 3600 + om * 60);
+    out = days * 86400 + h * 3600 + mi * 60 + s - offset;
+    return true;
+  }
+
+  bool withinConcatWindow(const std::string &a, const std::string &b) {
+    int64_t ta, tb;
+    if (!epochSeconds(a, ta) || !epochSeconds(b, tb)) {
+      return a == b;
+    }
+    return (ta > tb ? ta - tb : tb - ta) <= kConcatWindowSeconds;
+  }
+
   // IDs and revisions start with a letter so Home Assistant templates keep them as strings.
-  std::string messageId(const SmsPdu &pdu) {
-    std::string key = pdu.sender + "|";
-    if (pdu.concatTotal > 1) {
-      // Parts of one message share sender, reference and count; the date keeps a reused
-      // 8-bit reference from colliding with an old message.
-      key += std::to_string(pdu.concatRef) + "|" + std::to_string(pdu.concatTotal) + "|" +
-             pdu.sentAt.substr(0, 10);
+  // A multi-part ID uses its smallest part time stamp, so a storage rescan after a restart finds
+  // the same ID whatever order the parts are listed in.
+  std::string messageId(const SmsMessage &msg) {
+    const SmsPart *earliest = &msg.parts.begin()->second;
+    for (const auto &part : msg.parts) {
+      if (part.second.sentAt < earliest->sentAt) {
+        earliest = &part.second;
+      }
+    }
+    std::string key = msg.sender + "|";
+    if (msg.total > 1) {
+      key +=
+          std::to_string(msg.concatRef) + "|" + std::to_string(msg.total) + "|" + earliest->sentAt;
     } else {
-      key += pdu.sentAt + "|" + pdu.text;
+      key += earliest->sentAt + "|" + earliest->text;
     }
     char id[20];
     std::snprintf(id, sizeof(id), "m%016llx", static_cast<unsigned long long>(fnv1a64(key)));
     return id;
   }
 
-  void appendJsonString(std::string &out, const std::string &value) {
-    out += '"';
-    for (unsigned char c : value) {
-      switch (c) {
-      case '"':
-        out += "\\\"";
-        break;
-      case '\\':
-        out += "\\\\";
-        break;
-      case '\n':
-        out += "\\n";
-        break;
-      case '\r':
-        out += "\\r";
-        break;
-      case '\t':
-        out += "\\t";
-        break;
-      default:
-        if (c < 0x20) {
-          char escaped[8];
-          std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-          out += escaped;
-        } else {
-          out += static_cast<char>(c);
-        }
+  // The tracked message this part belongs to: another copy of a known part, or a missing part of
+  // a multi-part message from the same sender with the same reference and count.
+  bool belongsTo(const SmsMessage &msg, const SmsPdu &pdu) {
+    if (msg.sender != pdu.sender || msg.total != pdu.concatTotal ||
+        msg.concatRef != pdu.concatRef) {
+      return false;
+    }
+    auto known = msg.parts.find(pdu.concatSeq);
+    if (known != msg.parts.end()) {
+      return known->second.sentAt == pdu.sentAt && known->second.text == pdu.text;
+    }
+    if (msg.deleting) {
+      return false;
+    }
+    for (const auto &part : msg.parts) {
+      if (!withinConcatWindow(part.second.sentAt, pdu.sentAt)) {
+        return false;
       }
     }
-    out += '"';
+    return true;
   }
 } // namespace
 
@@ -81,16 +118,15 @@ bool SmsQueue::tracks(const std::string &bank, int index) const {
 }
 
 bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
-  const std::string id = messageId(pdu);
-  auto it = std::find_if(
-      _messages.begin(), _messages.end(), [&id](const SmsMessage &msg) { return msg.id == id; });
+  auto it = std::find_if(_messages.begin(), _messages.end(), [&pdu](const SmsMessage &msg) {
+    return belongsTo(msg, pdu);
+  });
 
   if (it == _messages.end()) {
     if (full()) {
       return false;
     }
     SmsMessage msg;
-    msg.id = id;
     msg.sender = pdu.sender;
     msg.concatRef = pdu.concatRef;
     msg.total = pdu.concatTotal;
@@ -103,6 +139,7 @@ bool SmsQueue::add(const SmsLocation &loc, const SmsPdu &pdu, uint32_t nowMs) {
   it->locations.push_back(loc);
   if (it->parts.count(pdu.concatSeq) == 0) {
     it->parts[pdu.concatSeq] = SmsPart{pdu.text, pdu.sentAt};
+    it->id = messageId(*it);
     refreshRevision(*it);
   }
   return true;
@@ -246,31 +283,4 @@ std::string SmsQueue::joinedText(const SmsMessage &msg) {
     }
   }
   return text;
-}
-
-std::string SmsQueue::payload(const SmsMessage &msg) {
-  const SmsPart &first = msg.parts.begin()->second;
-  std::string out = "{\"message_id\":";
-  appendJsonString(out, msg.id);
-  out += ",\"revision\":";
-  appendJsonString(out, msg.revision);
-  out += ",\"sender\":";
-  appendJsonString(out, msg.sender);
-  out += ",\"received_at\":";
-  appendJsonString(out, first.sentAt);
-  out += ",\"text\":";
-  appendJsonString(out, joinedText(msg));
-  out += ",\"parts\":{\"received\":" + std::to_string(msg.parts.size()) +
-         ",\"total\":" + std::to_string(msg.total) +
-         ",\"complete\":" + (msg.complete() ? "true" : "false") + ",\"missing\":[";
-  bool firstMissing = true;
-  for (uint8_t seq = 1; seq <= msg.total && seq != 0; ++seq) {
-    if (msg.parts.count(seq) == 0) {
-      out += firstMissing ? "" : ",";
-      out += std::to_string(seq);
-      firstMissing = false;
-    }
-  }
-  out += "]}}";
-  return out;
 }

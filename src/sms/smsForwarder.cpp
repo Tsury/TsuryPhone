@@ -3,6 +3,7 @@
 #include "smsForwarder.h"
 #include "common/logger.h"
 #include "core/BuildSecrets.h"
+#include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <algorithm>
@@ -30,6 +31,29 @@ namespace {
 
   std::string slotKey(const char *bank, int index) {
     return std::string(bank) + ":" + std::to_string(index);
+  }
+
+  // JSON body for the Home Assistant webhook (homeassistant/SMS_CONTRACT.md).
+  std::string webhookBody(const SmsMessage &msg) {
+    JsonDocument doc;
+    doc["message_id"] = msg.id;
+    doc["revision"] = msg.revision;
+    doc["sender"] = msg.sender;
+    doc["received_at"] = msg.parts.begin()->second.sentAt;
+    doc["text"] = SmsQueue::joinedText(msg);
+    JsonObject parts = doc["parts"].to<JsonObject>();
+    parts["received"] = msg.parts.size();
+    parts["total"] = msg.total;
+    parts["complete"] = msg.complete();
+    JsonArray missing = parts["missing"].to<JsonArray>();
+    for (uint8_t seq = 1; seq <= msg.total && seq != 0; ++seq) {
+      if (msg.parts.count(seq) == 0) {
+        missing.add(seq);
+      }
+    }
+    std::string body;
+    serializeJson(doc, body);
+    return body;
   }
 } // namespace
 
@@ -123,7 +147,7 @@ void SmsForwarder::startDelivery(const String &homeAssistantUrl, uint32_t now) {
     base.remove(base.length() - 1);
   }
   _deliveryUrl = base + "/api/webhook/" + BuildSecrets::smsWebhookId();
-  _deliveryBody = SmsQueue::payload(*msg);
+  _deliveryBody = webhookBody(*msg);
   _deliveryId = msg->id;
   Logger::infoln(F("SMS: posting %s %s (%u/%u parts, attempt %u)"),
                  msg->id.c_str(),
