@@ -6,6 +6,8 @@
 #include <ArduinoJson.h>
 #include <AsyncWebSocket.h>
 #include <ESPAsyncWebServer.h>
+#include <functional>
+#include <string>
 
 class DeviceConfig;
 class DeviceStats;
@@ -23,9 +25,21 @@ struct HAOperationResult {
       : success(success), errorMessage(error), errorCode(code) {}
 };
 
+// Phone services behind routes that do not go through the integration command path. Both
+// callbacks run on the web server task.
+struct HAPhoneServices {
+  // Returns the HTTP status for an SMS acknowledgement (message ID, delivery revision).
+  std::function<int(const std::string &, const std::string &)> acknowledgeSms;
+  // Disconnects Wi-Fi for the given seconds; returns false when a suspension is already set.
+  std::function<bool(uint32_t)> suspendWifi;
+};
+
 class HAWebServer {
 public:
   HAWebServer(DeviceConfig &config, DeviceStats &stats, State &state);
+
+  // Set before the integration starts.
+  static void setPhoneServices(const HAPhoneServices &services);
 
   bool init();
   void process();
@@ -84,6 +98,8 @@ private:
   void handleFirmwareUploadChunk(
       AsyncWebServerRequest *request, size_t index, uint8_t *data, size_t len, bool final);
   void handleFirmwareUploadDone(AsyncWebServerRequest *request);
+  void handleSmsAck(AsyncWebServerRequest *request, JsonVariant &json);
+  void handleWifiSuspend(AsyncWebServerRequest *request, JsonVariant &json);
 
   void onWebSocketEvent(AsyncWebSocket *server,
                         AsyncWebSocketClient *client,

@@ -4,6 +4,11 @@
 #include "core/FirmwareUpdate.h"
 #include "generated/mp3.h"
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+#include "integration/ha/HAConfig.h"
+#include "integration/ha/HAWebServer.h"
+#endif
+
 namespace {
   const constexpr int kSerialBaudRate = kModemBaudRate;
   const constexpr int kCheckHardwareTimeout = 1500;
@@ -20,6 +25,7 @@ namespace {
   const constexpr uint32_t kTimeMgrIntervalMs = 50;
   const constexpr uint32_t kWifiIntervalMs = 120;
   const constexpr uint32_t kIntegrationIntervalMs = 40;
+  const constexpr uint32_t kSmsIntervalMs = 100;
 
   inline bool due(uint32_t &last, uint32_t period, uint32_t now) {
     if (now - last >= period) {
@@ -53,6 +59,15 @@ void TsuryPhone::setup() {
   _hookSwitch.init();
   _state.isHookOff = _hookSwitch.isOffHook();
   _timeManager.init();
+#ifdef HOME_ASSISTANT_INTEGRATION
+  _smsForwarder.begin();
+  HAPhoneServices phoneServices;
+  phoneServices.acknowledgeSms = [this](const std::string &id, const std::string &revision) {
+    return _smsForwarder.acknowledge(id, revision);
+  };
+  phoneServices.suspendWifi = [this](uint32_t seconds) { return _wifi.requestSuspend(seconds); };
+  HAWebServer::setPhoneServices(phoneServices);
+#endif
   _integrationManager.reset(new IntegrationManager(*this, _deviceConfig, _state));
 
   if (!_integrationManager->init()) {
@@ -136,6 +151,11 @@ void TsuryPhone::loop() {
     _integrationManager->process();
   }
   FirmwareUpdate::instance().process(_state);
+#ifdef HOME_ASSISTANT_INTEGRATION
+  if (due(_lastSms, kSmsIntervalMs, now)) {
+    _smsForwarder.process(HAConfig::activeHomeAssistantUrl());
+  }
+#endif
   const bool afterFirstRing = !prevRangAtLeastOnce && _state.callState.active.rangAtLeastOnce;
   if (afterFirstRing || _state.prevAppState != _state.newAppState) {
     onStateChanged();

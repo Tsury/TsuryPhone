@@ -13,6 +13,7 @@
 namespace {
   const constexpr int kWifiManagerPortalTimeoutSeconds = 60 * 5;
   const constexpr uint32_t kWifiManagerPortalTimeoutMs = kWifiManagerPortalTimeoutSeconds * 1000UL;
+  const constexpr uint32_t kSuspendStartDelayMs = 500UL;
 
 #ifdef WEB_SERIAL
   const constexpr int kWebSerialPort = 32860;
@@ -94,9 +95,51 @@ void Wifi::onWifiConnected() {
 #endif
 }
 
+bool Wifi::requestSuspend(uint32_t seconds) {
+  uint32_t idle = 0;
+  return seconds > 0 && _suspendRequestSeconds.compare_exchange_strong(idle, seconds);
+}
+
+void Wifi::processSuspend() {
+  const uint32_t requested = _suspendRequestSeconds.load();
+  if (requested == 0) {
+    return;
+  }
+  const uint32_t now = millis();
+
+  if (!_suspended) {
+    if (!_suspendPending) {
+      _suspendPending = true;
+      _suspendRequestedAt = now;
+      return;
+    }
+    // Let the HTTP reply leave before the link drops.
+    if (now - _suspendRequestedAt < kSuspendStartDelayMs) {
+      return;
+    }
+    Logger::warnln(F("Wi-Fi suspended for %lu s"), static_cast<unsigned long>(requested));
+    _suspendPending = false;
+    _suspended = true;
+    _suspendStart = now;
+    _suspendDurationMs = requested * 1000UL;
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
+    return;
+  }
+
+  if (now - _suspendStart >= _suspendDurationMs) {
+    Logger::infoln(F("Wi-Fi suspension over, reconnecting"));
+    _suspended = false;
+    WiFi.setAutoReconnect(true);
+    WiFi.begin();
+    _suspendRequestSeconds.store(0);
+  }
+}
+
 void Wifi::process(State &state) {
   _wifiManager.process();
   processConfigPortal();
+  processSuspend();
 
 #ifdef WEB_SERIAL
   processWebSerial(state);

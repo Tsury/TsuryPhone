@@ -46,9 +46,39 @@ struct PendingMp3 {
   int repeat;
 };
 
+// SMS storage commands. Banks are modem storage names such as "SM" or "ME".
+enum class SmsOpType : uint8_t { List, Read, Delete };
+
+struct SmsOp {
+  SmsOpType type = SmsOpType::List;
+  char bank[4] = "";
+  int index = -1;
+};
+
+// Receives SMS lines from the UART owner. SMS lines never reach logs or State.
+class SmsModemListener {
+public:
+  virtual ~SmsModemListener() = default;
+  // +CMTI: a new message was stored at bank/index.
+  virtual void onSmsStored(const char *bank, int index) = 0;
+  // A received-message PDU from AT+CMGR or AT+CMGL, or from +CMT (index -1, not stored).
+  virtual void onSmsPdu(const char *bank, int index, int tpduLength, const char *pduHex) = 0;
+  virtual void onSmsOpDone(const SmsOp &op, bool ok) = 0;
+};
+
 class Modem {
 public:
   Modem(DeviceConfig &config);
+
+  // SMS commands run one at a time, only while the phone is idle and the UART is quiet.
+  void setSmsListener(SmsModemListener *listener) {
+    _smsListener = listener;
+  }
+  bool enqueueSmsOp(const SmsOp &op);
+  // Increments on every modem (re)initialization; storage must be listed again after it.
+  uint32_t initCount() const {
+    return _initCount;
+  }
 
   void init();
   void process(State &state);
@@ -110,12 +140,18 @@ private:
   void verifyCallState();
 
   void enableHangUp();
+  void enableSmsIndications();
   void disableUnneededFeatures();
   void disableUnneededFeaturesAfterInit();
   void clearCallWaitingState(CallState &callState);
 
   bool messageAvailable() const;
   bool isKnownMessage(const char *msg) const;
+
+  bool handleSmsLine(const char *line);
+  void processSmsOps(const State &state);
+  void sendSmsOpCommand();
+  void finishSmsOp(bool ok);
 
   void keepAliveWatchdog();
   void sendKeepAlive();
@@ -137,6 +173,22 @@ private:
   uint32_t _lastKeepAliveSent = 0UL;
   uint32_t _watchdogResetCounter = 0;
   uint8_t _keepAliveRetryCount = 0;
+
+  SmsModemListener *_smsListener = nullptr;
+  RingBuffer<SmsOp, 16> _smsOps;
+  SmsOp _smsOp;
+  bool _smsOpActive = false;
+  bool _smsSelectingBank = false;
+  uint32_t _smsOpSentMs = 0UL;
+  char _smsBank[4] = "";
+  // Set by a +CMGR/+CMGL/+CMT header: the next line is that message's PDU.
+  bool _smsPduExpected = false;
+  char _smsPduBank[4] = "";
+  int _smsPduIndex = -1;
+  int _smsPduLength = -1;
+  uint32_t _lastCommandMs = 0UL;
+  uint32_t _lastLineMs = 0UL;
+  uint32_t _initCount = 0;
 
   DeviceConfig &_config;
 };

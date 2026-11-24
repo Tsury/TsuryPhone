@@ -21,7 +21,9 @@ $TSURYPHONE_INPUTS/
 ```sh
 uv tool install platformio   # once, if `pio` is missing
 python3 scripts/generate.py
-TSURYPHONE_OTA_PASSWORD_SHA256=<sha256 of the OTA password> pio run -e releaseHA
+export TSURYPHONE_OTA_PASSWORD_SHA256=<sha256 of the OTA password>
+export TSURYPHONE_SMS_WEBHOOK_ID=<SMS webhook ID> TSURYPHONE_SMS_ACK_KEY=<SMS ack key>
+pio run -e releaseHA
 ```
 
 `scripts/generate.py` takes `TSURYPHONE_INPUTS` from the environment or from
@@ -32,6 +34,9 @@ values; keep that output out of issues, commits and logs.
 secrets in from the environment and stops the build when one is missing:
 
 - `TSURYPHONE_OTA_PASSWORD_SHA256`: lowercase hex SHA-256 of the OTA password.
+- `TSURYPHONE_SMS_WEBHOOK_ID`: the SMS-only Home Assistant webhook ID.
+- `TSURYPHONE_SMS_ACK_KEY`: the key Home Assistant sends with each SMS
+  acknowledgement. `homeassistant/SMS_CONTRACT.md` describes the SMS contract.
 
 Live builds use the 1Password agent vault values. Development and bench builds
 use disposable synthetic values. Never publish build output. The script also

@@ -6,6 +6,7 @@
 #include "../../common/state.h"
 #include "../../common/timeManager.h"
 #include "../../config.h"
+#include "../../core/BuildSecrets.h"
 #include "../../core/DeviceConfig.h"
 #include "../../core/FirmwareUpdate.h"
 #include "../IntegrationService.h" // For INTEGRATION_EVENT_SCHEMA_VERSION
@@ -15,6 +16,17 @@
 #include <ESPmDNS.h>
 
 const char *HAWebServer::kWebSocketPath = "/ws";
+
+namespace {
+  HAPhoneServices gPhoneServices;
+
+  const constexpr char *kSmsAckKeyHeader = "X-TsuryPhone-Ack-Key";
+  const constexpr uint32_t kMaxWifiSuspendSeconds = 300;
+} // namespace
+
+void HAWebServer::setPhoneServices(const HAPhoneServices &services) {
+  gPhoneServices = services;
+}
 
 HAWebServer::HAWebServer(DeviceConfig &config, DeviceStats &stats, State &state)
     : _config(config),
@@ -222,6 +234,67 @@ void HAWebServer::setupRoutes() {
   addJsonPostRoute("/api/config/ha_url", [this](AsyncWebServerRequest *req, JsonVariant &json) {
     handleSetHAUrl(req, json);
   });
+
+  addJsonPostRoute("/api/sms/ack", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleSmsAck(req, json);
+  });
+
+  addJsonPostRoute("/api/wifi/suspend", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+    handleWifiSuspend(req, json);
+  });
+}
+
+// Home Assistant confirms that the Pixel received a forwarded SMS revision.
+void HAWebServer::handleSmsAck(AsyncWebServerRequest *request, JsonVariant &json) {
+  const AsyncWebHeader *key = request->getHeader(kSmsAckKeyHeader);
+  if (key == nullptr || !BuildSecrets::smsAckKeyMatches(key->value().c_str())) {
+    sendErrorResponse(request, "Invalid acknowledgement key", 401, "WEB_SMS_ACK_KEY");
+    return;
+  }
+  if (!json["message_id"].is<const char *>() || !json["revision"].is<const char *>()) {
+    sendErrorResponse(request, "Missing 'message_id' or 'revision'", 400, "WEB_SMS_ACK_INVALID");
+    return;
+  }
+  if (!gPhoneServices.acknowledgeSms) {
+    sendErrorResponse(request, "SMS forwarding unavailable", 503, "WEB_SMS_UNAVAILABLE");
+    return;
+  }
+
+  const int status = gPhoneServices.acknowledgeSms(json["message_id"].as<const char *>(),
+                                                   json["revision"].as<const char *>());
+  JsonDocument doc;
+  doc["success"] = status == 200;
+  doc["status"] = status == 200 ? "acknowledged" : (status == 409 ? "stale_revision" : "unknown");
+  sendJsonResponse(request, doc, status);
+}
+
+// Disconnects Wi-Fi for a bounded time; the phone reconnects by itself on a timer.
+void HAWebServer::handleWifiSuspend(AsyncWebServerRequest *request, JsonVariant &json) {
+  const FirmwareUpdate &update = FirmwareUpdate::instance();
+  const AsyncWebHeader *auth = request->getHeader("Authorization");
+  if (!update.isAuthorized(auth != nullptr ? auth->value() : String())) {
+    sendErrorResponse(request, "Invalid password", 401, "WEB_WIFI_SUSPEND_AUTH");
+    return;
+  }
+  const uint32_t seconds = json["seconds"].as<uint32_t>();
+  if (!json["seconds"].is<uint32_t>() || seconds == 0 || seconds > kMaxWifiSuspendSeconds) {
+    sendErrorResponse(request, "'seconds' must be 1-300", 400, "WEB_WIFI_SUSPEND_SECONDS");
+    return;
+  }
+  if (update.isBusy()) {
+    sendErrorResponse(request, "Refused during a call", 409, "WEB_WIFI_SUSPEND_CALL");
+    return;
+  }
+  if (!gPhoneServices.suspendWifi || !gPhoneServices.suspendWifi(seconds)) {
+    sendErrorResponse(request, "Wi-Fi suspension already pending", 409, "WEB_WIFI_SUSPEND_BUSY");
+    return;
+  }
+
+  Logger::warnln(F("HA API: Wi-Fi suspended for %lu s"), static_cast<unsigned long>(seconds));
+  JsonDocument doc;
+  doc["success"] = true;
+  doc["seconds"] = seconds;
+  sendJsonResponse(request, doc, 202);
 }
 
 void HAWebServer::addJsonPostRoute(

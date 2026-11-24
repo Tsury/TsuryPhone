@@ -37,6 +37,48 @@ namespace {
 
   // A safety margin between audio plays to prevent conflicts.
   const constexpr uint16_t kIntervalBetweenAudioPlaysMillis = 40;
+
+  // A PDU line holds up to 176 octets (352 hex digits); a CMGL listing arrives in one burst.
+  const constexpr size_t kModemLineBufferSize = 512;
+  const constexpr size_t kModemRxBufferSize = 4096;
+
+  // SMS commands start only after the UART has been quiet this long, so a pending reply to
+  // another command is not taken for theirs.
+  const constexpr uint32_t kSmsQuietMs = 300UL;
+  const constexpr uint32_t kSmsListTimeoutMs = 10000UL;
+  const constexpr uint32_t kSmsOpTimeoutMs = 5000UL;
+  // PDU index marking a message line that is consumed but not forwarded.
+  const constexpr int kSmsPduSwallowed = -2;
+
+  bool isHexLine(const char *line) {
+    if (*line == '\0') {
+      return false;
+    }
+    for (; *line != '\0'; ++line) {
+      if (!isxdigit(static_cast<unsigned char>(*line))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Parses the quoted bank of `+CMTI: "SM",3`.
+  bool parseCmti(const char *line, char *bank, size_t bankSize, int &index) {
+    const char *open = strchr(line, '"');
+    const char *close = open != nullptr ? strchr(open + 1, '"') : nullptr;
+    if (close == nullptr || static_cast<size_t>(close - open - 1) >= bankSize) {
+      return false;
+    }
+    memcpy(bank, open + 1, close - open - 1);
+    bank[close - open - 1] = '\0';
+    return sscanf(close + 1, ",%d", &index) == 1;
+  }
+
+  // The <length> field is the last comma-separated value of a PDU-mode header.
+  int lastField(const char *line) {
+    const char *comma = strrchr(line, ',');
+    return comma != nullptr ? atoi(comma + 1) : -1;
+  }
 }
 
 bool Modem::probeOK(uint32_t timeoutMs) {
@@ -70,6 +112,7 @@ Modem::Modem(DeviceConfig &config)
 void Modem::init() {
   Logger::infoln(F("Initializing modem..."));
 
+  SerialAT.setRxBufferSize(kModemRxBufferSize);
   SerialAT.begin(kModemBaudRate, SERIAL_8N1, kModemRxPin, kModemTxPin);
 
   pinMode(BOARD_POWERON_PIN, OUTPUT);
@@ -106,8 +149,25 @@ void Modem::initModem() {
   }
 
   disableUnneededFeatures();
+  enableSmsIndications();
   enableHangUp();
   stopAllAudio();
+
+  // A reset loses the in-flight SMS command and the selected storage.
+  if (_smsOpActive) {
+    finishSmsOp(false);
+  }
+  _smsPduExpected = false;
+  _smsBank[0] = '\0';
+  ++_initCount;
+}
+
+void Modem::enableSmsIndications() {
+  // PDU mode, so any alphabet and concatenation header can be decoded.
+  sendCommand(F("+CMGF=0"));
+
+  // New messages are stored and reported as +CMTI: <bank>,<index>.
+  sendCommand(F("+CNMI=2,1,0,0,0"));
 }
 
 void Modem::hardResetModem() {
@@ -133,9 +193,6 @@ void Modem::disableUnneededFeatures() {
   // Disables enhanced SMS messaging services and advanced features,
   // reverting the modem to basic SMS mode.
   sendCommand(F("+CSMS=0"));
-
-  // Disables unsolicited new message indications.
-  sendCommand(F("+CNMI=0,0,0,0,0"));
 
   // Disables network registration unsolicited result codes (GSM).
   sendCommand(F("+CREG=0"));
@@ -342,11 +399,25 @@ void Modem::deriveStateFromMessage(State &state) {
     return;
   }
 
-  char msg[kBigBufferSize];
-  readLineFromStream(SerialAT, msg, kBigBufferSize);
+  char msg[kModemLineBufferSize];
+  bool truncated = false;
+  readLineFromStream(SerialAT, msg, sizeof(msg), &truncated);
+  _lastLineMs = millis();
+
+  if (truncated) {
+    // Never forward a fragment: it could be part of an SMS.
+    _smsPduExpected = false;
+    Logger::warnln(F("Modem: dropped an over-long line"));
+    return;
+  }
+
   strTrim(msg);
 
   if (msg[0] == '\0') {
+    return;
+  }
+
+  if (handleSmsLine(msg)) {
     return;
   }
 
@@ -591,11 +662,134 @@ void Modem::deriveStateFromMessage(State &state) {
   }
 }
 
+bool Modem::enqueueSmsOp(const SmsOp &op) {
+  return _smsOps.push(op);
+}
+
+// Routes SMS lines away from generic handling. Returns true when the line is consumed.
+// Call indications never match here, so they keep flowing during SMS transactions.
+bool Modem::handleSmsLine(const char *line) {
+  if (_smsPduExpected) {
+    _smsPduExpected = false;
+    if (isHexLine(line)) {
+      if (_smsListener != nullptr && _smsPduIndex != kSmsPduSwallowed) {
+        _smsListener->onSmsPdu(_smsPduBank, _smsPduIndex, _smsPduLength, line);
+      }
+      return true;
+    }
+  }
+
+  if (strStartsWith(line, "+CMTI:")) {
+    char bank[sizeof(_smsPduBank)];
+    int index = -1;
+    if (parseCmti(line, bank, sizeof(bank), index) && _smsListener != nullptr) {
+      _smsListener->onSmsStored(bank, index);
+    }
+    return true;
+  }
+
+  // +CMGR: <stat>,[<alpha>],<length>   +CMGL: <index>,<stat>,[<alpha>],<length>
+  // +CMT: [<alpha>],<length>. Only received messages (stat 0 unread, 1 read) are forwarded.
+  const bool isRead = strStartsWith(line, "+CMGR:");
+  const bool isList = strStartsWith(line, "+CMGL:");
+  const bool isDirect = strStartsWith(line, "+CMT:");
+  if (isRead || isList || isDirect) {
+    int index = -1;
+    int stat = 0;
+    if (isRead) {
+      sscanf(line, "+CMGR: %d", &stat);
+      index = (_smsOpActive && _smsOp.type == SmsOpType::Read) ? _smsOp.index : kSmsPduSwallowed;
+    } else if (isList) {
+      sscanf(line, "+CMGL: %d,%d", &index, &stat);
+    }
+    // The PDU line of a sent or unattributable message is swallowed, not forwarded.
+    const bool received = (stat == 0 || stat == 1) && index != kSmsPduSwallowed;
+    _smsPduExpected = true;
+    snprintf(_smsPduBank, sizeof(_smsPduBank), "%s", isDirect ? "" : _smsBank);
+    _smsPduIndex = received ? index : kSmsPduSwallowed;
+    _smsPduLength = lastField(line);
+    return true;
+  }
+
+  if (strStartsWith(line, "+CPMS:")) {
+    return true;
+  }
+
+  const bool isError = strEqual(line, "ERROR") || strStartsWith(line, "+CMS ERROR");
+  if (_smsOpActive && (isError || strEqual(line, "OK"))) {
+    if (_smsSelectingBank && !isError) {
+      snprintf(_smsBank, sizeof(_smsBank), "%s", _smsOp.bank);
+      _smsSelectingBank = false;
+      sendSmsOpCommand();
+    } else {
+      finishSmsOp(!isError);
+    }
+    // OK still feeds the keep-alive check.
+    return isError;
+  }
+
+  return strStartsWith(line, "+CMS ERROR");
+}
+
+void Modem::processSmsOps(const State &state) {
+  const uint32_t now = millis();
+
+  if (_smsOpActive) {
+    const uint32_t timeout = _smsOp.type == SmsOpType::List ? kSmsListTimeoutMs : kSmsOpTimeoutMs;
+    if (now - _smsOpSentMs > timeout) {
+      Logger::warnln(F("SMS command timed out"));
+      _smsBank[0] = '\0';
+      finishSmsOp(false);
+    }
+    return;
+  }
+
+  if (_smsOps.empty() || state.newAppState != AppState::Idle || _waitingForKeepAlive ||
+      _enqueuedCall[0] != '\0' || now - _lastCommandMs < kSmsQuietMs ||
+      now - _lastLineMs < kSmsQuietMs) {
+    return;
+  }
+
+  _smsOp = _smsOps.pop();
+  _smsOpActive = true;
+  _smsSelectingBank = !strEqual(_smsBank, _smsOp.bank);
+  if (_smsSelectingBank) {
+    sendCommand(F("+CPMS=\"%s\""), _smsOp.bank);
+    _smsOpSentMs = millis();
+  } else {
+    sendSmsOpCommand();
+  }
+}
+
+void Modem::sendSmsOpCommand() {
+  switch (_smsOp.type) {
+  case SmsOpType::List:
+    sendCommand(F("+CMGL=4"));
+    break;
+  case SmsOpType::Read:
+    sendCommand(F("+CMGR=%d"), _smsOp.index);
+    break;
+  case SmsOpType::Delete:
+    sendCommand(F("+CMGD=%d"), _smsOp.index);
+    break;
+  }
+  _smsOpSentMs = millis();
+}
+
+void Modem::finishSmsOp(bool ok) {
+  _smsOpActive = false;
+  _smsSelectingBank = false;
+  if (_smsListener != nullptr) {
+    _smsListener->onSmsOpDone(_smsOp, ok);
+  }
+}
+
 void Modem::process(State &state) {
   state.volumeMode = _volumeMode;
 
   playNextAudioItem();
   callPending();
+  processSmsOps(state);
 
   // TODO: Maybe only call this when state is after AppState::CheckLine.
   keepAliveWatchdog();
@@ -682,16 +876,19 @@ inline void Modem::sendCommand(const __FlashStringHelper *command, Args... args)
 void Modem::sendCommand(const StringSumHelper &command) {
   Logger::infoln(F("Sending command: AT%s"), command.c_str());
   _modemImpl.sendAT(command);
+  _lastCommandMs = millis();
 }
 
 void Modem::sendCommand(const __FlashStringHelper *command) {
   Logger::infoln(F("Sending command: AT%s"), command);
   _modemImpl.sendAT(command);
+  _lastCommandMs = millis();
 }
 
 void Modem::sendCommand(const char *command) {
   Logger::infoln(F("Sending command: AT%s"), command);
   _modemImpl.sendAT(command);
+  _lastCommandMs = millis();
 }
 
 void Modem::sendCheckHardwareCommand() {

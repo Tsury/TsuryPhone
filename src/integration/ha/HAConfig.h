@@ -49,6 +49,8 @@ public:
     return _homeAssistantUrl;
   }
   void setHomeAssistantUrl(const String &url);
+  // URL of the initialized HAConfig, for modules outside the integration (SMS forwarding).
+  static String activeHomeAssistantUrl();
 
   // Configuration change callbacks
   void setConfigChangeCallback(std::function<void()> callback) {
@@ -66,6 +68,7 @@ private:
   std::function<void()> _configChangeCallback;
 
   static const char *kConfigFilePath;
+  static HAConfig *_active;
 };
 
 #endif // HOME_ASSISTANT_INTEGRATION

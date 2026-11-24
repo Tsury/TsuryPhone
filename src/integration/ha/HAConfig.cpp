@@ -9,10 +9,17 @@
 
 const char *HAConfig::kConfigFilePath = "/ha_config.json";
 
+HAConfig *HAConfig::_active = nullptr;
+
 HAConfig::HAConfig(DeviceConfig &baseConfig) : _baseConfig(baseConfig) {}
+
+String HAConfig::activeHomeAssistantUrl() {
+  return _active != nullptr ? _active->getHomeAssistantUrl() : String();
+}
 
 bool HAConfig::init() {
   Logger::infoln(F("Initializing HA configuration"));
+  _active = this;
 
   if (!load()) {
     Logger::infoln(F("No existing HA config found, initializing with defaults"));

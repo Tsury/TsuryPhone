@@ -57,7 +57,7 @@
         "platformio.ini",
         "partitions.csv"
       ],
-      "verify": "python3 -B scripts/generate.py && TSURYPHONE_OTA_PASSWORD_SHA256=6d397920601179bfee73d0f5b09eae83563dcf88d710a757ebaf6fdceef5196d pio run -s -e releaseHA"
+      "verify": "python3 -B scripts/generate.py && TSURYPHONE_OTA_PASSWORD_SHA256=6d397920601179bfee73d0f5b09eae83563dcf88d710a757ebaf6fdceef5196d TSURYPHONE_SMS_WEBHOOK_ID=synthetic-sms-webhook-id TSURYPHONE_SMS_ACK_KEY=synthetic-sms-ack-key pio run -s -e releaseHA"
     }
   ]
 }

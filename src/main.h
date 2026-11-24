@@ -14,6 +14,10 @@
 
 #include "integration/IntegrationShim.h"
 
+#ifdef HOME_ASSISTANT_INTEGRATION
+#include "sms/smsForwarder.h"
+#endif
+
 class TsuryPhone {
 public:
   TsuryPhone();
@@ -92,6 +96,11 @@ private:
   NumberHandler _numberHandler;
 
   std::unique_ptr<IntegrationManager> _integrationManager;
+
+#ifdef HOME_ASSISTANT_INTEGRATION
+  SmsForwarder _smsForwarder{_modem};
+  uint32_t _lastSms = 0UL;
+#endif
 
   uint32_t _stateTime = 0UL;
   bool _firstTimeSystemReady = false;

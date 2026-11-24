@@ -2,7 +2,8 @@
 
 Reads TSURYPHONE_HOST (and TSURYPHONE_INPUTS, through scripts/generate.py) from the
 environment or ~/.config/tsuryphone/private.env, and the OTA password from the 1Password
-agent vault (item TSURYPHONE_OTA_ITEM, default "TsuryPhone OTA password"). Secrets stay in
+agent vault (item TSURYPHONE_OTA_ITEM, default "TsuryPhone OTA password"). The SMS build
+secrets come from the environment or the vault items in SMS_SECRET_ITEMS. Secrets stay in
 memory and in the build's environment; nothing here prints secrets, the host or other
 private values.
 
@@ -28,6 +29,12 @@ FIRMWARE = ROOT / ".pio" / "build" / ENVIRONMENT / "firmware.bin"
 SLOT_LIMIT = 0x1E0000  # app0/app1 size in partitions.csv
 API_PORT = 8080
 DEFAULT_OTA_ITEM = "TsuryPhone OTA password"
+# Build secret -> (private value naming its vault item, default vault item). The secret is
+# the item's password field. An exported environment value takes precedence.
+SMS_SECRET_ITEMS = {
+    "TSURYPHONE_SMS_WEBHOOK_ID": ("TSURYPHONE_SMS_WEBHOOK_ITEM", "TsuryPhone SMS webhook ID"),
+    "TSURYPHONE_SMS_ACK_KEY": ("TSURYPHONE_SMS_ACK_ITEM", "TsuryPhone SMS ack key"),
+}
 POLL_SECONDS = 5
 
 
@@ -232,6 +239,12 @@ def main() -> None:
     }
     build_env = dict(os.environ)
     build_env["TSURYPHONE_OTA_PASSWORD_SHA256"] = hashlib.sha256(password.encode()).hexdigest()
+    for name, (item_name, default_item) in SMS_SECRET_ITEMS.items():
+        if build_env.get(name):
+            continue
+        if args.bench_password_env:
+            fail(f"{name} is not set; bench builds export a synthetic value", 2)
+        build_env[name] = vault_password(private_value(item_name) or default_item)
     build_env["TSURYPHONE_FW_VERSION"] = expected["version"]
 
     say("checking private build inputs")

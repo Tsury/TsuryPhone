@@ -1,0 +1,72 @@
+# TsuryPhone SMS forwarding: Home Assistant package (Tsury/TsuryPhone#7).
+# Contract and install notes: homeassistant/SMS_CONTRACT.md. Every private value comes
+# from secrets.yaml; this file holds none.
+
+rest_command:
+  tsuryphone_sms_ack:
+    # http://<phone address>:8080/api/sms/ack
+    url: !secret tsuryphone_sms_ack_url
+    method: post
+    content_type: application/json
+    headers:
+      X-TsuryPhone-Ack-Key: !secret tsuryphone_sms_ack_key
+    payload: >-
+      {"message_id": {{ message_id | to_json }}, "revision": {{ revision | to_json }}}
+    timeout: 10
+
+automation:
+  - id: tsuryphone_sms_to_pixel_8
+    alias: TsuryPhone SMS to Pixel 8
+    description: >-
+      Shows each SMS the rotary phone receives on the Pixel 8 only, then acknowledges it to
+      the phone after the Pixel reports the notification received. No acknowledgement on
+      timeout, so the phone keeps the message and sends it again.
+    mode: parallel
+    max: 50
+    trace:
+      stored_traces: 0
+    triggers:
+      - trigger: webhook
+        webhook_id: !secret tsuryphone_sms_webhook_id
+        allowed_methods:
+          - POST
+        local_only: true
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.json is mapping
+             and trigger.json.message_id is string
+             and trigger.json.revision is string
+             and trigger.json.text is string }}
+    actions:
+      - variables:
+          message_id: "{{ trigger.json.message_id }}"
+          revision: "{{ trigger.json.revision }}"
+          complete: "{{ trigger.json.parts.complete | default(true) }}"
+      - action: notify.mobile_app_pixel_8
+        data:
+          title: >-
+            SMS from {{ trigger.json.sender }}{{ '' if complete else ' (incomplete)' }}
+          message: "{{ trigger.json.text }}"
+          data:
+            tag: "{{ message_id }}"
+            confirmation: true
+            message_id: "{{ message_id }}"
+            revision: "{{ revision }}"
+            priority: high
+            ttl: 0
+            channel: TsuryPhone SMS
+      - wait_for_trigger:
+          - trigger: event
+            event_type: mobile_app_notification_received
+            event_data:
+              # The Companion app's own device ID (not the HA device registry ID).
+              device_id: !secret tsuryphone_sms_pixel_app_device_id
+              message_id: "{{ message_id }}"
+              revision: "{{ revision }}"
+        timeout: "00:02:00"
+        continue_on_timeout: false
+      - action: rest_command.tsuryphone_sms_ack
+        data:
+          message_id: "{{ message_id }}"
+          revision: "{{ revision }}"

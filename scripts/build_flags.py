@@ -15,10 +15,14 @@ import sys
 Import("env")  # noqa: F821  (provided by PlatformIO/SCons)
 
 # Each secret the firmware uses, with the pattern its value must match.
-# SMS forwarding (#7) adds TSURYPHONE_SMS_WEBHOOK_ID and TSURYPHONE_SMS_ACK_KEY here.
 SECRETS = {
     "TSURYPHONE_OTA_PASSWORD_SHA256": re.compile(r"[0-9a-f]{64}"),
+    # SMS forwarding: the SMS-only Home Assistant webhook and the acknowledgement key.
+    "TSURYPHONE_SMS_WEBHOOK_ID": re.compile(r"[A-Za-z0-9_-]{16,128}"),
+    "TSURYPHONE_SMS_ACK_KEY": re.compile(r"[A-Za-z0-9_-]{16,128}"),
 }
+# Hex digests compare in lowercase; other secrets are case-sensitive.
+LOWERCASE = {"TSURYPHONE_OTA_PASSWORD_SHA256"}
 
 ROOT = Path(env.subst("$PROJECT_DIR"))  # noqa: F821
 
@@ -49,7 +53,9 @@ if missing:
         + " (live builds: vault values; bench builds: synthetic values)"
     )
 for name, pattern in SECRETS.items():
-    value = os.environ[name].strip().lower()
+    value = os.environ[name].strip()
+    if name in LOWERCASE:
+        value = value.lower()
     if not pattern.fullmatch(value):
         fail(f"{name} has the wrong format")
     env.Append(CPPDEFINES=[(name, c_string(value))])  # noqa: F821
