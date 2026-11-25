@@ -1,0 +1,4 @@
+.pio output
+.ruff_cache output
+mp3/generated output
+src/generated output
